@@ -1,18 +1,33 @@
 # ReqParkedOrderInsert
 
-ReqParkedOrderInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqParkedOrderInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 预埋单录入请求
 
 注意：由于交易所不推送组合合约的开盘信号，而服务器预埋单依赖交易所合约开盘信号触发，所以服务器预埋单暂不支持下组合合约。
 
-响应: [OnRspParkedOrderInsert](../CTHOSTFTDCTRADERSPI/ONRSPPARKEDORDERINSERT.html)
+响应: [OnRspParkedOrderInsert](pages/239-JYJK-CTHOSTFTDCTRADERSPI-ONRSPPARKEDORDERINSERT.html.md)
+<a id="58522d04-a93a-429c-b126-92674702a5d0"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqParkedOrderInsert(CThostFtdcParkedOrderField *pParkedOrder, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="19b1b9f2-b1d3-4762-8b6e-8253c9647514"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pParkedOrder：预埋单
 
@@ -84,7 +99,10 @@ IPAddress：手工填写本机IP地址，不自动获取。填写规则如下：
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="776e06fd-8b34-4346-bd1d-bda8dbf71b3d"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -94,7 +112,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="4bcd0899-ca15-47e2-82c3-9bba745cd15c"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcParkedOrderField a = { 0 };
@@ -121,9 +142,22 @@ m_pUserApi->ReqParkedOrderInsert(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="01bcd500-e597-4588-86d5-1e7708b4b94a"></a><a id="title5"></a>
 
-“CTP:预埋单:不支持的触发类型。”，是什么原因？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="anchor-id-01"></a>
+
+<a id="region_header_1"></a>
+
+“CTP:预埋单:不支持的触发类型。”，是什么原因？<a id="region_panel_1"></a>
 
 | 后台版本自6.7.2开始不再支持报入预埋条件单、预埋预埋单。 |
 |---|
+
+<a id="region_tail_1"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

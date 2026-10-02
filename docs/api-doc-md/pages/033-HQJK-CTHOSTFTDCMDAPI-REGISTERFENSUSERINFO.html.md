@@ -1,16 +1,31 @@
 # RegisterFensUserInfo
 
-RegisterFensUserInfo
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-注册名字服务器用户信息，调用[RegisterNameServer](../../JYJK/CTHOSTFTDCTRADERAPI/REGISTERNAMESERVER.html)前需要先使用RegisterFensUserInfo设置登录模式。
+<a id="printArea"></a>
 
-详见[fens连接说明](../../QTYWGZ/FENS.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+RegisterFensUserInfo<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+注册名字服务器用户信息，调用[RegisterNameServer](pages/069-JYJK-CTHOSTFTDCTRADERAPI-REGISTERNAMESERVER.html.md)前需要先使用RegisterFensUserInfo设置登录模式。
+
+详见[fens连接说明](pages/393-QTYWGZ-FENS.html.md)
+<a id="cabc78f4-c6a1-4107-b14f-436edc8844e5"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void RegisterFensUserInfo(CThostFtdcFensUserInfoField * pFensUserInfo) = 0;
 
-◇ 2. 参数
+<a id="5dec4c01-1aa2-4785-ae16-c2278e772003"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pFensUserInfo：Fens用户信息
 
@@ -27,11 +42,17 @@ TThostFtdcLoginModeType LoginMode;
 
 ```
 
-◇ 3. 返回
+<a id="b0254711-e08d-4654-ac0d-38d07bd18ab2"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 无
 
-◇ 4. 调用示例
+<a id="042df6f4-786b-4195-84c3-5cfbd5700462"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcMdApi  *pUserMdApi = CThostFtdcMdApi::CreateFtdcMdApi();
@@ -47,6 +68,13 @@ pUserMdApi->Init();
 
 ```
 
-◇ 5. FAQ
+<a id="1916c317-62b7-4544-a035-990a06a59074"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

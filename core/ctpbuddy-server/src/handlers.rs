@@ -6,15 +6,28 @@
 //!   request as `OnRsp*(NULL, rsp, is_last=true)`;
 //! - order-insert failures = `ERR_RTN_ORDER_INSERT` (OnErrRtnOrderInsert);
 //! - query streams terminate with `QRY_LAST` (CTP `bIsLast`).
+//!
+//! Rejection push surfaces (#42, DESIGN §8.12 / notes/09): real CTP splits an
+//! order rejection between two callbacks by layer — the 报盘机 half answers the
+//! pending request itself (`OnRspOrderInsert`/`OnRspOrderAction`, pInputOrder
+//! NULL, via RSP_ERROR), the exchange half arrives *after* a successful front
+//! response as `OnErrRtnOrderInsert`/`OnErrRtnOrderAction` with the client's
+//! own input struct. Cancel rejections push both halves (官方报单回调规则
+//! 场景 6/7: 先响应后回报). The `ERR_RTN_*` payload therefore carries the
+//! client's input struct ++ RspInfoField, because the success response has
+//! already consumed the shim's pending entry by then.
 
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::time::{Duration, Instant};
 
-use ctpbuddy_ledger::{PositionSide, ERR_FUNDS, ERR_NO_CLOSE_TODAY_LEDGER};
+use ctpbuddy_ledger::{
+    PositionSide, ERR_FUNDS, ERR_NO_CLOSE_TODAY_LEDGER, ERR_NO_CLOSE_YD_LEDGER,
+};
 use ctpbuddy_matching::{
     CancelQuery, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome, ERR_BAD_FIELD,
-    ERR_EXCHANGE_ID_INVALID, ERR_ORDER_FREQ,
+    ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
+    ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ,
 };
 use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
@@ -79,14 +92,55 @@ impl World {
         ))
     }
 
-    fn send_err_rtn(&mut self, conn_id: u64, req_id: u32, error_id: i32, msg: &str) {
+    /// 错单回报半面 (OnErrRtnOrderInsert): the exchange-side rejection that
+    /// lands *after* the order was accepted at the front office. Payload =
+    /// the client's own `CThostFtdcInputOrderField` ++ `CThostFtdcRspInfoField`
+    /// — the success response has already consumed the shim's pending entry,
+    /// so the input rides along (real CTP passes the client's input back too).
+    fn send_err_rtn(&mut self, conn_id: u64, req_id: u32, error_id: i32, msg: &str, input: &[u8]) {
+        self.send_err_rtn_generic(
+            conn_id,
+            req_id,
+            msgs::ERR_RTN_ORDER_INSERT,
+            error_id,
+            msg,
+            input,
+        );
+    }
+
+    /// 错单回报半面 (OnErrRtnOrderAction): cancel rejection, always paired
+    /// with the `RSP_ERROR` response half (官方报单回调规则 场景 6/7:
+    /// 先响应后回报). Payload = `CThostFtdcInputOrderActionField` ++
+    /// `CThostFtdcRspInfoField`; the shim synthesizes the
+    /// `CThostFtdcOrderActionField` it passes to the callback.
+    fn send_err_rtn_action(&mut self, conn_id: u64, req_id: u32, error_id: i32, msg: &str, input: &[u8]) {
+        self.send_err_rtn_generic(
+            conn_id,
+            req_id,
+            msgs::ERR_RTN_ORDER_ACTION,
+            error_id,
+            msg,
+            input,
+        );
+    }
+
+    fn send_err_rtn_generic(
+        &mut self,
+        conn_id: u64,
+        req_id: u32,
+        msg_type: u16,
+        error_id: i32,
+        msg: &str,
+        input: &[u8],
+    ) {
         let mut f = ctpbuddy_wire::generated::CThostFtdcRspInfoField::zeroed();
         f.ErrorID = error_id;
         set_cstr(&mut f.ErrorMsg, msg);
-        self.send_frame(
-            conn_id,
-            Frame::new(msgs::ERR_RTN_ORDER_INSERT, req_id, struct_to_bytes(&f)),
-        );
+        // wire order: the client's input struct first, RspInfo last -- both
+        // the shim rows and the py SDK decode it that way.
+        let mut payload = input.to_vec();
+        payload.extend_from_slice(&struct_to_bytes(&f));
+        self.send_frame(conn_id, Frame::new(msg_type, req_id, payload));
     }
 
     // ---- AUTH / LOGIN / LOGOUT / SETTLE ----
@@ -274,17 +328,44 @@ impl World {
 
     // ---- ORDER INSERT ----
 
+    /// Rejection surface split for an engine (exchange-side) insert rejection
+    /// (notes/01 §B, 知识库 §5.1; #42 / DESIGN §8.12). Real CTP answers
+    /// parameter-validation and session-static refusals at the 报盘机 itself:
+    /// the pending ReqOrderInsert completes as `OnRspOrderInsert(NULL, pRspInfo)`
+    /// and no status return follows. Exchange-regulation refusals (涨跌停板价 /
+    /// 交易所数量规范 / 非最小变动价位) arrive *after* a successful front
+    /// response — `OnRspOrderInsert(input, {0})` then
+    /// `OnErrRtnOrderInsert(input, pRspInfo)`; a client that hooks only
+    /// OnRspOrderInsert misses those (notes/01 §5 归纳). `input` is the client's
+    /// raw request payload, echoed back on the rtn half.
+    fn reject_insert(&mut self, conn_id: u64, req_id: u32, code: i32, msg: &str, input: &[u8]) {
+        if matches!(
+            code,
+            ERR_BAD_FIELD
+                | ERR_INSTRUMENT_NOT_FOUND
+                | ERR_INSTRUMENT_NOT_TRADING
+                | ERR_DUPLICATE_ORDER
+        ) {
+            self.send_error(conn_id, req_id, code, msg);
+        } else {
+            // front office accepted first (OnRspOrderInsert {0}); the
+            // exchange then refuses as the 错单回报 half.
+            self.send_frame(conn_id, Frame::new(msgs::RSP_ORDER_INSERT, req_id, Vec::new()));
+            self.send_err_rtn(conn_id, req_id, code, msg, input);
+        }
+    }
+
     fn on_order_insert(&mut self, conn_id: u64, frame: &Frame) {
         let (broker, investor, user_id, front_id, session_id) = match self.session(conn_id) {
             Some(v) => v,
-            None => return self.send_err_rtn(conn_id, frame.req_id, -3, "用户未登录"),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let input: CThostFtdcInputOrderField = match struct_from_bytes(&frame.payload) {
             Some(f) => f,
-            None => return self.send_err_rtn(conn_id, frame.req_id, -2, "报单字段长度错误"),
+            None => return self.send_error(conn_id, frame.req_id, -2, "报单字段长度错误"),
         };
         if cstr(&input.BrokerID) != broker || cstr(&input.InvestorID) != investor {
-            return self.send_err_rtn(
+            return self.send_error(
                 conn_id,
                 frame.req_id,
                 3,
@@ -293,16 +374,16 @@ impl World {
         }
         let direction = match Direction::from_ctp(input.Direction) {
             Some(d) => d,
-            None => return self.send_err_rtn(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
+            None => return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
         };
         let offset = match OffsetFlag::from_ctp(input.CombOffsetFlag[0]) {
             Some(o) => o,
-            None => return self.send_err_rtn(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
+            None => return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
         };
         let instrument = cstr(&input.InstrumentID);
         let mut exchange = cstr(&input.ExchangeID);
         if instrument.is_empty() {
-            return self.send_err_rtn(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误");
+            return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误");
         }
         if let Some(info) = self.engine.catalog().get(&instrument) {
             if exchange.is_empty() {
@@ -310,14 +391,14 @@ impl World {
                 // (DCE self-completion, 平今归一化, ...) key off ExchangeID,
                 // so a client that leaves it empty must not disable them
                 exchange = info.exchange_id.clone();
-            } else if info.exchange_id != exchange {
-                return self.send_err_rtn(
-                    conn_id,
-                    frame.req_id,
-                    ERR_EXCHANGE_ID_INVALID,
-                    "CTP:无效的ExchangeID字段，请填入正确的ExchangeID",
-                );
-            }
+        } else if info.exchange_id != exchange {
+            return self.send_error(
+                conn_id,
+                frame.req_id,
+                ERR_EXCHANGE_ID_INVALID,
+                "CTP:无效的ExchangeID字段，请填入正确的ExchangeID",
+            );
+        }
         }
         let (tc, vc) = match normalize_conditions(
             input.OrderPriceType,
@@ -325,9 +406,9 @@ impl World {
             input.VolumeCondition,
             input.ContingentCondition,
         ) {
-            Ok(v) => v,
-            Err((code, msg)) => return self.send_err_rtn(conn_id, frame.req_id, code, &msg),
-        };
+        Ok(v) => v,
+        Err((code, msg)) => return self.send_error(conn_id, frame.req_id, code, &msg),
+    };
 
         let (order_ref, order_local) = {
             let c = self.conns.get_mut(&conn_id).unwrap();
@@ -389,13 +470,13 @@ impl World {
         // an over-budget order never reaches the engine or the ledger.
         if !self.order_gate(&broker, &investor) {
             self.journal_rejected_order(&broker, &investor, &intent, ERR_ORDER_FREQ, "CTP:下单频率限制");
-            return self.send_err_rtn(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
+            return self.send_error(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
         }
 
         // 1) static validation (contract / price / volume)
         if let Err((code, msg)) = self.engine.check(&intent) {
             self.journal_rejected_order(&broker, &investor, &intent, code, &msg);
-            return self.send_err_rtn(conn_id, frame.req_id, code, &msg);
+            return self.reject_insert(conn_id, frame.req_id, code, &msg, &frame.payload);
         }
         // 2) funds / position reservation at the estimate price
         let price_est = if input.OrderPriceType == b'2' {
@@ -417,7 +498,7 @@ impl World {
             ) {
                 let msg = close_reject_msg(code);
                 self.journal_rejected_order(&broker, &investor, &intent, code, &msg);
-                return self.send_err_rtn(conn_id, frame.req_id, code, &msg);
+                return self.send_error(conn_id, frame.req_id, code, &msg);
             }
         }
         let (est_margin, est_comm) = if offset == OffsetFlag::Open {
@@ -446,7 +527,7 @@ impl World {
             self.ledger.unfreeze_order(&order_key);
             let msg = if code == ERR_FUNDS { "CTP:资金不足" } else { "报单被拒绝" };
             self.journal_rejected_order(&broker, &investor, &intent, code, msg);
-            return self.send_err_rtn(conn_id, frame.req_id, code, msg);
+            return self.send_error(conn_id, frame.req_id, code, msg);
         }
 
         // 3) engine accept + immediate fill / rest / cancel
@@ -460,7 +541,7 @@ impl World {
             SubmitOutcome::Rejected { error_id, msg } => {
                 self.ledger.unfreeze_order(&order_key);
                 self.journal_rejected_order(&broker, &investor, &intent, error_id, &msg);
-                self.send_err_rtn(conn_id, frame.req_id, error_id, &msg);
+                self.reject_insert(conn_id, frame.req_id, error_id, &msg, &frame.payload);
             }
             SubmitOutcome::Accepted { events } => {
                 // OnRspOrderInsert (success) fires before the Rtn callbacks
@@ -590,7 +671,17 @@ impl World {
         // 症状正是文档口径的 OnRspOrderAction「CTP:下单频率限制」。
         if !self.order_gate(&broker, &investor) {
             self.journal_cancel_rejected(&broker, &investor, &q, ERR_ORDER_FREQ, "CTP:下单频率限制");
-            return self.send_error(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
+            // 撤单拒绝双面（官方报单回调规则 场景 6/7：先响应后回报）：
+            // OnRspOrderAction（RSP_ERROR 完成挂起请求）紧接
+            // OnErrRtnOrderAction（错单回报，带回客户端 InputOrderActionField）。
+            self.send_error(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
+            return self.send_err_rtn_action(
+                conn_id,
+                frame.req_id,
+                ERR_ORDER_FREQ,
+                "CTP:下单频率限制",
+                &frame.payload,
+            );
         }
 
         let (day, now) = self.clock_owned();
@@ -633,7 +724,11 @@ impl World {
             }
             Err((code, msg)) => {
                 self.journal_cancel_rejected(&broker, &investor, &q, code, &msg);
-                self.send_error(conn_id, frame.req_id, code, &msg)
+                // 撤单拒绝双面（官方报单回调规则 场景 6/7：先响应后回报）：
+                // OnRspOrderAction（RSP_ERROR 完成挂起请求）紧接
+                // OnErrRtnOrderAction（错单回报，带回客户端 InputOrderActionField）。
+                self.send_error(conn_id, frame.req_id, code, &msg);
+                self.send_err_rtn_action(conn_id, frame.req_id, code, &msg, &frame.payload);
             }
         }
     }
@@ -999,6 +1094,7 @@ fn normalize_conditions(
 fn close_reject_msg(code: i32) -> &'static str {
     match code {
         ERR_NO_CLOSE_TODAY_LEDGER => "CTP:平今仓位不足",
+        ERR_NO_CLOSE_YD_LEDGER => "CTP:平昨仓位不足",
         _ => "CTP:平仓量超过持仓量",
     }
 }

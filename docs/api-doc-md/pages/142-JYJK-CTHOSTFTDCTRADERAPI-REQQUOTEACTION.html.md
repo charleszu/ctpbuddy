@@ -1,22 +1,37 @@
 # ReqQuoteAction
 
-ReqQuoteAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQuoteAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 报价操作请求，用于撤销报价
 
-错误响应:[OnRspQuoteAction](../CTHOSTFTDCTRADERSPI/ONRSPQUOTEACTION.html)   [OnErrRtnQuoteAction](../CTHOSTFTDCTRADERSPI/ONERRRTNQUOTEACTION.html)
+错误响应:[OnRspQuoteAction](pages/292-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQUOTEACTION.html.md)   [OnErrRtnQuoteAction](pages/216-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNQUOTEACTION.html.md)
 
-正确响应:[OnRtnQuote](../CTHOSTFTDCTRADERSPI/ONRTNQUOTE.html)  [OnRtnOrder](../CTHOSTFTDCTRADERSPI/ONRTNORDER.html)
+正确响应:[OnRtnQuote](pages/319-JYJK-CTHOSTFTDCTRADERSPI-ONRTNQUOTE.html.md)  [OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)
 
-详见[做市商询价和报价](../../QTYWGZ/BJHXJ.html)
+详见[做市商询价和报价](pages/388-QTYWGZ-BJHXJ.html.md)
 
-关于接口中的重要序号说明详见[接口中一些重要序号说明](../../QTYWGZ/JKZYXZYXHSM.html)
+关于接口中的重要序号说明详见[接口中一些重要序号说明](pages/401-QTYWGZ-JKZYXZYXHSM.html.md)
+<a id="c179f2f7-48fc-4971-ac2d-c325a1239a72"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQuoteAction(CThostFtdcInputQuoteActionField *pInputQuoteAction, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="016a5c06-20ed-40aa-a9eb-dfe447fb8e52"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputQuoteAction：输入报价操作
 
@@ -63,7 +78,10 @@ SessionReqSeq：一个session中，一笔业务流程周期中唯一序号，此
 
 OrderMemo：该字段CTP不做任何处理，即终端填写什么CTP就返回什么。可以用来给多账户系统做标记用。
 
-◇ 3. 返回
+<a id="b8885e0c-713a-4f15-91ca-a510771e43b9"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -73,7 +91,10 @@ OrderMemo：该字段CTP不做任何处理，即终端填写什么CTP就返回�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="cf6c28c3-bff0-4e2d-b7dc-26f4044ff929"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcInputQuoteActionField t = { 0 };
@@ -90,6 +111,13 @@ m_pUserApi->ReqQuoteAction(&t, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="eebf8c95-1326-423d-a8bc-00c5c25d0d51"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,14 +1,29 @@
 # OnRspQryOrder
 
-OnRspQryOrder
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询报单响应，当执行[ReqQryOrder](../CTHOSTFTDCTRADERAPI/REQQRYORDER.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryOrder<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询报单响应，当执行[ReqQryOrder](pages/120-JYJK-CTHOSTFTDCTRADERAPI-REQQRYORDER.html.md)后，该方法被调用。
+<a id="a2519f46-1ae9-40b8-9afe-0a11f3246633"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryOrder(CThostFtdcOrderField *pOrder, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="0f3ad5ce-f444-4f7e-988b-35c849bbbe28"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pOrder：报单
 
@@ -155,6 +170,8 @@ struct CThostFtdcOrderField
 
 ```
 
+<a id="anchor-id-01"></a>
+
 OrderSource：报单来源：该字段由交易所返回的报文中取值，其他交易所有对应的取值，上期所较特殊，除交易所打回的报单以及秒成交的委托，其他的委托该字段为空
 
 ActiveTraderID：最后修改交易所交易员代码：该字段由交易所返回的报文中取值，大商所该字段为空，上期所被交易所打回的报单以及秒成交的委托该字段也为空，其他交易所一般该字段为席位号
@@ -188,14 +205,30 @@ bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
 CancelTime：对于交易所未返回撤单时间的委托，将排队机收到交易所撤单成功回报的时间作为撤单时间。目前中金所、大商所六期系统会返回撤单时间，上期所、能源中心、郑商所、大商所七期不返回撤单时间。
 
-◇ 3. 返回
+<a id="2f65a8d8-d95c-4cf5-9cc5-bed0055a50a2"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="a7ad3f13-bdfd-4a1a-acb9-c902d71ab37d"></a><a id="title4"></a>
 
-不同交易所，为什么InsertDate有的是自然日有的是交易日？
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
+
+<a id="anchor-id-10"></a>
+
+<a id="region_header_1"></a>
+
+不同交易所，为什么InsertDate有的是自然日有的是交易日？<a id="region_panel_1"></a>
 
 | Insertdate字段，未知单、错单、上期所回报、能源回报、郑商所回报中该字段为自然日；大商所回报中为交易日。
 建议确认一笔报单的时间用Tradingday+InsertTime这一组字段。 |
 |---|
+
+<a id="region_tail_1"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

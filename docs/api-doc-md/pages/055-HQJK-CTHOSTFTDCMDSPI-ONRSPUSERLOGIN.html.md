@@ -1,16 +1,31 @@
 # OnRspUserLogin
 
-OnRspUserLogin
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-登录请求响应，当[ReqUserLogin](../CTHOSTFTDCMDAPI/REQUSERLOGIN.html)后，该方法被调用。
+<a id="printArea"></a>
 
-关于[行情流控](../../QTYWGZ/HQLK.html)详见[行情流控](../../QTYWGZ/HQLK.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnRspUserLogin<a id="content"></a>
 
-virtual void [OnRspUserLogin](../../JYJK/CTHOSTFTDCTRADERSPI/ONRSPUSERLOGIN.html)(CThostFtdcRspUserLoginField *pRspUserLogin, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
+<a id="left_menu"></a>
 
-◇ 2. 参数
+  ** **
+
+登录请求响应，当[ReqUserLogin](pages/039-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGIN.html.md)后，该方法被调用。
+
+关于[行情流控](pages/403-QTYWGZ-HQLK.html.md)详见[行情流控](pages/403-QTYWGZ-HQLK.html.md)
+<a id="2ee726d1-7fd8-40c9-a5c2-4830d333278b"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
+
+virtual void [OnRspUserLogin](pages/299-JYJK-CTHOSTFTDCTRADERSPI-ONRSPUSERLOGIN.html.md)(CThostFtdcRspUserLoginField *pRspUserLogin, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
+
+<a id="707a28e0-8fe4-4944-9168-ae1cef7323f6"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pRspUserLogin：用户登录应答
 
@@ -72,10 +87,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="3ca04b0b-a0f9-4cf3-a042-653696b9e6fe"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 无
 
-◇ 4. FAQ
+<a id="d982b1b7-c9b7-498d-9c74-12606756d078"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

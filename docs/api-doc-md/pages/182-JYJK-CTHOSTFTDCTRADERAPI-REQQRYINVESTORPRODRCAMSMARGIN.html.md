@@ -1,14 +1,29 @@
 # ReqQryInvestorProdRCAMSMargin
 
-ReqQryInvestorProdRCAMSMargin
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求投资者品种RCAMS保证金查询，对应响应请求[OnRspQryInvestorProdRCAMSMargin](../CTHOSTFTDCTRADERSPI/ONRSPQRYINVESTORPRODRCAMSMARGIN.html)
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+ReqQryInvestorProdRCAMSMargin<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求投资者品种RCAMS保证金查询，对应响应请求[OnRspQryInvestorProdRCAMSMargin](pages/353-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINVESTORPRODRCAMSMARGIN.html.md)
+<a id="a0804fda-abcd-4073-8397-cd0eb0526a2a"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQryInvestorProdRCAMSMargin(CThostFtdcQryInvestorProdRCAMSMarginField *pQryInvestorProdRCAMSMargin, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="0f3f9f11-fad3-4f5e-bf4e-449d18cb5ed7"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQryInvestorProdRCAMSMargin：投资者品种RCAMS保证金查询
 
@@ -21,7 +36,10 @@ pQryInvestorProdRCAMSMargin：投资者品种RCAMS保证金查询
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="53155ca0-df43-4dc5-b3cd-8fc643a72890"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -31,10 +49,20 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="a81ee987-9e8e-4262-afe8-6133f61f8318"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="b364fec2-5812-4961-a79e-b0d9e806bd32"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

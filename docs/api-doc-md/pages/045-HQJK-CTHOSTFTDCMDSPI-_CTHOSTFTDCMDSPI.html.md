@@ -1,6 +1,16 @@
 # CThostFtdcMdSpi
 
-CThostFtdcMdSpi
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+CThostFtdcMdSpi<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 |  | ■ 6.7.13_API接口说明
 └△ 行情接口
@@ -8,8 +18,10 @@ CThostFtdcMdSpi
 |---|---|---|
 
 CthostFtdcMdSpi类提供了行情相关的回调接口，用户需要继承该类并重载这些接口，以获取响应数据。
+<a id="7ef1aa1f-b6ee-4e9d-8568-9bab21c8f852"></a><a id="title1"></a>
 
-◇ 1. 接口
+<a id="header_span1"></a>◇ 1. 接口
+<a id="panel1"></a>
 
 ```
 class CThostFtdcMdSpi
@@ -52,7 +64,10 @@ public:
 
 ```
 
-◇ 2. 示例代码
+<a id="a95c33ef-3ae8-4de5-a971-6a12181d430f"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 示例代码
+<a id="panel2"></a>
 
 ```
 // CMduserHandler继承CThostFtdcMdSpi
@@ -70,28 +85,32 @@ public:
 
 请参阅：
 
-    [OnFrontConnected](ONFRONTCONNECTED.html)
+    [OnFrontConnected](pages/046-HQJK-CTHOSTFTDCMDSPI-ONFRONTCONNECTED.html.md)
 
-    [OnFrontDisconnected](ONFRONTDISCONNECTED.html)
+    [OnFrontDisconnected](pages/047-HQJK-CTHOSTFTDCMDSPI-ONFRONTDISCONNECTED.html.md)
 
-    [OnHeartBeatWarning](ONHEARTBEATWARNING.html)
+    [OnHeartBeatWarning](pages/048-HQJK-CTHOSTFTDCMDSPI-ONHEARTBEATWARNING.html.md)
 
-    [OnRspError](ONRSPERROR.html)
+    [OnRspError](pages/049-HQJK-CTHOSTFTDCMDSPI-ONRSPERROR.html.md)
 
-    [OnRspQryMulticastInstrument](ONRSPQRYMULTICASTINSTRUMENT.html)
+    [OnRspQryMulticastInstrument](pages/050-HQJK-CTHOSTFTDCMDSPI-ONRSPQRYMULTICASTINSTRUMENT.html.md)
 
-    [OnRspSubForQuoteRsp](ONRSPSUBFORQUOTERSP.html)
+    [OnRspSubForQuoteRsp](pages/051-HQJK-CTHOSTFTDCMDSPI-ONRSPSUBFORQUOTERSP.html.md)
 
-    [OnRspSubMarketData](ONRSPSUBMARKETDATA.html)
+    [OnRspSubMarketData](pages/052-HQJK-CTHOSTFTDCMDSPI-ONRSPSUBMARKETDATA.html.md)
 
-    [OnRspUnSubForQuoteRsp](ONRSPUNSUBFORQUOTERSP.html)
+    [OnRspUnSubForQuoteRsp](pages/053-HQJK-CTHOSTFTDCMDSPI-ONRSPUNSUBFORQUOTERSP.html.md)
 
-    [OnRspUnSubMarketData](ONRSPUNSUBMARKETDATA.html)
+    [OnRspUnSubMarketData](pages/054-HQJK-CTHOSTFTDCMDSPI-ONRSPUNSUBMARKETDATA.html.md)
 
-    [OnRspUserLogin](ONRSPUSERLOGIN.html)
+    [OnRspUserLogin](pages/055-HQJK-CTHOSTFTDCMDSPI-ONRSPUSERLOGIN.html.md)
 
-    [OnRspUserLogout](ONRSPUSERLOGOUT.html)
+    [OnRspUserLogout](pages/056-HQJK-CTHOSTFTDCMDSPI-ONRSPUSERLOGOUT.html.md)
 
-    [OnRtnDepthMarketData](ONRTNDEPTHMARKETDATA.html)
+    [OnRtnDepthMarketData](pages/057-HQJK-CTHOSTFTDCMDSPI-ONRTNDEPTHMARKETDATA.html.md)
 
-    [OnRtnForQuoteRsp](ONRTNFORQUOTERSP.html)
+    [OnRtnForQuoteRsp](pages/058-HQJK-CTHOSTFTDCMDSPI-ONRTNFORQUOTERSP.html.md)
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,16 +1,31 @@
 # 各交易所特殊指令
 
-各交易所特殊指令
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+各交易所特殊指令<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 由于各家交易所的报单指令略有不同，故在此列出各家交易所报单接口情况。
+<a id="991c14ae-9598-4df8-99c5-850d7e5e7598"></a><a id="title1"></a>
 
-◇ 1. 各交易所指令
+<a id="header_span1"></a>◇ 1. 各交易所指令
+<a id="panel1"></a>
 
-◇ 1.1. 上期所
+<a id="c0cb6f91-833e-44db-b138-f8535448b98b"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 1.1. 上期所
+<a id="panel2"></a>
 
 - 1.上期所立即单FOK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -38,7 +53,7 @@ ForceCloseReason [0]  强平原因：非强平
 
 - 2.上期所立即单FAK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -66,7 +81,7 @@ ForceCloseReason [0]
 
 - 3.上期所市价单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -101,7 +116,7 @@ ForceCloseReason [0]
 
 - 4.上期所市价单转限价
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -131,7 +146,7 @@ ForceCloseReason [0]
 
 - 5.上期所套利指令
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 InstrumentID [SP au2608&au2610]
 
@@ -164,12 +179,14 @@ LimitPrice [100] **价差**
 ForceCloseReason [0]
 
 [ 注:套利指令不支持市价单。只支持限价单，包括FAK、FOK]
+<a id="08ebf154-3be7-491f-8970-906b6e1637a9"></a><a id="title3"></a>
 
-◇ 1.2. 大商所
+<a id="header_span3"></a>◇ 1.2. 大商所
+<a id="panel3"></a>
 
 - 1.大商所立即单FOK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -197,7 +214,7 @@ ForceCloseReason [0]
 
 - 2.大商所立即单FAK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -227,7 +244,7 @@ ForceCloseReason [0]
 
 - 3.大商所市价单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -257,7 +274,7 @@ ForceCloseReason [0]
 
 - 4.大商所本节有效
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 注：报单及做市商报价均支持“本节有效”申报，该业务需要交易所上线后方可使用。
 
@@ -287,7 +304,7 @@ ForceCloseReason [0]
 
 - 5.大商所止盈单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -315,7 +332,7 @@ ForceCloseReason [0]
 
 - 6.大商所止损单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -343,7 +360,7 @@ ForceCloseReason [0]
 
 - 7.大商所市价止盈单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -373,7 +390,7 @@ ForceCloseReason [0]
 
 - 8.大商所市价止损单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -403,7 +420,7 @@ ForceCloseReason [0]
 
 - 9.大商所互换单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [1]    组合开平标注：平仓
 
@@ -431,7 +448,7 @@ ForceCloseReason [0]
 
 - 10.大商所套利单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 InstrumentID [SP a2109&a2201] **合约填套利合约**
 
@@ -461,7 +478,7 @@ ForceCloseReason [0]
 
 - 11.大商所申请组合
 
-调用接口：[ReqCombActionInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQCOMBACTIONINSERT.html)
+调用接口：[ReqCombActionInsert](pages/075-JYJK-CTHOSTFTDCTRADERAPI-REQCOMBACTIONINSERT.html.md)
 
 BrokerID [1008]
 
@@ -495,11 +512,14 @@ HedgeFlag [1] 投机套保标志：投机
 
 nRequestID [1]
 
-◇ 1.3. 中金所
+<a id="b18d6dbe-7782-4d81-a048-d4e85c14e40d"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 1.3. 中金所
+<a id="panel4"></a>
 
 - 1.中金所立即单FOK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -527,7 +547,7 @@ ForceCloseReason [0]
 
 - 2.中金所立即单FAK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -557,7 +577,7 @@ ForceCloseReason [0]
 
 - 3.中金所市价单-最优价
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -587,7 +607,7 @@ ForceCloseReason [0]
 
 - 4.中金所市价单-最优价转限价
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -615,9 +635,11 @@ LimitPrice [0.00000000]   **价格：0**
 
 ForceCloseReason [0]
 
+<a id="anchor-id-04"></a>
+
 - 5.中金所市价单-五档价
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -647,7 +669,7 @@ ForceCloseReason [0]
 
 - 6.中金所市价单-五档价转限价
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -677,7 +699,7 @@ ForceCloseReason [0]
 
 - 7.中金所套利单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -703,11 +725,14 @@ ContingentCondition [1]   触发条件：立即触发
 
 ForceCloseReason [0]
 
-◇ 1.4. 郑商所
+<a id="e432adb5-55ca-44f3-b33d-ecf08dd3c63d"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 1.4. 郑商所
+<a id="panel5"></a>
 
 - 1.郑商所立即单FOK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -735,7 +760,7 @@ ForceCloseReason [0]
 
 - 2.郑商所立即单FAK
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -765,7 +790,7 @@ ForceCloseReason [0]
 
 - 3.郑商所市价单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -795,7 +820,7 @@ ForceCloseReason [0]
 
 - 4.郑商所套利单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 InstrumentID [SPD TA109&TA110]    **合约填套利合约**
 
@@ -825,7 +850,7 @@ ForceCloseReason [0]
 
 - 5.郑商所互换单
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [1]    组合开平标注：平仓
 
@@ -853,7 +878,7 @@ ForceCloseReason [0]
 
 - 6.郑商所组合单
 
-调用接口：[ReqCombActionInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQCOMBACTIONINSERT.html)
+调用接口：[ReqCombActionInsert](pages/075-JYJK-CTHOSTFTDCTRADERAPI-REQCOMBACTIONINSERT.html.md)
 
 InstrumentID [SPD TA109&TA206]    **填组合合约**
 
@@ -881,10 +906,19 @@ ContingentCondition [1]   触发条件：立即触发
 
 ForceCloseReason [0]
 
-◇ 1.5. 广期所
+<a id="f74c8dfc-b233-4cac-9a2f-3e436ed613b7"></a><a id="title6"></a>
+
+<a id="header_span6"></a>◇ 1.5. 广期所
+<a id="panel6"></a>
 
 报单指令同大商所，请参考大商所
+<a id="b779cad8-786f-4f6a-8fd2-dc8a53fa49c2"></a><a id="title7"></a>
 
-◇ 1.6. 能源中心
+<a id="header_span7"></a>◇ 1.6. 能源中心
+<a id="panel7"></a>
 
 报单指令同上期所，请参考上期所
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

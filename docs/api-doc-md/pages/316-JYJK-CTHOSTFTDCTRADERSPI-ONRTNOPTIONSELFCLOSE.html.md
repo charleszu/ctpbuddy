@@ -1,14 +1,29 @@
 # OnRtnOptionSelfClose
 
-OnRtnOptionSelfClose
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期权自对冲通知，当执行[ReqOptionSelfCloseInsert](../CTHOSTFTDCTRADERAPI/REQOPTIONSELFCLOSEINSERT.html)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRtnOptionSelfClose<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期权自对冲通知，当执行[ReqOptionSelfCloseInsert](pages/084-JYJK-CTHOSTFTDCTRADERAPI-REQOPTIONSELFCLOSEINSERT.html.md)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="4cb500b4-270d-4be8-9ebe-fa51c879d17f"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnOptionSelfClose(CThostFtdcOptionSelfCloseField *pOptionSelfClose) {};
 
-◇ 2. 参数
+<a id="b2af9ada-2dde-4d71-b9db-2e6fea27e40e"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pOptionSelfClose：期权自对冲
 
@@ -113,12 +128,24 @@ ExecResult：最后的结果，检查是否自对冲成功
 
 StatusMsg：错误信息
 
+<a id="anchor-id-01"></a>
+
 ActiveUserID：委托回报报文中此字段值均为空，无论是否是首次委托其请求报文中此字段值也置为空。撤单回报报文中此字段值有值，同撤单请求报文。
 
-◇ 3. 返回
+<a id="9b3648b2-683d-40b4-8fa6-3266a1cdd75e"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="3695cb31-1b61-4fbe-9e33-1cd5d0cbf9da"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

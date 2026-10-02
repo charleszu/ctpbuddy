@@ -55,12 +55,14 @@ static void row_OnRspOrderInsert(ApiCore& c, const Frame& f) {
 }
 
 static void row_OnErrRtnOrderInsert(ApiCore& c, const Frame& f) {
+    CThostFtdcInputOrderField in{};
     CThostFtdcRspInfoField rsp{};
-    payload_as(f, rsp);
-    Pending pd = c.take_pending(f.req_id);
-    if (pd.req_msg == 0) return;
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnErrRtnOrderInsert(&pd.input_order, &rsp);
+    const size_t n = sizeof(in);
+    if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);
+    if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnErrRtnOrderInsert(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));
 }
+
 
 static void row_OnRspOrderAction(ApiCore& c, const Frame& f) {
     Pending pd = c.take_pending(f.req_id);
@@ -69,14 +71,16 @@ static void row_OnRspOrderAction(ApiCore& c, const Frame& f) {
 }
 
 static void row_OnErrRtnOrderAction(ApiCore& c, const Frame& f) {
+    CThostFtdcInputOrderActionField in{};
     CThostFtdcRspInfoField rsp{};
-    payload_as(f, rsp);
-    Pending pd = c.take_pending(f.req_id);
-    if (pd.req_msg == 0) return;
+    const size_t n = sizeof(in);
+    if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);
+    if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));
     CThostFtdcOrderActionField act{};
-    synth_order_action(act, pd.input_action);
+    synth_order_action(act, in);
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnErrRtnOrderAction(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));
 }
+
 
 static void row_OnRspQryOrder(ApiCore& c, const Frame& f) {
     CThostFtdcOrderField fld{};
@@ -192,8 +196,12 @@ static void row_OnRspSettlementInfoConfirm_err(ApiCore& c, const CThostFtdcRspIn
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspSettlementInfoConfirm(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
-static void row_OnRspOrderInsert_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending& pd) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnErrRtnOrderInsert(const_cast<CThostFtdcInputOrderField*>(&pd.input_order), const_cast<CThostFtdcRspInfoField*>(&rsp));
+static void row_OnRspOrderInsert_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspOrderInsert(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+}
+
+static void row_OnRspOrderAction_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspOrderAction(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryOrder_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
@@ -224,7 +232,7 @@ const DispatchRow kTdDispatch[] = {
     {msgs::RSP_SETTLE_CONFIRM, &row_OnRspSettlementInfoConfirm, nullptr, &row_OnRspSettlementInfoConfirm_err, msgs::REQ_SETTLE_CONFIRM},
     {msgs::RSP_ORDER_INSERT, &row_OnRspOrderInsert, nullptr, &row_OnRspOrderInsert_err, msgs::REQ_ORDER_INSERT},
     {msgs::ERR_RTN_ORDER_INSERT, &row_OnErrRtnOrderInsert, nullptr, nullptr, 0},
-    {msgs::RSP_ORDER_ACTION, &row_OnRspOrderAction, nullptr, nullptr, msgs::REQ_ORDER_ACTION},
+    {msgs::RSP_ORDER_ACTION, &row_OnRspOrderAction, nullptr, &row_OnRspOrderAction_err, msgs::REQ_ORDER_ACTION},
     {msgs::ERR_RTN_ORDER_ACTION, &row_OnErrRtnOrderAction, nullptr, nullptr, 0},
     {msgs::RSP_QRY_ORDER, &row_OnRspQryOrder, &row_OnRspQryOrder_last, &row_OnRspQryOrder_err, msgs::REQ_QRY_ORDER},
     {msgs::RSP_QRY_TRADE, &row_OnRspQryTrade, &row_OnRspQryTrade_last, &row_OnRspQryTrade_err, msgs::REQ_QRY_TRADE},

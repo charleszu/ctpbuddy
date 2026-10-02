@@ -1,14 +1,29 @@
 # OnErrRtnOptionSelfCloseInsert
 
-OnErrRtnOptionSelfCloseInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期权自对冲录入错误回报，当执行[ReqOptionSelfCloseInsert](../CTHOSTFTDCTRADERAPI/REQOPTIONSELFCLOSEINSERT.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnOptionSelfCloseInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期权自对冲录入错误回报，当执行[ReqOptionSelfCloseInsert](pages/084-JYJK-CTHOSTFTDCTRADERAPI-REQOPTIONSELFCLOSEINSERT.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="26c37d76-f55e-459a-9a8e-b92e279d0444"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnOptionSelfCloseInsert(CThostFtdcInputOptionSelfCloseField *pInputOptionSelfClose, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="14ed8922-9ab6-405d-a6d4-72b87a59d2b0"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOptionSelfClose：输入的期权自对冲
 
@@ -70,10 +85,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="4640e639-647f-4705-9548-c2bf4188b327"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="53ffe4c9-6d17-4f38-97f5-42af6ba311d8"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

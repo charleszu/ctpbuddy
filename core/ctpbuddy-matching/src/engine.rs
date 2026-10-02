@@ -47,7 +47,7 @@ use crate::{to_fixed, Catalog, Direction, Fill, OffsetFlag, OrderIntent};
 // misremembering one defeats the simulation. `git log` before this pass had
 // 11 of 12 constants wrong (e.g. freq as 91 instead of 116).
 pub const ERR_INSTRUMENT_NOT_FOUND: i32 = 16; // INSTRUMENT_NOT_FOUND      CTP:找不到合约
-pub const ERR_ORDER_STATUS: i32 = 17; //        INSTRUMENT_NOT_TRADING   CTP:合约不能交易
+pub const ERR_INSTRUMENT_NOT_TRADING: i32 = 17; // INSTRUMENT_NOT_TRADING  CTP:合约不能交易
 pub const ERR_BAD_FIELD: i32 = 15; //           BAD_FIELD                 CTP:报单字段有误
 /// ExchangeID 与合约实际所属交易所不符（合约存在但交易所字段填错）。
 pub const ERR_EXCHANGE_ID_INVALID: i32 = 148; // EXCHANGE_ID_IS_INVALID CTP:无效的ExchangeID字段，请填入正确的ExchangeID
@@ -252,7 +252,7 @@ impl MatchingEngine {
             None => return Err((ERR_INSTRUMENT_NOT_FOUND, "CTP:找不到合约".into())),
         };
         if !instr.is_trading {
-            return Err((ERR_ORDER_STATUS, "CTP:合约不能交易".into()));
+            return Err((ERR_INSTRUMENT_NOT_TRADING, "CTP:合约不能交易".into()));
         }
         match intent.price_type {
             b'2' => {

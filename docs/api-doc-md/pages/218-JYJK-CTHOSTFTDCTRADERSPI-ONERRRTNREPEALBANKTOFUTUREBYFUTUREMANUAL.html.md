@@ -1,14 +1,29 @@
 # OnErrRtnRepealBankToFutureByFutureManual
 
-OnErrRtnRepealBankToFutureByFutureManual
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnErrRtnRepealBankToFutureByFutureManual<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 系统运行时期货端手工发起冲正银行转期货错误回报。发起冲正后系统的报错回报，由于发起冲正属于ctp内部操作，没有req接口
+<a id="61c8338b-c068-41b7-967d-329001dc9985"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnRepealBankToFutureByFutureManual(CThostFtdcReqRepealField *pReqRepeal, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="3a3b8730-1231-4760-b16a-45b632a35a50"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pReqRepeal：冲正请求
 
@@ -146,10 +161,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="2bad78e2-bf86-46f3-a812-1fceb342f32a"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="ba71c84c-7844-40e9-84f8-d1df040b5059"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

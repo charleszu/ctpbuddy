@@ -1,18 +1,33 @@
 # ReqUserLogin
 
-ReqUserLogin
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-用户登录请求，对应响应[OnRspUserLogin](../CTHOSTFTDCTRADERSPI/ONRSPUSERLOGIN.html)。
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqUserLogin<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+用户登录请求，对应响应[OnRspUserLogin](pages/299-JYJK-CTHOSTFTDCTRADERSPI-ONRSPUSERLOGIN.html.md)。
 
 接口包含采集函数不是线程安全的，不同线程同步调用建议加锁。
+<a id="ed56b123-2967-41b2-b966-efb7003fa9ad"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
-virtual int [ReqUserLogin](../../HQJK/CTHOSTFTDCMDAPI/REQUSERLOGIN.html)(CThostFtdc[ReqUserLogin](../../HQJK/CTHOSTFTDCMDAPI/REQUSERLOGIN.html)Field *p[ReqUserLogin](../../HQJK/CTHOSTFTDCMDAPI/REQUSERLOGIN.html)Field, int nRequestID) = 0;
+virtual int [ReqUserLogin](pages/039-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGIN.html.md)(CThostFtdc[ReqUserLogin](pages/039-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGIN.html.md)Field *p[ReqUserLogin](pages/039-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGIN.html.md)Field, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="66a6df6e-bb7c-4ea0-aff9-8519b4fa46a8"></a><a id="title2"></a>
 
-p[ReqUserLogin](../../HQJK/CTHOSTFTDCMDAPI/REQUSERLOGIN.html)Field：用户登录请求
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
+
+p[ReqUserLogin](pages/039-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGIN.html.md)Field：用户登录请求
 
 | 字段类型 | 字段名称 | 含义 | 值 |
 |---|---|---|---|
@@ -55,7 +70,10 @@ IPAddress：系统自动获取，填写无效。
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="58e9cb48-53ac-4ccf-888b-547f16b75454"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -65,7 +83,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="e915698e-e1c4-4351-badc-758093a47a03"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcReqUserLoginField reqUserLogin = { 0 };
@@ -76,32 +97,59 @@ m_pUserApi->ReqUserLogin(&reqUserLogin, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="76092fc2-a501-4e05-9411-8292d7531145"></a><a id="title5"></a>
 
-现在投资者登录的时候，有时候会被锁定，请问会有什么原因？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="region_header_1"></a>
+
+现在投资者登录的时候，有时候会被锁定，请问会有什么原因？<a id="region_panel_1"></a>
 
 | CTP有单独锁IP的功能。被锁定的情况下继续登录会报“CTP：登录失败次数超限，IP被禁止”。目前这个阈值一般设置为5000，单个交易日内累积计算。
 CTP有锁IP+账号的功能。被锁定的情况下继续登录会报“CTP：连续登录失败次数超限，登录被禁止”。目前这个阈值一般设置为6-10，注意这里的登录错误次数CTP是连续计算的。
 具体的阈值以期货公司设置的为准。 |
 |---|
 
-首次登陆如果提示修改密码，如何修改？
+<a id="region_tail_1"></a>
+
+<a id="region_header_2"></a>
+
+首次登陆如果提示修改密码，如何修改？<a id="region_panel_2"></a>
 
 | 首次登陆如果提示修改密码，则必须在当前会话调用ReqUserPasswordUpdate来修改密码。 |
 |---|
 
-“CTP:用户在线会话超出上限”是什么意思？
+<a id="region_tail_2"></a>
+
+<a id="region_header_3"></a>
+
+“CTP:用户在线会话超出上限”是什么意思？<a id="region_panel_3"></a>
 
 | 表示该UserID的同时在线会话数超出了期货公司设置的阈值，具体阈值咨询期货公司柜台设置。 |
 |---|
 
-登录报“CTP：重复的登录”，是什么原因？
+<a id="region_tail_3"></a>
+
+<a id="region_header_4"></a>
+
+登录报“CTP：重复的登录”，是什么原因？<a id="region_panel_4"></a>
 
 | 正常情况下，收到登录成功的响应后再发起登录，是没有响应的，这是因为如果前置收到登陆成功的响应，则会过滤后续的相同Session的登陆请求。
 极端情况下，当前置还没收到核心返回的登录成功响应，而此时又再次收到来自客户端的登录请求，就不会过滤，核心收到重复的登录请求后就会返回“CTP：重复的登录”的错误响应。 |
 |---|
 
-登录时候报错：“CTP：连续登录失败数超限，登录被禁止”，为什么？
+<a id="region_tail_4"></a>
+
+<a id="region_header_5"></a>
+
+登录时候报错：“CTP：连续登录失败数超限，登录被禁止”，为什么？<a id="region_panel_5"></a>
 
 | 此报错说明用户连续输错密码被禁止登录了，ip被锁定。此时用户换ip或者联系期货公司解锁即可。 |
 |---|
+
+<a id="region_tail_5"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

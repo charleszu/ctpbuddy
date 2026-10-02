@@ -1,14 +1,29 @@
 # OnErrRtnFutureToBankByFuture
 
-OnErrRtnFutureToBankByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期货发起期货资金转银行错误回报，当执行[ReqFromFutureToBankByFuture](../CTHOSTFTDCTRADERAPI/REQFROMFUTURETOBANKBYFUTURE.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnFutureToBankByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期货发起期货资金转银行错误回报，当执行[ReqFromFutureToBankByFuture](pages/080-JYJK-CTHOSTFTDCTRADERAPI-REQFROMFUTURETOBANKBYFUTURE.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="ceb53e1d-f9a0-4b1d-8553-b83233a4df49"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnFutureToBankByFuture(CThostFtdcReqTransferField *pReqTransfer, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="86c0bb64-0214-4dc2-87dc-bf238ba04149"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pReqTransfer：转账请求
 
@@ -138,10 +153,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="e5950681-b156-4466-bf88-2eb51f879608"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="838c4f6a-5bcc-40c3-afb9-15d0c919bbd9"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

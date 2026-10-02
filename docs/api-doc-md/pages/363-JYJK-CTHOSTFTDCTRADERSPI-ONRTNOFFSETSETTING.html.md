@@ -1,14 +1,29 @@
 # OnRtnOffsetSetting
 
-OnRtnOffsetSetting
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-对冲设置通知，当执行[ReqOffsetSetting](../CTHOSTFTDCTRADERAPI/REQOFFSETSETTING.html) 、[ReqCancelOffsetSetting](../CTHOSTFTDCTRADERAPI/REQCANCELOFFSETSETTING.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRtnOffsetSetting<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+对冲设置通知，当执行[ReqOffsetSetting](pages/190-JYJK-CTHOSTFTDCTRADERAPI-REQOFFSETSETTING.html.md) 、[ReqCancelOffsetSetting](pages/191-JYJK-CTHOSTFTDCTRADERAPI-REQCANCELOFFSETSETTING.html.md)后，该方法被调用。
+<a id="87a676c4-03a4-4f4b-aecb-0ebc05775013"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnOffsetSetting(CThostFtdcOffsetSettingField *pOffsetSetting) {};
 
-◇ 2. 参数
+<a id="2b1a9b71-9a63-463c-ad15-fb98a1eb9db4"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pOffsetSetting：对冲设置
 
@@ -104,10 +119,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="3cf66da0-a1a2-49cf-8c45-7a7af6db0283"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="0039ed15-d50b-4bb4-ac04-d0743f5cb2ea"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,14 +1,29 @@
 # ReqQrySPBMPortfDefinition
 
-ReqQrySPBMPortfDefinition
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求SPBM组合保证金套餐查询，对应响应请求[OnRspQrySPBMPortfDefinition](../CTHOSTFTDCTRADERSPI/ONRSPQRYSPBMPORTFDEFINITION.html)
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+ReqQrySPBMPortfDefinition<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求SPBM组合保证金套餐查询，对应响应请求[OnRspQrySPBMPortfDefinition](pages/338-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYSPBMPORTFDEFINITION.html.md)
+<a id="5e29e917-cc88-4494-8d8b-7d39e59e208d"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQrySPBMPortfDefinition(CThostFtdcQrySPBMPortfDefinitionField *pQrySPBMPortfDefinition, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="9e53b8f1-1fc3-4b9c-855d-7f60a532f2b3"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQrySPBMPortfDefinition：组合保证金套餐查询
 
@@ -20,7 +35,10 @@ pQrySPBMPortfDefinition：组合保证金套餐查询
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="6496d580-255d-43f1-b3bb-5851dd0a388d"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -30,10 +48,20 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="c8b865d3-fbab-44b6-9adc-296ab08eba25"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="b3d12f68-4f95-4474-80e8-4469ff8162e8"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

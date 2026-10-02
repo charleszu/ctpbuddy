@@ -264,9 +264,11 @@ fn builtin_contract(    instrument_id: &str,
 
 /// Error ids chosen to be recognizable against CTP's table; the authoritative
 /// mapping is broker-configurable (DESIGN.md §8.3, M2 rule table).
-pub const ERR_CLOSE_TODAY_SHORT: i32 = 31; // 可平今仓不足
-pub const ERR_CLOSE_YD_SHORT: i32 = 32; // 可平昨仓不足
-pub const ERR_POSITION_CHECK: i32 = 30; // 持仓量不足
+/// Official prompts verbatim (error.xml): 30 OVER_CLOSE_POSITION,
+/// 50 OVER_CLOSETODAY_POSITION, 51 OVER_CLOSEYESTERDAY_POSITION.
+pub const ERR_CLOSE_TODAY_SHORT: i32 = 50; // OVER_CLOSETODAY_POSITION     CTP:平今仓位不足
+pub const ERR_CLOSE_YD_SHORT: i32 = 51; //   OVER_CLOSEYESTERDAYPOSITION CTP:平昨仓位不足
+pub const ERR_POSITION_CHECK: i32 = 30; //  OVER_CLOSE_POSITION         CTP:平仓量超过持仓量
 
 /// Checked close-volume availability against a (today, yd) split.
 ///
@@ -282,14 +284,14 @@ pub fn close_volume_available(
         OffsetFlag::Open => Ok(()),
         OffsetFlag::CloseToday => {
             if today < volume {
-                Err((ERR_CLOSE_TODAY_SHORT, format!("可平今仓不足: 需 {volume} 手, 今仓 {today} 手")))
+                Err((ERR_CLOSE_TODAY_SHORT, "CTP:平今仓位不足".into()))
             } else {
                 Ok(())
             }
         }
         OffsetFlag::CloseYesterday => {
             if yd < volume {
-                Err((ERR_CLOSE_YD_SHORT, format!("可平昨仓不足: 需 {volume} 手, 昨仓 {yd} 手")))
+                Err((ERR_CLOSE_YD_SHORT, "CTP:平昨仓位不足".into()))
             } else {
                 Ok(())
             }
@@ -297,7 +299,7 @@ pub fn close_volume_available(
         OffsetFlag::Close => {
             let total = today + yd;
             if total < volume {
-                Err((ERR_POSITION_CHECK, format!("持仓不足: 需 {volume} 手, 可平 {total} 手")))
+                Err((ERR_POSITION_CHECK, "CTP:平仓量超过持仓量".into()))
             } else {
                 Ok(())
             }

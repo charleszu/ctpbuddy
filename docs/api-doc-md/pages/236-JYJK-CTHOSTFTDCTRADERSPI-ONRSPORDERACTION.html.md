@@ -1,16 +1,31 @@
 # OnRspOrderAction
 
-OnRspOrderAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报单操作请求响应，当执行[ReqOrderAction](../CTHOSTFTDCTRADERAPI/REQORDERACTION.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-关于流控详见[报单流控、查询流控和会话数控制](../../QTYWGZ/LK.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnRspOrderAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报单操作请求响应，当执行[ReqOrderAction](pages/085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+
+关于流控详见[报单流控、查询流控和会话数控制](pages/396-QTYWGZ-LK.html.md)
+<a id="183968d0-2ecd-47ab-8202-663dea7a9ef0"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="390e7229-e9bc-4fee-b559-e66fbcdccb98"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOrderAction：输入报单操作
 
@@ -82,10 +97,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="7dd50c76-afee-4fab-a388-3f10664967da"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 无
 
-◇ 4. FAQ
+<a id="b14f560b-01f1-44f3-9e10-62d662fccef2"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

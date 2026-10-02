@@ -1,26 +1,42 @@
 # ReqOptionSelfCloseInsert
 
-ReqOptionSelfCloseInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期权自对冲录入请求、详见[期货期权的行权、自对冲](../../QTYWGZ/QHQQDHQ-ZDCGZ.html)
+<a id="printArea"></a>
 
-错误响应: [OnErrRtnOptionSelfCloseInsert](../CTHOSTFTDCTRADERSPI/ONERRRTNOPTIONSELFCLOSEINSERT.html)，[OnRspOptionSelfCloseInsert](../CTHOSTFTDCTRADERSPI/ONRSPOPTIONSELFCLOSEINSERT.html)
+<a id="file_header"></a>
 
-正确响应: [OnRtnOptionSelfClose](../CTHOSTFTDCTRADERSPI/ONRTNOPTIONSELFCLOSE.html)
+ReqOptionSelfCloseInsert<a id="content"></a>
 
-关于接口中的重要序号说明详见[接口中一些重要序号说明](../../QTYWGZ/JKZYXZYXHSM.html)
+<a id="left_menu"></a>
 
-关于大商所行权二阶段业务详见[大商所行权优化二阶段业务](../../QTYWGZ/DSSHQYHEJDYW.html)
+  ** **
+
+期权自对冲录入请求、详见[期货期权的行权、自对冲](pages/402-QTYWGZ-QHQQDHQ-ZDCGZ.html.md)
+
+错误响应: [OnErrRtnOptionSelfCloseInsert](pages/212-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNOPTIONSELFCLOSEINSERT.html.md)，[OnRspOptionSelfCloseInsert](pages/235-JYJK-CTHOSTFTDCTRADERSPI-ONRSPOPTIONSELFCLOSEINSERT.html.md)
+
+正确响应: [OnRtnOptionSelfClose](pages/316-JYJK-CTHOSTFTDCTRADERSPI-ONRTNOPTIONSELFCLOSE.html.md)
+
+关于接口中的重要序号说明详见[接口中一些重要序号说明](pages/401-QTYWGZ-JKZYXZYXHSM.html.md)
+
+关于大商所行权二阶段业务详见[大商所行权优化二阶段业务](pages/404-QTYWGZ-DSSHQYHEJDYW.html.md)
 
 此为业务设置接口，调用后若收到交易所正确回报，即表示业务请求被接收。
 
 若对前次已接收的业务设置进行修改，再次发起自对冲请求（相同合约，相同开平标志），则回报中的OptionSelfCloseRef，OptionSelfCloseLocalID字段不会更新，OptionSelfCloseSysID由交易所更新。
 
-◇ 1. 函数原型
+<a id="0aeae742-b490-42a6-a1e8-2ae6174e1c02"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqOptionSelfCloseInsert(CThostFtdcInputOptionSelfCloseField *pInputOptionSelfClose, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="f9835bfa-d50a-443b-adac-7da25908c9e7"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOptionSelfClose：输入的期权自对冲
 
@@ -54,7 +70,10 @@ MacAddress：中继需填写客户MAC地址；非中继填写无效，直接取�
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="d6632a5e-a7c7-47b9-b737-6ece13a999ea"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -64,7 +83,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="94f8e542-e953-4f14-92eb-58d677e099c9"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcInputOptionSelfCloseField a = { 0 };
@@ -82,9 +104,20 @@ m_pUserApi->ReqOptionSelfCloseInsert(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="f1ea7ff7-ad8c-4443-a11f-ce04ee613936"></a><a id="title5"></a>
 
-为什么报入的OptionSelfCloseRef和返回的值不同？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="region_header_1"></a>
+
+为什么报入的OptionSelfCloseRef和返回的值不同？<a id="region_panel_1"></a>
 
 | 根据交易所规则，自对冲报单由首次报入的报单属性确定，之后不论是否对该报单进行任何操作（包括撤单和重新报单），报单的OptionSelfCloseRef都不变。 |
 |---|
+
+<a id="region_tail_1"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

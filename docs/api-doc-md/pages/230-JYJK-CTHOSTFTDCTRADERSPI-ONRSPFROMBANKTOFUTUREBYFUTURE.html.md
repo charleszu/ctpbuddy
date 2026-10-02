@@ -1,14 +1,29 @@
 # OnRspFromBankToFutureByFuture
 
-OnRspFromBankToFutureByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期货发起银行资金转期货应答，当执行[ReqFromBankToFutureByFuture](../CTHOSTFTDCTRADERAPI/REQFROMBANKTOFUTUREBYFUTURE.html)后有字段填写不对之类的CTP报错则通过此接口返回。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspFromBankToFutureByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期货发起银行资金转期货应答，当执行[ReqFromBankToFutureByFuture](pages/079-JYJK-CTHOSTFTDCTRADERAPI-REQFROMBANKTOFUTUREBYFUTURE.html.md)后有字段填写不对之类的CTP报错则通过此接口返回。
+<a id="ebd68c9d-047c-42f1-862e-6fbc596ba512"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspFromBankToFutureByFuture(CThostFtdcReqTransferField *pReqTransfer, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="9e8d6510-10f1-4741-981b-413fd29967d3"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pReqTransfer：转账请求
 
@@ -142,10 +157,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="afb8a606-d14e-4e54-bbe6-c9aaf875e155"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="3e9114ce-3972-4e86-9016-59372db00990"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

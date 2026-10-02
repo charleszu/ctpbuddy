@@ -1,14 +1,29 @@
 # OnRtnRepealFromFutureToBankByFuture
 
-OnRtnRepealFromFutureToBankByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRtnRepealFromFutureToBankByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 期货发起冲正期货转银行请求，银行处理完毕后报盘发回的通知，一般冲正请求由ctp自动发起，无Req属于私有流回报
+<a id="7c7aee80-2cb0-4f5a-973f-987b86fcab60"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnRepealFromFutureToBankByFuture(CThostFtdcRspRepealField *pRspRepeal) {};
 
-◇ 2. 参数
+<a id="9181cea5-e0f4-4f81-aca2-b96e144b7967"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pRspRepeal：冲正响应
 
@@ -141,10 +156,20 @@ TransferStatus：转账状态
 
 ErrorMsg：报错信息明文，若成功则显示为“交易成功”
 
-◇ 3. 返回
+<a id="5ae1d13d-df63-48fc-8d78-e8ecf9d652da"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="05a8dd0e-a068-4c97-a849-40a1c0379817"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

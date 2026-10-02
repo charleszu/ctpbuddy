@@ -1,16 +1,31 @@
 # ReqQryExchangeMarginRate
 
-ReqQryExchangeMarginRate
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQryExchangeMarginRate<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 请求查询交易所保证金率
 
-响应: [OnRspQryExchangeMarginRate](../CTHOSTFTDCTRADERSPI/ONRSPQRYEXCHANGEMARGINRATE.html)
+响应: [OnRspQryExchangeMarginRate](pages/250-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATE.html.md)
+<a id="afbf1371-173e-4724-b1ef-0821cd77756a"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQryExchangeMarginRate(CThostFtdcQryExchangeMarginRateField *pQryExchangeMarginRate, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="c221c4f3-1950-4df7-afed-1fed1ee5620f"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQryExchangeMarginRate：查询交易所保证金率
 
@@ -24,7 +39,10 @@ pQryExchangeMarginRate：查询交易所保证金率
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="d4ede052-5a24-4683-a998-c68bb3ae3cac"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -34,10 +52,20 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="3e0ee084-5241-4389-ba26-a9b036874e29"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="c13aae41-6a0a-488e-b1b8-029125d13e34"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

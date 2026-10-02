@@ -1,14 +1,29 @@
 # OnErrRtnCancelOffsetSetting
 
-OnErrRtnCancelOffsetSetting
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-对冲设置撤销错误回报，当执行[ReqCancelOffsetSetting](../CTHOSTFTDCTRADERAPI/REQCANCELOFFSETSETTING.html)返回错误后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnCancelOffsetSetting<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+对冲设置撤销错误回报，当执行[ReqCancelOffsetSetting](pages/191-JYJK-CTHOSTFTDCTRADERAPI-REQCANCELOFFSETSETTING.html.md)返回错误后，该方法被调用。
+<a id="01914b89-2396-4055-84bd-626171e48e76"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnCancelOffsetSetting(CThostFtdcCancelOffsetSettingField *pCancelOffsetSetting, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="b5893bf7-2e5d-46dd-86d7-19bcf72409d3"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pCancelOffsetSetting：撤销对冲设置
 
@@ -82,10 +97,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="6e69bc7a-e0cb-4e6a-940c-6307e969aab0"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="00af15d0-1003-42e5-8602-fef42e85ff55"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

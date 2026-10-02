@@ -1,16 +1,31 @@
 # OnErrRtnOrderInsert
 
-OnErrRtnOrderInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报单录入错误回报，当执行[ReqOrderInsert](../CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-详见[报单回调规则](../../QTYWGZ/DBHB.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnErrRtnOrderInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报单录入错误回报，当执行[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+
+详见[报单回调规则](pages/389-QTYWGZ-DBHB.html.md)
+<a id="69ce939e-1936-4fed-8175-e3b6daf689b2"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="f9cf0471-f501-4ebb-a9f4-9378c486e9f4"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOrder：输入报单
 
@@ -102,10 +117,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="34ffaef6-0a0e-492a-bb55-8d3562a72163"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="5a5270ca-e6ea-4bd1-b583-32c0cb944fae"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

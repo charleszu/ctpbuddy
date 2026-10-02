@@ -1,12 +1,25 @@
 # 看穿式监管数据采集说明
 
-看穿式监管数据采集说明
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+看穿式监管数据采集说明<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 |  | ■ 6.7.13_API接口说明
 └◆ 看穿式监管数据采集说明 |  |
 |---|---|---|
 
-◇ 1.定义
+<a id="dc062324-2039-4206-843d-d5c0c5c411b0"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1.定义
+<a id="panel1"></a>
 
 | 术语 | 术语说明 |
 |---|---|
@@ -26,7 +39,10 @@
 
 中继类型终端需要加载采集链接库，并将采集到的信息发送给中继服务器。
 
-◇ 2.说明
+<a id="f79e8d17-ae4a-42d0-8d85-352614264fc1"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2.说明
+<a id="panel2"></a>
 
 期货公司确认终端软件集成了正确的数据采集模块后，为该AppID的终端软件分配授权码。终端软件需要保护好自己的AppID和授权码，防止被其他软件盗用。CTP对终端的认证流程如下：
 
@@ -46,11 +62,19 @@ const permissions: Array\ = ['ohos.permission.GET*NETWORK*INFO', 'ohos.permissio
 
 **注:信息采集过程中，遇到某些信息没有采集到，采集信息不全。请下载穿透式采集自检工具，工具用于检查采集信息是否完整，下载地址：https://www.simnow.com.cn/DocumentDown/api_3/5_2_8/tool250107.zip**
 
-◇ 3.权限要求
+<a id="anchor-id-03"></a>
+
+<a id="2648962f-a741-4ffb-8618-d64c35a38881"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3.权限要求
+<a id="panel3"></a>
 
 采集库需要u+s权限
 
-◇ 4.相关接口
+<a id="515a7b7c-c8cd-44a5-9026-9c394c29b59f"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4.相关接口
+<a id="panel4"></a>
 
 ```
 ///客户端认证请求
@@ -68,11 +92,16 @@ virtual int RegisterUserSystemInfo(CThostFtdcUserSystemInfoField *pUserSystemInf
 
 注意，采集库不是线程安全的。多线程调用采集库时要加锁，如果是直连模式则要在登录函数上加锁。
 
-◇ 5.示例代码
+<a id="dda05283-8bf3-4b31-a9ab-07023c423358"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5.示例代码
+<a id="panel5"></a>
 
 **每个类型的终端调用流程不同，请注意区分！**
+<a id="db6925cd-6be4-4e4e-b93a-e793e70debda"></a><a id="title6"></a>
 
-◇ 5.1.直连终端的采集使用流程示例代码：
+<a id="header_span6"></a>◇ 5.1.直连终端的采集使用流程示例代码：
+<a id="panel6"></a>
 
 Step 1 在API连接后发起认证
 
@@ -125,7 +154,10 @@ int CUser::ReqUserLogin()
 
 ```
 
-◇ 5.2.多对多中继终端使用流程示例代码：
+<a id="ceda4ef1-a2bb-4de7-90e4-f9d18223454c"></a><a id="title7"></a>
+
+<a id="header_span7"></a>◇ 5.2.多对多中继终端使用流程示例代码：
+<a id="panel7"></a>
 
 Step 1 终端侧采集信息，向中继发起登录，并将终端信息发送给中继
 
@@ -220,7 +252,10 @@ int CUser::ReqUserLogin()
 
 ```
 
-◇ 5.3.一对多中继终端使用流程示例代码：
+<a id="4cfc85d5-6a6c-4dd3-9789-df18a47b2e63"></a><a id="title8"></a>
+
+<a id="header_span8"></a>◇ 5.3.一对多中继终端使用流程示例代码：
+<a id="panel8"></a>
 
 Step 1 中继在启动后，在API连接后发起认证
 
@@ -326,8 +361,12 @@ void CUser::SubSystemInfo()
 
 请参阅：
 
-    [常见FAQ](CJFAQ.html)
+    [常见FAQ](pages/023-CTSJGSJCJJK-CJFAQ.html.md)
 
-    [CTP-GetSystemInfo](CTP-GETSYSTEMINFO.html)
+    [CTP-GetSystemInfo](pages/024-CTSJGSJCJJK-CTP-GETSYSTEMINFO.html.md)
 
-    [CTP-GetDataCollectApiVersion](CTP-GETDATACOLLECTAPIVERSION.html)
+    [CTP-GetDataCollectApiVersion](pages/025-CTSJGSJCJJK-CTP-GETDATACOLLECTAPIVERSION.html.md)
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

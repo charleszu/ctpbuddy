@@ -1,16 +1,33 @@
 # OnRtnFromBankToFutureByFuture
 
-OnRtnFromBankToFutureByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-◇ 1.说明
+<a id="printArea"></a>
 
-期货发起银行资金转期货通知，当执行[ReqFromBankToFutureByFuture](../CTHOSTFTDCTRADERAPI/REQFROMBANKTOFUTUREBYFUTURE.html)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="file_header"></a>
 
-◇ 2. 函数原型
+OnRtnFromBankToFutureByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **<a id="b20d3eb1-be1f-4826-97c7-2b4d19507962"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1.说明
+<a id="panel1"></a>
+
+期货发起银行资金转期货通知，当执行[ReqFromBankToFutureByFuture](pages/079-JYJK-CTHOSTFTDCTRADERAPI-REQFROMBANKTOFUTUREBYFUTURE.html.md)后并且报出后，收到返回则调用此接口，私有流回报。
+
+<a id="081d1315-bfdd-4741-9ac4-6349ad1e5f03"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 函数原型
+<a id="panel2"></a>
 
 virtual void OnRtnFromBankToFutureByFuture(CThostFtdcRspTransferField *pRspTransfer) {};
 
-◇ 3. 参数
+<a id="c576917b-8b78-4433-aeec-2e2bf7307581"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 参数
+<a id="panel3"></a>
 
 pRspTransfer：银行发起银行资金转期货响应
 
@@ -121,10 +138,20 @@ BrokerBranchID：一般为空
 
 TransferStatus：转账的最后状态，“正常”说明转账成功，“被冲正”说明转账失败
 
-◇ 4. 返回
+<a id="750c6e05-b808-4850-9bc1-d0721e9c8705"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 返回
+<a id="panel4"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 5. FAQ
+<a id="70638043-80a3-4031-a87f-69be16bc0e15"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

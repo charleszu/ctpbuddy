@@ -1,14 +1,29 @@
 # OnRspQryProduct
 
-OnRspQryProduct
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询产品响应，当执行[ReqQryProduct](../CTHOSTFTDCTRADERAPI/REQQRYPRODUCT.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryProduct<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询产品响应，当执行[ReqQryProduct](pages/123-JYJK-CTHOSTFTDCTRADERAPI-REQQRYPRODUCT.html.md)后，该方法被调用。
+<a id="048ac155-52eb-40b2-b061-c57f61510049"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryProduct(CThostFtdcProductField *pProduct, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="d491d285-8288-4d39-97ef-b8b3b34fe6c0"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pProduct：产品
 
@@ -78,10 +93,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="901933b1-a50e-4177-b1ff-cbda5f4fd5d3"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="b7fde901-5478-4b1f-b2dc-7e0d066e63af"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

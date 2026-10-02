@@ -1,14 +1,29 @@
 # OnRtnFromFutureToBankByBank
 
-OnRtnFromFutureToBankByBank
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRtnFromFutureToBankByBank<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 银行发起期货资金转银行通知，无Req属于私有流回报
+<a id="d32ce6b3-6e43-4ea5-b0c7-db33414fc6bd"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnFromFutureToBankByBank(CThostFtdcRspTransferField *pRspTransfer) {};
 
-◇ 2. 参数
+<a id="332a89a9-6140-4aea-aa6c-bb193a7b7aa6"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pRspTransfer：银行发起银行资金转期货响应
 
@@ -127,10 +142,20 @@ TransferStatus：查看转账成功与否的标志，“正常”则为转账成
 
 ErrorMsg：返回的错误信息，成功则显示“交易成功”
 
-◇ 3. 返回
+<a id="59fa7130-7122-44dd-9873-6ee4ba2cb91e"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="6cb64cf4-01b2-4780-b2ef-d62082279480"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

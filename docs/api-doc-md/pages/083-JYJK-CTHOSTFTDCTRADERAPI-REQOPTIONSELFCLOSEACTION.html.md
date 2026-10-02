@@ -1,20 +1,35 @@
 # ReqOptionSelfCloseAction
 
-ReqOptionSelfCloseAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期权自对冲操作请求、详见[期货期权的行权、自对冲](../../QTYWGZ/QHQQDHQ-ZDCGZ.html)
+<a id="printArea"></a>
 
-错误响应: [OnErrRtnOptionSelfCloseAction](../CTHOSTFTDCTRADERSPI/ONERRRTNOPTIONSELFCLOSEACTION.html)，[OnRspOptionSelfCloseAction](../CTHOSTFTDCTRADERSPI/ONRSPOPTIONSELFCLOSEACTION.html)
+<a id="file_header"></a>
 
-正确响应: [OnRtnOptionSelfClose](../CTHOSTFTDCTRADERSPI/ONRTNOPTIONSELFCLOSE.html)
+ReqOptionSelfCloseAction<a id="content"></a>
 
-关于接口中的重要序号说明详见[接口中一些重要序号说明](../../QTYWGZ/JKZYXZYXHSM.html)
+<a id="left_menu"></a>
 
-◇ 1. 函数原型
+  ** **
+
+期权自对冲操作请求、详见[期货期权的行权、自对冲](pages/402-QTYWGZ-QHQQDHQ-ZDCGZ.html.md)
+
+错误响应: [OnErrRtnOptionSelfCloseAction](pages/211-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNOPTIONSELFCLOSEACTION.html.md)，[OnRspOptionSelfCloseAction](pages/234-JYJK-CTHOSTFTDCTRADERSPI-ONRSPOPTIONSELFCLOSEACTION.html.md)
+
+正确响应: [OnRtnOptionSelfClose](pages/316-JYJK-CTHOSTFTDCTRADERSPI-ONRTNOPTIONSELFCLOSE.html.md)
+
+关于接口中的重要序号说明详见[接口中一些重要序号说明](pages/401-QTYWGZ-JKZYXZYXHSM.html.md)
+<a id="76053fa7-06f8-401b-96c8-af1c3e7fbf3a"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqOptionSelfCloseAction(CThostFtdcInputOptionSelfCloseActionField *pInputOptionSelfCloseAction, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="191c73e1-1c5e-427c-931f-fff86b3d79b4"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOptionSelfCloseAction：输入期权自对冲操作
 
@@ -54,7 +69,10 @@ IPAddress：手工填写本机IP地址，不自动获取。填写规则如下：
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="38834c72-400d-4f02-824d-1b546cc796b6"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -64,7 +82,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="c7334b3c-0942-4ece-b18d-149d5695db3d"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcInputOptionSelfCloseActionField a = { 0 };
@@ -81,6 +102,13 @@ m_pUserApi->ReqOptionSelfCloseAction(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="f9a114d7-be5c-4ddf-80c2-ecb9065bad33"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

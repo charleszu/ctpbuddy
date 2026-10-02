@@ -1,16 +1,31 @@
 # ReqQryInvestUnit
 
-ReqQryInvestUnit
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQryInvestUnit<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 请求查询投资单元，暂不支持此功能
 
-响应: [OnRspQryInvestUnit](../CTHOSTFTDCTRADERSPI/ONRSPQRYINVESTUNIT.html)
+响应: [OnRspQryInvestUnit](pages/264-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINVESTUNIT.html.md)
+<a id="b63ff1c6-3df5-4b31-8bd7-b2f401ccad27"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQryInvestUnit(CThostFtdcQryInvestUnitField *pQryInvestUnit, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="502daca4-a8c4-4238-bd9c-a89a38fe0e05"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQryInvestUnit：查询投资单元
 
@@ -22,7 +37,10 @@ pQryInvestUnit：查询投资单元
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="26ae77bd-719d-441d-b55b-75173b9ba58b"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -32,10 +50,20 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="19427c79-865d-49ad-a304-d6a4982520fc"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="12b7121e-1b8f-4e96-b0d0-3881856d9ff8"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

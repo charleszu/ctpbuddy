@@ -1,9 +1,18 @@
 """Synchronous client for the CTPBuddy core wire protocol.
 
 One `Client` = one TCP connection = one CTP front session. Request frames are
-correlated by `req_id`; unsolicited pushes (`req_id == 0`: RTN_ORDER,
+correlated by `req_id`; unsolicized pushes (`req_id == 0`: RTN_ORDER,
 RTN_TRADE, RTN_DEPTH_MD ...) land in a queue that `events()` drains, mirroring
 the shim's SPI callback thread.
+
+Rejection surfaces (DESIGN §8.12, #42) mirror real CTP's two callbacks:
+- the front-office half answers the pending request itself via `RSP_ERROR`
+  (`OnRspOrderInsert`/`OnRspOrderAction`, input NULL) -- `order_insert()` /
+  `order_action()` raise `CTPError` from it;
+- the exchange half arrives *after* a successful response via
+  `ERR_RTN_ORDER_INSERT` / `ERR_RTN_ORDER_ACTION` (`OnErrRtn*`) -- the request
+  already returned, so those frames land in `late_frames` (a real CTP app gets
+  them on its OnErrRtn* hook, never as a request failure).
 """
 from __future__ import annotations
 
@@ -58,6 +67,24 @@ DEFAULT_TIMEOUT = 10.0
 #: Sentinel pushed into every wait queue when the connection dies.
 CLOSED = object()
 
+#: Rejection surfaces (DESIGN §8.12): `RSP_ERROR` answers the pending request
+#: itself (the front-office half); `ERR_RTN_*` arrive after the request has
+#: already completed (the exchange half) and are captured by `late_frames`.
+REJECTION_FRAMES = (RSP_ERROR, ERR_RTN_ORDER_INSERT, ERR_RTN_ORDER_ACTION)
+
+#: How many post-completion (late) frames to keep per client.
+LATE_LIMIT = 256
+
+
+def rsp_info_of(payload: bytes) -> Dict[str, Any]:
+    """RspInfoField of a rejection frame: the bare struct on `RSP_ERROR`, the
+    trailing struct on `ERR_RTN_*` (payload = input struct ++ RspInfoField)."""
+    n = generated.SIZES["CThostFtdcRspInfoField"]
+    if len(payload) < n:
+        return {}
+
+    return generated.unpack("CThostFtdcRspInfoField", payload[-n:])
+
 
 class CTPError(Exception):
     """A failed request: RSP_ERROR / ERR_RTN_* with ErrorID + ErrorMsg."""
@@ -67,6 +94,20 @@ class CTPError(Exception):
         self.error_id = error_id
         self.msg = msg
         self.kind = kind
+
+    @classmethod
+    def from_frame(cls, f: Frame) -> "CTPError":
+        """Decode a rejection frame, preserving its真实推送面 as `kind`."""
+        if f is CLOSED:
+            return cls(-1, "connection closed", kind="CLOSED")
+        if f.msg_type == ERR_RTN_ORDER_INSERT:
+            kind = "ERR_RTN_ORDER_INSERT"
+        elif f.msg_type == ERR_RTN_ORDER_ACTION:
+            kind = "ERR_RTN_ORDER_ACTION"
+        else:
+            kind = "RSP_ERROR"
+        info = rsp_info_of(f.payload) if f.payload else {}
+        return cls(info.get("ErrorID", -1), info.get("ErrorMsg", ""), kind=kind)
 
 
 class Client:
@@ -78,6 +119,8 @@ class Client:
         self._pending: Dict[int, "queue.Queue[Frame]"] = {}
         self._pushes: "queue.Queue[Frame]" = queue.Queue()
         self._lock = threading.Lock()
+        self._late: List[Frame] = []
+        self._late_cv = threading.Condition(self._lock)
         self._closed = False
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
@@ -99,6 +142,45 @@ class Client:
     def __exit__(self, *exc: Any) -> None:
         self.close()
 
+    # ---- late frames (push surfaces that land after their request) -------
+
+    @property
+    def late_frames(self) -> List[Frame]:
+        """Frames that arrived for a request that had already completed.
+
+        The exchange half of a rejection (`ERR_RTN_ORDER_INSERT` /
+        `ERR_RTN_ORDER_ACTION`, DESIGN §8.12) is sent after the front office
+        already answered the request, so `_request` has returned by then -- a
+        real CTP app receives these on its OnErrRtn* hook, not as a request
+        failure. Tests use this list to assert the surface.
+        """
+        with self._lock:
+            return list(self._late)
+
+    def wait_late(self, msg_type: int, timeout: float = 5.0) -> Optional[Frame]:
+        """Block until a late frame of `msg_type` shows up (None on timeout)."""
+        deadline = time.monotonic() + timeout
+        with self._late_cv:
+            while True:
+                for f in self._late:
+                    if f.msg_type == msg_type:
+                        return f
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._late_cv.wait(remaining)
+
+    def clear_late(self) -> None:
+        with self._late_cv:
+            self._late.clear()
+
+    def _note_late(self, f: Frame) -> None:
+        with self._late_cv:
+            self._late.append(f)
+            if len(self._late) > LATE_LIMIT:
+                del self._late[: len(self._late) - LATE_LIMIT]
+            self._late_cv.notify_all()
+
     # ---- low level --------------------------------------------------------
 
     def _next_req_id(self) -> int:
@@ -114,10 +196,14 @@ class Client:
                     break
                 if f.req_id == 0:
                     self._pushes.put(f)
-                else:
-                    q = self._pending.get(f.req_id)
-                    if q is not None:
-                        q.put(f)
+                    continue
+                q = self._pending.get(f.req_id)
+                if q is not None:
+                    q.put(f)
+                elif self._is_rejection(f):
+                    # the request already completed (its success/error Rsp came
+                    # first): this is the post-response 错单回报 half (#42)
+                    self._note_late(f)
         except (OSError, ValueError):
             pass
         finally:
@@ -125,6 +211,10 @@ class Client:
             for q in list(self._pending.values()):
                 q.put(CLOSED)
             self._pushes.put(CLOSED)
+
+    @staticmethod
+    def _is_rejection(f: Frame) -> bool:
+        return f.msg_type in REJECTION_FRAMES
 
     def _wake_all(self) -> None:
         for q in list(self._pending.values()):
@@ -141,18 +231,12 @@ class Client:
             f = q.get(timeout=timeout or DEFAULT_TIMEOUT)
         finally:
             self._pending.pop(req_id, None)
-        if f is CLOSED or f.msg_type == RSP_ERROR or f.msg_type == ERR_RTN_ORDER_INSERT:
-            info = generated.unpack("CThostFtdcRspInfoField", f.payload) if f is not CLOSED else {}
-            # keep the真实推送面: an insert rejection actually arrived via
-            # OnErrRtnOrderInsert (ERR_RTN_ORDER_INSERT), an action rejection
-            # via the request's error response (RSP_ERROR / OnRspOrderAction).
-            if f is CLOSED:
-                kind = "CLOSED"
-            elif f.msg_type == ERR_RTN_ORDER_INSERT:
-                kind = "ERR_RTN_ORDER_INSERT"
-            else:
-                kind = "RSP_ERROR"
-            raise CTPError(info.get("ErrorID", -1), info.get("ErrorMsg", "connection closed"), kind=kind)
+        if f is CLOSED or self._is_rejection(f):
+            # keep the真实推送面 (DESIGN §8.12): the front-office half arrives
+            # as RSP_ERROR (OnRspOrderInsert / OnRspOrderAction, input NULL);
+            # the exchange half arrives as ERR_RTN_* only when it beats the
+            # success Rsp home -- downstreams must hook both callbacks.
+            raise CTPError.from_frame(f)
         if expect is not None and f.msg_type != expect:
             raise CTPError(-2, "expected msg 0x%04x, got 0x%04x" % (expect, f.msg_type))
         return f

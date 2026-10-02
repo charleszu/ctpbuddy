@@ -1,18 +1,33 @@
 # ReqQryForQuote
 
-ReqQryForQuote
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQryForQuote<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 请求查询询价
 
-响应：[OnRspQryForQuote](../CTHOSTFTDCTRADERSPI/ONRSPQRYFORQUOTE.html)
+响应：[OnRspQryForQuote](pages/254-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYFORQUOTE.html.md)
 
-详见[做市商询价和报价](../../QTYWGZ/BJHXJ.html)
+详见[做市商询价和报价](pages/388-QTYWGZ-BJHXJ.html.md)
+<a id="d9614b30-d5bf-45ff-bf13-f81228727eb0"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQryForQuote(CThostFtdcQryForQuoteField *pQryForQuote, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="21f010e1-dc84-43ba-84c0-88616cc02654"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQryForQuote：询价查询
 
@@ -29,7 +44,10 @@ pQryForQuote：询价查询
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="473b8cc3-8a32-4572-8172-7b071e293e3c"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -39,10 +57,20 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="72d3a947-f2b9-4035-b5fe-3ca281cc3f76"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="8b3ac0fd-39ae-41db-b220-edf963396038"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

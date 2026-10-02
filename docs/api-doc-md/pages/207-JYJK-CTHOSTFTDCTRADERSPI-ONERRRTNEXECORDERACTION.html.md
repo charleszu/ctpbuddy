@@ -1,14 +1,29 @@
 # OnErrRtnExecOrderAction
 
-OnErrRtnExecOrderAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-执行宣告操作错误回报，当执行[ReqExecOrderAction](../CTHOSTFTDCTRADERAPI/REQEXECORDERACTION.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnExecOrderAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+执行宣告操作错误回报，当执行[ReqExecOrderAction](pages/076-JYJK-CTHOSTFTDCTRADERAPI-REQEXECORDERACTION.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="92d3b077-460e-4fb8-8654-cc3acce63eae"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnExecOrderAction(CThostFtdcExecOrderActionField *pExecOrderAction, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="8a34675e-998f-47cd-9775-158ebc41e9ca"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pExecOrderAction：执行宣告操作
 
@@ -100,10 +115,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="b8e7f2bb-c309-4d46-9de7-e3f0881d6b7e"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="8256595a-3bd8-4ef3-873c-54bf6414dd21"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

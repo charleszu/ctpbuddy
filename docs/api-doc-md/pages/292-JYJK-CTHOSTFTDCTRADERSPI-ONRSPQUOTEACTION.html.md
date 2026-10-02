@@ -1,16 +1,31 @@
 # OnRspQuoteAction
 
-OnRspQuoteAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报价操作请求响应，当执行[ReqQuoteAction](../CTHOSTFTDCTRADERAPI/REQQUOTEACTION.html)后有字段填写不对之类的CTP报错则通过此接口返回。
+<a id="printArea"></a>
 
-详见[做市商询价和报价](../../QTYWGZ/BJHXJ.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnRspQuoteAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报价操作请求响应，当执行[ReqQuoteAction](pages/142-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEACTION.html.md)后有字段填写不对之类的CTP报错则通过此接口返回。
+
+详见[做市商询价和报价](pages/388-QTYWGZ-BJHXJ.html.md)
+<a id="77735bc1-c7e1-49c9-9aab-3b6069a88d0e"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQuoteAction(CThostFtdcInputQuoteActionField *pInputQuoteAction, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="544a8073-9add-4df5-bb6b-f7339a5bc924"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputQuoteAction：输入报价操作
 
@@ -78,10 +93,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="c3ed976e-d275-4823-a876-6cc04a9886f3"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="761f5085-5f95-4013-9819-5aa34d708556"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

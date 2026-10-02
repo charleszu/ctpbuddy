@@ -1,14 +1,29 @@
 # ReqTradingAccountPasswordUpdate
 
-ReqTradingAccountPasswordUpdate
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-资金账户口令更新请求，对应响应[OnRspTradingAccountPasswordUpdate](../CTHOSTFTDCTRADERSPI/ONRSPTRADINGACCOUNTPASSWORDUPDATE.html)。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+ReqTradingAccountPasswordUpdate<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+资金账户口令更新请求，对应响应[OnRspTradingAccountPasswordUpdate](pages/297-JYJK-CTHOSTFTDCTRADERSPI-ONRSPTRADINGACCOUNTPASSWORDUPDATE.html.md)。
+<a id="38f49675-6872-42af-b335-f9c7a296830c"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqTradingAccountPasswordUpdate(CThostFtdcTradingAccountPasswordUpdateField *pTradingAccountPasswordUpdate, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="0caa8c2a-4a33-4288-830f-518af9e4b86c"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pTradingAccountPasswordUpdate：资金账户口令变更域
 
@@ -22,7 +37,10 @@ pTradingAccountPasswordUpdate：资金账户口令变更域
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="47160ae7-64ed-4adb-839c-01e06f70bc32"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -32,7 +50,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="d54b34b7-663d-4bdf-bb2f-3cc073166000"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcTradingAccountPasswordUpdateField a = { 0 };
@@ -45,6 +66,13 @@ m_pUserApi->ReqTradingAccountPasswordUpdate(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="3f737448-2fc8-48e0-aff0-9357f3ef2598"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

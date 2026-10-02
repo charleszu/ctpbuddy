@@ -1,18 +1,33 @@
 # OnRtnQuote
 
-OnRtnQuote
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报价通知，当执行[ReqQuoteInsert](../CTHOSTFTDCTRADERAPI/REQQUOTEINSERT.html)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="printArea"></a>
 
-详见[做市商询价和报价](../../QTYWGZ/BJHXJ.html)
+<a id="file_header"></a>
 
-回调规则详见[报价回调规则](../../QTYWGZ/DJHDGZ.html)
+OnRtnQuote<a id="content"></a>
 
-◇ 1. 函数原型
+<a id="left_menu"></a>
+
+  ** **
+
+报价通知，当执行[ReqQuoteInsert](pages/143-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEINSERT.html.md)后并且报出后，收到返回则调用此接口，私有流回报。
+
+详见[做市商询价和报价](pages/388-QTYWGZ-BJHXJ.html.md)
+
+回调规则详见[报价回调规则](pages/391-QTYWGZ-DJHDGZ.html.md)
+<a id="3927cb38-44bc-4023-ab16-8912e0129934"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnQuote(CThostFtdcQuoteField *pQuote) {};
 
-◇ 2. 参数
+<a id="3fcb6b51-761d-4da1-94fb-12d78c2fd4c8"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQuote：报价
 
@@ -141,10 +156,20 @@ QuoteStatus：报价的状态
 
 StatusMsg：明文显示状态信息
 
-◇ 3. 返回
+<a id="e3afca7e-379e-4f43-8b2c-f68fc84f9ca1"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="fcd56c4a-7640-4591-b055-23b80fd79cff"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

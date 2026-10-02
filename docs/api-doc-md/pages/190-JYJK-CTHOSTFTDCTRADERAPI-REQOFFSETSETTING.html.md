@@ -1,18 +1,33 @@
 # ReqOffsetSetting
 
-ReqOffsetSetting
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-对冲设置请求，对应响应：对冲设置请求响应[OnRspOffsetSetting](../CTHOSTFTDCTRADERSPI/ONRSPOFFSETSETTING.html),对冲设置通知[OnRtnOffsetSetting](../CTHOSTFTDCTRADERSPI/ONRTNOFFSETSETTING.html),对冲设置错误回报[OnErrRtnOffsetSetting](../CTHOSTFTDCTRADERSPI/ONERRRTNOFFSETSETTING.html)
+<a id="printArea"></a>
 
-大商所二阶段行权优化详见[大商所行权优化二阶段业务](../../QTYWGZ/DSSHQYHEJDYW.html)
+<a id="file_header"></a>
+
+ReqOffsetSetting<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+对冲设置请求，对应响应：对冲设置请求响应[OnRspOffsetSetting](pages/361-JYJK-CTHOSTFTDCTRADERSPI-ONRSPOFFSETSETTING.html.md),对冲设置通知[OnRtnOffsetSetting](pages/363-JYJK-CTHOSTFTDCTRADERSPI-ONRTNOFFSETSETTING.html.md),对冲设置错误回报[OnErrRtnOffsetSetting](pages/364-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNOFFSETSETTING.html.md)
+
+大商所二阶段行权优化详见[大商所行权优化二阶段业务](pages/404-QTYWGZ-DSSHQYHEJDYW.html.md)
 
 **注意：该接口仅适用大商所**。
+<a id="53e461b5-507a-4835-8d68-383127ffac3b"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqOffsetSetting(CThostFtdcInputOffsetSettingField *pInputOffsetSetting, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="2e779b08-bb03-4952-b5ea-e11b41a59a82"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOffsetSetting：输入的对冲设置
 
@@ -70,7 +85,10 @@ pInputOffsetSetting：输入的对冲设置
 
 合约级别对冲：ProductID为空或者具体，InstrumentID需要填具体，Volume在[1,99999999]区间内，99999999表示全部手数
 
-◇ 3. 返回
+<a id="f62f49b1-4a4a-437f-a410-bdc334878172"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -80,7 +98,10 @@ pInputOffsetSetting：输入的对冲设置
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="af781719-1e94-4d90-a81f-948af27b7930"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 // 合约级别对冲
@@ -99,6 +120,13 @@ m_pUserApi->ReqOffsetSetting(&a, 1);
 
 ```
 
-◇ 5. FAQ
+<a id="d29a5757-a988-46b4-bdfb-d08c28346902"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,20 +1,35 @@
 # ReqExecOrderAction
 
-ReqExecOrderAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-执行宣告操作请求、详见[期货期权的行权、自对冲](../../QTYWGZ/QHQQDHQ-ZDCGZ.html)
+<a id="printArea"></a>
 
-关于接口中的重要序号说明详见[接口中一些重要序号说明](../../QTYWGZ/JKZYXZYXHSM.html)
+<a id="file_header"></a>
 
-错误响应: [OnErrRtnExecOrderAction](../CTHOSTFTDCTRADERSPI/ONERRRTNEXECORDERACTION.html)，[OnRspExecOrderAction](../CTHOSTFTDCTRADERSPI/ONRSPEXECORDERACTION.html)
+ReqExecOrderAction<a id="content"></a>
 
-正确响应: [OnRtnExecOrder](../CTHOSTFTDCTRADERSPI/ONRTNEXECORDER.html)
+<a id="left_menu"></a>
 
-◇ 1. 函数原型
+  ** **
+
+执行宣告操作请求、详见[期货期权的行权、自对冲](pages/402-QTYWGZ-QHQQDHQ-ZDCGZ.html.md)
+
+关于接口中的重要序号说明详见[接口中一些重要序号说明](pages/401-QTYWGZ-JKZYXZYXHSM.html.md)
+
+错误响应: [OnErrRtnExecOrderAction](pages/207-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNEXECORDERACTION.html.md)，[OnRspExecOrderAction](pages/227-JYJK-CTHOSTFTDCTRADERSPI-ONRSPEXECORDERACTION.html.md)
+
+正确响应: [OnRtnExecOrder](pages/308-JYJK-CTHOSTFTDCTRADERSPI-ONRTNEXECORDER.html.md)
+<a id="9dbe8e1b-4efe-451a-b8d3-1eac2f20b2f3"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqExecOrderAction(CThostFtdcInputExecOrderActionField *pInputExecOrderAction, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="22690f83-879e-4f7a-b751-8beb30652a88"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputExecOrderAction：输入执行宣告操作
 
@@ -44,7 +59,10 @@ IPAddress：手工填写本机IP地址，不自动获取。填写规则如下：
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="1e026e45-db93-4ef6-aea1-82757c12c5b3"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -54,7 +72,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="4b17624c-73d1-4de4-a6dd-bc4624b4bfc3"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcInputExecOrderActionField a = { 0 };
@@ -73,6 +94,13 @@ m_pUserApi->ReqExecOrderAction(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="6d51e4d6-42b6-4395-a54d-2384bbbda27a"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

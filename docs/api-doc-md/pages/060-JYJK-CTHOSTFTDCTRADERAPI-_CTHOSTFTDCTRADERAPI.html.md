@@ -1,6 +1,16 @@
 # CThostFtdcTraderApi
 
-CThostFtdcTraderApi
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+CThostFtdcTraderApi<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 |  | ■ 6.7.13_API接口说明
 └△ 交易接口
@@ -8,8 +18,10 @@ CThostFtdcTraderApi
 |---|---|---|
 
 CThostFtdcTraderApi类提供了交易api的初始化、登录、报单和查询等功能。
+<a id="1a7a059d-2b72-40a1-ac95-5cf73bfd2eb3"></a><a id="title1"></a>
 
-◇ 1. 接口
+<a id="header_span1"></a>◇ 1. 接口
+<a id="panel1"></a>
 
 ```
 class TRADER_API_EXPORT CThostFtdcTraderApi
@@ -318,7 +330,10 @@ protected:
 
 ```
 
-◇ 2. 示例代码
+<a id="f5d93d48-fb48-4d90-a16f-50261a962d0d"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 示例代码
+<a id="panel2"></a>
 
 ```
 class CTraderHandler : public CThostFtdcTraderSpi
@@ -344,286 +359,290 @@ public:
 
 请参阅：
 
-    [CreateFtdcTraderApi](CREATEFTDCTRADERAPI.html)
+    [CreateFtdcTraderApi](pages/061-JYJK-CTHOSTFTDCTRADERAPI-CREATEFTDCTRADERAPI.html.md)
 
-    [GetApiVersion](GETAPIVERSION.html)
+    [GetApiVersion](pages/062-JYJK-CTHOSTFTDCTRADERAPI-GETAPIVERSION.html.md)
 
-    [GetTradingDay](GETTRADINGDAY.html)
+    [GetTradingDay](pages/063-JYJK-CTHOSTFTDCTRADERAPI-GETTRADINGDAY.html.md)
 
-    [GetFrontInfo](GETFRONTINFO.html)
+    [GetFrontInfo](pages/064-JYJK-CTHOSTFTDCTRADERAPI-GETFRONTINFO.html.md)
 
-    [Init](INIT.html)
+    [Init](pages/065-JYJK-CTHOSTFTDCTRADERAPI-INIT.html.md)
 
-    [Join](JOIN.html)
+    [Join](pages/066-JYJK-CTHOSTFTDCTRADERAPI-JOIN.html.md)
 
-    [RegisterFensUserInfo](REGISTERFENSUSERINFO.html)
+    [RegisterFensUserInfo](pages/067-JYJK-CTHOSTFTDCTRADERAPI-REGISTERFENSUSERINFO.html.md)
 
-    [RegisterFront](REGISTERFRONT.html)
+    [RegisterFront](pages/068-JYJK-CTHOSTFTDCTRADERAPI-REGISTERFRONT.html.md)
 
-    [RegisterNameServer](REGISTERNAMESERVER.html)
+    [RegisterNameServer](pages/069-JYJK-CTHOSTFTDCTRADERAPI-REGISTERNAMESERVER.html.md)
 
-    [RegisterSpi](REGISTERSPI.html)
+    [RegisterSpi](pages/070-JYJK-CTHOSTFTDCTRADERAPI-REGISTERSPI.html.md)
 
-    [RegisterUserSystemInfo](REGISTERUSERSYSTEMINFO.html)
+    [RegisterUserSystemInfo](pages/071-JYJK-CTHOSTFTDCTRADERAPI-REGISTERUSERSYSTEMINFO.html.md)
 
-    [Release](RELEASE.html)
+    [Release](pages/072-JYJK-CTHOSTFTDCTRADERAPI-RELEASE.html.md)
 
-    [ReqAuthenticate](REQAUTHENTICATE.html)
+    [ReqAuthenticate](pages/073-JYJK-CTHOSTFTDCTRADERAPI-REQAUTHENTICATE.html.md)
 
-    [ReqBatchOrderAction](REQBATCHORDERACTION.html)
+    [ReqBatchOrderAction](pages/074-JYJK-CTHOSTFTDCTRADERAPI-REQBATCHORDERACTION.html.md)
 
-    [ReqCombActionInsert](REQCOMBACTIONINSERT.html)
+    [ReqCombActionInsert](pages/075-JYJK-CTHOSTFTDCTRADERAPI-REQCOMBACTIONINSERT.html.md)
 
-    [ReqExecOrderAction](REQEXECORDERACTION.html)
+    [ReqExecOrderAction](pages/076-JYJK-CTHOSTFTDCTRADERAPI-REQEXECORDERACTION.html.md)
 
-    [ReqExecOrderInsert](REQEXECORDERINSERT.html)
+    [ReqExecOrderInsert](pages/077-JYJK-CTHOSTFTDCTRADERAPI-REQEXECORDERINSERT.html.md)
 
-    [ReqForQuoteInsert](REQFORQUOTEINSERT.html)
+    [ReqForQuoteInsert](pages/078-JYJK-CTHOSTFTDCTRADERAPI-REQFORQUOTEINSERT.html.md)
 
-    [ReqFromBankToFutureByFuture](REQFROMBANKTOFUTUREBYFUTURE.html)
+    [ReqFromBankToFutureByFuture](pages/079-JYJK-CTHOSTFTDCTRADERAPI-REQFROMBANKTOFUTUREBYFUTURE.html.md)
 
-    [ReqFromFutureToBankByFuture](REQFROMFUTURETOBANKBYFUTURE.html)
+    [ReqFromFutureToBankByFuture](pages/080-JYJK-CTHOSTFTDCTRADERAPI-REQFROMFUTURETOBANKBYFUTURE.html.md)
 
-    [ReqGenUserCaptcha](REQGENUSERCAPTCHA.html)
+    [ReqGenUserCaptcha](pages/081-JYJK-CTHOSTFTDCTRADERAPI-REQGENUSERCAPTCHA.html.md)
 
-    [ReqGenUserText](REQGENUSERTEXT.html)
+    [ReqGenUserText](pages/082-JYJK-CTHOSTFTDCTRADERAPI-REQGENUSERTEXT.html.md)
 
-    [ReqOptionSelfCloseAction](REQOPTIONSELFCLOSEACTION.html)
+    [ReqOptionSelfCloseAction](pages/083-JYJK-CTHOSTFTDCTRADERAPI-REQOPTIONSELFCLOSEACTION.html.md)
 
-    [ReqOptionSelfCloseInsert](REQOPTIONSELFCLOSEINSERT.html)
+    [ReqOptionSelfCloseInsert](pages/084-JYJK-CTHOSTFTDCTRADERAPI-REQOPTIONSELFCLOSEINSERT.html.md)
 
-    [ReqOrderAction](REQORDERACTION.html)
+    [ReqOrderAction](pages/085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html.md)
 
-    [ReqOrderInsert](REQORDERINSERT.html)
+    [ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
-    [ReqParkedOrderAction](REQPARKEDORDERACTION.html)
+    [ReqParkedOrderAction](pages/087-JYJK-CTHOSTFTDCTRADERAPI-REQPARKEDORDERACTION.html.md)
 
-    [ReqParkedOrderInsert](REQPARKEDORDERINSERT.html)
+    [ReqParkedOrderInsert](pages/088-JYJK-CTHOSTFTDCTRADERAPI-REQPARKEDORDERINSERT.html.md)
 
-    [ReqQryAccountregister](REQQRYACCOUNTREGISTER.html)
+    [ReqQryAccountregister](pages/089-JYJK-CTHOSTFTDCTRADERAPI-REQQRYACCOUNTREGISTER.html.md)
 
-    [ReqQryBrokerTradingAlgos](REQQRYBROKERTRADINGALGOS.html)
+    [ReqQryBrokerTradingAlgos](pages/090-JYJK-CTHOSTFTDCTRADERAPI-REQQRYBROKERTRADINGALGOS.html.md)
 
-    [ReqQryBrokerTradingParams](REQQRYBROKERTRADINGPARAMS.html)
+    [ReqQryBrokerTradingParams](pages/091-JYJK-CTHOSTFTDCTRADERAPI-REQQRYBROKERTRADINGPARAMS.html.md)
 
-    [ReqQryCFMMCTradingAccountKey](REQQRYCFMMCTRADINGACCOUNTKEY.html)
+    [ReqQryCFMMCTradingAccountKey](pages/092-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCFMMCTRADINGACCOUNTKEY.html.md)
 
-    [ReqQryCombAction](REQQRYCOMBACTION.html)
+    [ReqQryCombAction](pages/093-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCOMBACTION.html.md)
 
-    [ReqQryCombInstrumentGuard](REQQRYCOMBINSTRUMENTGUARD.html)
+    [ReqQryCombInstrumentGuard](pages/094-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCOMBINSTRUMENTGUARD.html.md)
 
-    [ReqQryContractBank](REQQRYCONTRACTBANK.html)
+    [ReqQryContractBank](pages/095-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCONTRACTBANK.html.md)
 
-    [ReqQryDepthMarketData](REQQRYDEPTHMARKETDATA.html)
+    [ReqQryDepthMarketData](pages/096-JYJK-CTHOSTFTDCTRADERAPI-REQQRYDEPTHMARKETDATA.html.md)
 
-    [ReqQryEWarrantOffset](REQQRYEWARRANTOFFSET.html)
+    [ReqQryEWarrantOffset](pages/097-JYJK-CTHOSTFTDCTRADERAPI-REQQRYEWARRANTOFFSET.html.md)
 
-    [ReqQryExchange](REQQRYEXCHANGE.html)
+    [ReqQryExchange](pages/098-JYJK-CTHOSTFTDCTRADERAPI-REQQRYEXCHANGE.html.md)
 
-    [ReqQryExchangeMarginRate](REQQRYEXCHANGEMARGINRATE.html)
+    [ReqQryExchangeMarginRate](pages/099-JYJK-CTHOSTFTDCTRADERAPI-REQQRYEXCHANGEMARGINRATE.html.md)
 
-    [ReqQryExchangeMarginRateAdjust](REQQRYEXCHANGEMARGINRATEADJUST.html)
+    [ReqQryExchangeMarginRateAdjust](pages/100-JYJK-CTHOSTFTDCTRADERAPI-REQQRYEXCHANGEMARGINRATEADJUST.html.md)
 
-    [ReqQryExchangeRate](REQQRYEXCHANGERATE.html)
+    [ReqQryExchangeRate](pages/101-JYJK-CTHOSTFTDCTRADERAPI-REQQRYEXCHANGERATE.html.md)
 
-    [ReqQryExecOrder](REQQRYEXECORDER.html)
+    [ReqQryExecOrder](pages/102-JYJK-CTHOSTFTDCTRADERAPI-REQQRYEXECORDER.html.md)
 
-    [ReqQryForQuote](REQQRYFORQUOTE.html)
+    [ReqQryForQuote](pages/103-JYJK-CTHOSTFTDCTRADERAPI-REQQRYFORQUOTE.html.md)
 
-    [ReqQryInstrument](REQQRYINSTRUMENT.html)
+    [ReqQryInstrument](pages/104-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINSTRUMENT.html.md)
 
-    [ReqQryInstrumentCommissionRate](REQQRYINSTRUMENTCOMMISSIONRATE.html)
+    [ReqQryInstrumentCommissionRate](pages/105-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINSTRUMENTCOMMISSIONRATE.html.md)
 
-    [ReqQryInstrumentMarginRate](REQQRYINSTRUMENTMARGINRATE.html)
+    [ReqQryInstrumentMarginRate](pages/106-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINSTRUMENTMARGINRATE.html.md)
 
-    [ReqQryInstrumentOrderCommRate](REQQRYINSTRUMENTORDERCOMMRATE.html)
+    [ReqQryInstrumentOrderCommRate](pages/107-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINSTRUMENTORDERCOMMRATE.html.md)
 
-    [ReqQryInvestor](REQQRYINVESTOR.html)
+    [ReqQryInvestor](pages/108-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTOR.html.md)
 
-    [ReqQryInvestorPosition](REQQRYINVESTORPOSITION.html)
+    [ReqQryInvestorPosition](pages/109-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPOSITION.html.md)
 
-    [ReqQryInvestorPositionCombineDetail](REQQRYINVESTORPOSITIONCOMBINEDETAIL.html)
+    [ReqQryInvestorPositionCombineDetail](pages/110-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPOSITIONCOMBINEDETAIL.html.md)
 
-    [ReqQryInvestorPositionDetail](REQQRYINVESTORPOSITIONDETAIL.html)
+    [ReqQryInvestorPositionDetail](pages/111-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPOSITIONDETAIL.html.md)
 
-    [ReqQryInvestorProductGroupMargin](REQQRYINVESTORPRODUCTGROUPMARGIN.html)
+    [ReqQryInvestorProductGroupMargin](pages/112-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODUCTGROUPMARGIN.html.md)
 
-    [ReqQryInvestUnit](REQQRYINVESTUNIT.html)
+    [ReqQryInvestUnit](pages/113-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTUNIT.html.md)
 
-    [ReqQryMMInstrumentCommissionRate](REQQRYMMINSTRUMENTCOMMISSIONRATE.html)
+    [ReqQryMMInstrumentCommissionRate](pages/114-JYJK-CTHOSTFTDCTRADERAPI-REQQRYMMINSTRUMENTCOMMISSIONRATE.html.md)
 
-    [ReqQryMMOptionInstrCommRate](REQQRYMMOPTIONINSTRCOMMRATE.html)
+    [ReqQryMMOptionInstrCommRate](pages/115-JYJK-CTHOSTFTDCTRADERAPI-REQQRYMMOPTIONINSTRCOMMRATE.html.md)
 
-    [ReqQryNotice](REQQRYNOTICE.html)
+    [ReqQryNotice](pages/116-JYJK-CTHOSTFTDCTRADERAPI-REQQRYNOTICE.html.md)
 
-    [ReqQryOptionInstrCommRate](REQQRYOPTIONINSTRCOMMRATE.html)
+    [ReqQryOptionInstrCommRate](pages/117-JYJK-CTHOSTFTDCTRADERAPI-REQQRYOPTIONINSTRCOMMRATE.html.md)
 
-    [ReqQryOptionInstrTradeCost](REQQRYOPTIONINSTRTRADECOST.html)
+    [ReqQryOptionInstrTradeCost](pages/118-JYJK-CTHOSTFTDCTRADERAPI-REQQRYOPTIONINSTRTRADECOST.html.md)
 
-    [ReqQryOptionSelfClose](REQQRYOPTIONSELFCLOSE.html)
+    [ReqQryOptionSelfClose](pages/119-JYJK-CTHOSTFTDCTRADERAPI-REQQRYOPTIONSELFCLOSE.html.md)
 
-    [ReqQryOrder](REQQRYORDER.html)
+    [ReqQryOrder](pages/120-JYJK-CTHOSTFTDCTRADERAPI-REQQRYORDER.html.md)
 
-    [ReqQryParkedOrder](REQQRYPARKEDORDER.html)
+    [ReqQryParkedOrder](pages/121-JYJK-CTHOSTFTDCTRADERAPI-REQQRYPARKEDORDER.html.md)
 
-    [ReqQryParkedOrderAction](REQQRYPARKEDORDERACTION.html)
+    [ReqQryParkedOrderAction](pages/122-JYJK-CTHOSTFTDCTRADERAPI-REQQRYPARKEDORDERACTION.html.md)
 
-    [ReqQryProduct](REQQRYPRODUCT.html)
+    [ReqQryProduct](pages/123-JYJK-CTHOSTFTDCTRADERAPI-REQQRYPRODUCT.html.md)
 
-    [ReqQryProductExchRate](REQQRYPRODUCTEXCHRATE.html)
+    [ReqQryProductExchRate](pages/124-JYJK-CTHOSTFTDCTRADERAPI-REQQRYPRODUCTEXCHRATE.html.md)
 
-    [ReqQryProductGroup](REQQRYPRODUCTGROUP.html)
+    [ReqQryProductGroup](pages/125-JYJK-CTHOSTFTDCTRADERAPI-REQQRYPRODUCTGROUP.html.md)
 
-    [ReqQryQuote](REQQRYQUOTE.html)
+    [ReqQryQuote](pages/126-JYJK-CTHOSTFTDCTRADERAPI-REQQRYQUOTE.html.md)
 
-    [ReqQrySecAgentACIDMap](REQQRYSECAGENTACIDMAP.html)
+    [ReqQrySecAgentACIDMap](pages/127-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSECAGENTACIDMAP.html.md)
 
-    [ReqQrySecAgentCheckMode](REQQRYSECAGENTCHECKMODE.html)
+    [ReqQrySecAgentCheckMode](pages/128-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSECAGENTCHECKMODE.html.md)
 
-    [ReqQrySecAgentTradeInfo](REQQRYSECAGENTTRADEINFO.html)
+    [ReqQrySecAgentTradeInfo](pages/129-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSECAGENTTRADEINFO.html.md)
 
-    [ReqQrySecAgentTradingAccount](REQQRYSECAGENTTRADINGACCOUNT.html)
+    [ReqQrySecAgentTradingAccount](pages/130-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSECAGENTTRADINGACCOUNT.html.md)
 
-    [ReqQrySettlementInfo](REQQRYSETTLEMENTINFO.html)
+    [ReqQrySettlementInfo](pages/131-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSETTLEMENTINFO.html.md)
 
-    [ReqQrySettlementInfoConfirm](REQQRYSETTLEMENTINFOCONFIRM.html)
+    [ReqQrySettlementInfoConfirm](pages/132-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSETTLEMENTINFOCONFIRM.html.md)
 
-    [ReqQryTrade](REQQRYTRADE.html)
+    [ReqQryTrade](pages/133-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRADE.html.md)
 
-    [ReqQryTradingAccount](REQQRYTRADINGACCOUNT.html)
+    [ReqQryTradingAccount](pages/134-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRADINGACCOUNT.html.md)
 
-    [ReqQryTradingCode](REQQRYTRADINGCODE.html)
+    [ReqQryTradingCode](pages/135-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRADINGCODE.html.md)
 
-    [ReqQryTradingNotice](REQQRYTRADINGNOTICE.html)
+    [ReqQryTradingNotice](pages/136-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRADINGNOTICE.html.md)
 
-    [ReqQryTransferBank](REQQRYTRANSFERBANK.html)
+    [ReqQryTransferBank](pages/137-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRANSFERBANK.html.md)
 
-    [ReqQryTransferSerial](REQQRYTRANSFERSERIAL.html)
+    [ReqQryTransferSerial](pages/138-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRANSFERSERIAL.html.md)
 
-    [ReqQueryBankAccountMoneyByFuture](REQQUERYBANKACCOUNTMONEYBYFUTURE.html)
+    [ReqQueryBankAccountMoneyByFuture](pages/139-JYJK-CTHOSTFTDCTRADERAPI-REQQUERYBANKACCOUNTMONEYBYFUTURE.html.md)
 
-    [ReqQueryCFMMCTradingAccountToken](REQQUERYCFMMCTRADINGACCOUNTTOKEN.html)
+    [ReqQueryCFMMCTradingAccountToken](pages/140-JYJK-CTHOSTFTDCTRADERAPI-REQQUERYCFMMCTRADINGACCOUNTTOKEN.html.md)
 
-    [ReqQryMaxOrderVolume](REQQUERYMAXORDERVOLUME.html)
+    [ReqQryMaxOrderVolume](pages/141-JYJK-CTHOSTFTDCTRADERAPI-REQQUERYMAXORDERVOLUME.html.md)
 
-    [ReqQuoteAction](REQQUOTEACTION.html)
+    [ReqQuoteAction](pages/142-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEACTION.html.md)
 
-    [ReqQuoteInsert](REQQUOTEINSERT.html)
+    [ReqQuoteInsert](pages/143-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEINSERT.html.md)
 
-    [ReqRemoveParkedOrder](REQREMOVEPARKEDORDER.html)
+    [ReqRemoveParkedOrder](pages/144-JYJK-CTHOSTFTDCTRADERAPI-REQREMOVEPARKEDORDER.html.md)
 
-    [ReqRemoveParkedOrderAction](REQREMOVEPARKEDORDERACTION.html)
+    [ReqRemoveParkedOrderAction](pages/145-JYJK-CTHOSTFTDCTRADERAPI-REQREMOVEPARKEDORDERACTION.html.md)
 
-    [ReqSettlementInfoConfirm](REQSETTLEMENTINFOCONFIRM.html)
+    [ReqSettlementInfoConfirm](pages/146-JYJK-CTHOSTFTDCTRADERAPI-REQSETTLEMENTINFOCONFIRM.html.md)
 
-    [ReqTradingAccountPasswordUpdate](REQTRADINGACCOUNTPASSWORDUPDATE.html)
+    [ReqTradingAccountPasswordUpdate](pages/147-JYJK-CTHOSTFTDCTRADERAPI-REQTRADINGACCOUNTPASSWORDUPDATE.html.md)
 
-    [ReqUserAuthMethod](REQUSERAUTHMETHOD.html)
+    [ReqUserAuthMethod](pages/148-JYJK-CTHOSTFTDCTRADERAPI-REQUSERAUTHMETHOD.html.md)
 
-    [ReqUserLogin](REQUSERLOGIN.html)
+    [ReqUserLogin](pages/149-JYJK-CTHOSTFTDCTRADERAPI-REQUSERLOGIN.html.md)
 
-    [ReqUserLoginWithCaptcha](REQUSERLOGINWITHCAPTCHA.html)
+    [ReqUserLoginWithCaptcha](pages/150-JYJK-CTHOSTFTDCTRADERAPI-REQUSERLOGINWITHCAPTCHA.html.md)
 
-    [ReqUserLoginWithOTP](REQUSERLOGINWITHOTP.html)
+    [ReqUserLoginWithOTP](pages/151-JYJK-CTHOSTFTDCTRADERAPI-REQUSERLOGINWITHOTP.html.md)
 
-    [ReqUserLoginWithText](REQUSERLOGINWITHTEXT.html)
+    [ReqUserLoginWithText](pages/152-JYJK-CTHOSTFTDCTRADERAPI-REQUSERLOGINWITHTEXT.html.md)
 
-    [ReqUserLogout](REQUSERLOGOUT.html)
+    [ReqUserLogout](pages/153-JYJK-CTHOSTFTDCTRADERAPI-REQUSERLOGOUT.html.md)
 
-    [ReqUserPasswordUpdate](REQUSERPASSWORDUPDATE.html)
+    [ReqUserPasswordUpdate](pages/154-JYJK-CTHOSTFTDCTRADERAPI-REQUSERPASSWORDUPDATE.html.md)
 
-    [SubmitUserSystemInfo](SUBMITUSERSYSTEMINFO.html)
+    [SubmitUserSystemInfo](pages/155-JYJK-CTHOSTFTDCTRADERAPI-SUBMITUSERSYSTEMINFO.html.md)
 
-    [SubscribePrivateTopic](SUBSCRIBEPRIVATETOPIC.html)
+    [SubscribePrivateTopic](pages/156-JYJK-CTHOSTFTDCTRADERAPI-SUBSCRIBEPRIVATETOPIC.html.md)
 
-    [SubscribePublicTopic](SUBSCRIBEPUBLICTOPIC.html)
+    [SubscribePublicTopic](pages/157-JYJK-CTHOSTFTDCTRADERAPI-SUBSCRIBEPUBLICTOPIC.html.md)
 
-    [ReqQryClassifiedInstrument](REQQRYCLASSIFIEDINSTRUMENT.html)
+    [ReqQryClassifiedInstrument](pages/158-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCLASSIFIEDINSTRUMENT.html.md)
 
-    [ReqQryCombPromotionParam](REQQRYCOMBPROMOTIONPARAM.html)
+    [ReqQryCombPromotionParam](pages/159-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCOMBPROMOTIONPARAM.html.md)
 
-    [ReqQryRiskSettleInvstPosition](REQQRYRISKSETTLEINVSTPOSITION.html)
+    [ReqQryRiskSettleInvstPosition](pages/160-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRISKSETTLEINVSTPOSITION.html.md)
 
-    [ReqQryRiskSettleProductStatus](REQQRYRISKSETTLEPRODUCTSTATUS.html)
+    [ReqQryRiskSettleProductStatus](pages/161-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRISKSETTLEPRODUCTSTATUS.html.md)
 
-    [ReqQryTraderOffer](REQQRYTRADEROFFER.html)
+    [ReqQryTraderOffer](pages/162-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRADEROFFER.html.md)
 
-    [ReqQrySPBMFutureParameter](REQQRYSPBMFUTUREPARAMETER.html)
+    [ReqQrySPBMFutureParameter](pages/163-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMFUTUREPARAMETER.html.md)
 
-    [ReqQrySPBMOptionParameter](REQQRYSPBMOPTIONPARAMETER.html)
+    [ReqQrySPBMOptionParameter](pages/164-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMOPTIONPARAMETER.html.md)
 
-    [ReqQrySPBMIntraParameter](REQQRYSPBMINTRAPARAMETER.html)
+    [ReqQrySPBMIntraParameter](pages/165-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMINTRAPARAMETER.html.md)
 
-    [ReqQrySPBMInterParameter](REQQRYSPBMINTERPARAMETER.html)
+    [ReqQrySPBMInterParameter](pages/166-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMINTERPARAMETER.html.md)
 
-    [ReqQrySPBMPortfDefinition](REQQRYSPBMPORTFDEFINITION.html)
+    [ReqQrySPBMPortfDefinition](pages/167-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMPORTFDEFINITION.html.md)
 
-    [ReqQrySPBMInvestorPortfDef](REQQRYSPBMINVESTORPORTFDEF.html)
+    [ReqQrySPBMInvestorPortfDef](pages/168-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMINVESTORPORTFDEF.html.md)
 
-    [ReqQryInvestorPortfMarginRatio](REQQRYINVESTORPORTFMARGINRATIO.html)
+    [ReqQryInvestorPortfMarginRatio](pages/169-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPORTFMARGINRATIO.html.md)
 
-    [ReqQryInvestorProdSPBMDetail](REQQRYINVESTORPRODSPBMDETAIL.html)
+    [ReqQryInvestorProdSPBMDetail](pages/170-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODSPBMDETAIL.html.md)
 
-    [ReqQryInvestorCommoditySPMMMargin](REQQRYINVESTORCOMMODITYSPMMMARGIN.html)
+    [ReqQryInvestorCommoditySPMMMargin](pages/171-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORCOMMODITYSPMMMARGIN.html.md)
 
-    [ReqQryInvestorCommodityGroupSPMMMargin](REQQRYINVESTORCOMMODITYGROUPSPMMMARGIN.html)
+    [ReqQryInvestorCommodityGroupSPMMMargin](pages/172-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORCOMMODITYGROUPSPMMMARGIN.html.md)
 
-    [ReqQrySPMMInstParam](REQQRYSPMMINSTPARAM.html)
+    [ReqQrySPMMInstParam](pages/173-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPMMINSTPARAM.html.md)
 
-    [ReqQrySPMMProductParam](REQQRYSPMMPRODUCTPARAM.html)
+    [ReqQrySPMMProductParam](pages/174-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPMMPRODUCTPARAM.html.md)
 
-    [ReqQrySPBMAddOnInterParameter](REQQRYSPBMADDONINTERPARAMETER.html)
+    [ReqQrySPBMAddOnInterParameter](pages/175-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMADDONINTERPARAMETER.html.md)
 
-    [ReqQryRCAMSCombProductInfo](REQQRYRCAMSCOMBPRODUCTINFO.html)
+    [ReqQryRCAMSCombProductInfo](pages/176-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSCOMBPRODUCTINFO.html.md)
 
-    [ReqQryRCAMSInstrParameter](REQQRYRCAMSINSTRPARAMETER.html)
+    [ReqQryRCAMSInstrParameter](pages/177-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINSTRPARAMETER.html.md)
 
-    [ReqQryRCAMSIntraParameter](REQQRYRCAMSINTRAPARAMETER.html)
+    [ReqQryRCAMSIntraParameter](pages/178-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINTRAPARAMETER.html.md)
 
-    [ReqQryRCAMSInterParameter](REQQRYRCAMSINTERPARAMETER.html)
+    [ReqQryRCAMSInterParameter](pages/179-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINTERPARAMETER.html.md)
 
-    [ReqQryRCAMSShortOptAdjustParam](REQQRYRCAMSSHORTOPTADJUSTPARAM.html)
+    [ReqQryRCAMSShortOptAdjustParam](pages/180-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSSHORTOPTADJUSTPARAM.html.md)
 
-    [ReqQryRCAMSInvestorCombPosition](REQQRYRCAMSINVESTORCOMBPOSITION.html)
+    [ReqQryRCAMSInvestorCombPosition](pages/181-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINVESTORCOMBPOSITION.html.md)
 
-    [ReqQryInvestorProdRCAMSMargin](REQQRYINVESTORPRODRCAMSMARGIN.html)
+    [ReqQryInvestorProdRCAMSMargin](pages/182-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODRCAMSMARGIN.html.md)
 
-    [ReqQryRULEInstrParameter](REQQRYRULEINSTRPARAMETER.html)
+    [ReqQryRULEInstrParameter](pages/183-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRULEINSTRPARAMETER.html.md)
 
-    [ReqQryRULEIntraParameter](REQQRYRULEINTRAPARAMETER.html)
+    [ReqQryRULEIntraParameter](pages/184-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRULEINTRAPARAMETER.html.md)
 
-    [ReqQryRULEInterParameter](REQQRYRULEINTERPARAMETER.html)
+    [ReqQryRULEInterParameter](pages/185-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRULEINTERPARAMETER.html.md)
 
-    [ReqQryInvestorProdRULEMargin](REQQRYINVESTORPRODRULEMARGIN.html)
+    [ReqQryInvestorProdRULEMargin](pages/186-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODRULEMARGIN.html.md)
 
-    [ReqQryInvestorPortfSetting](REQQRYINVESTORPORTFSETTING.html)
+    [ReqQryInvestorPortfSetting](pages/187-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPORTFSETTING.html.md)
 
-    [ReqQryInvestorInfoCommRec](REQQRYINVESTORINFOCOMMREC.html)
+    [ReqQryInvestorInfoCommRec](pages/188-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORINFOCOMMREC.html.md)
 
-    [ReqQryCombLeg](REQQRYCOMBLEG.html)
+    [ReqQryCombLeg](pages/189-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCOMBLEG.html.md)
 
-    [ReqOffsetSetting](REQOFFSETSETTING.html)
+    [ReqOffsetSetting](pages/190-JYJK-CTHOSTFTDCTRADERAPI-REQOFFSETSETTING.html.md)
 
-    [ReqCancelOffsetSetting](REQCANCELOFFSETSETTING.html)
+    [ReqCancelOffsetSetting](pages/191-JYJK-CTHOSTFTDCTRADERAPI-REQCANCELOFFSETSETTING.html.md)
 
-    [ReqQryOffsetSetting](REQQRYOFFSETSETTING.html)
+    [ReqQryOffsetSetting](pages/192-JYJK-CTHOSTFTDCTRADERAPI-REQQRYOFFSETSETTING.html.md)
 
-    [RegisterWechatUserSystemInfo](REGISTERWECHATUSERSYSTEMINFO.html)
+    [RegisterWechatUserSystemInfo](pages/193-JYJK-CTHOSTFTDCTRADERAPI-REGISTERWECHATUSERSYSTEMINFO.html.md)
 
-    [SubmitWechatUserSystemInfo](SUBMITWECHATUSERSYSTEMINFO.html)
+    [SubmitWechatUserSystemInfo](pages/194-JYJK-CTHOSTFTDCTRADERAPI-SUBMITWECHATUSERSYSTEMINFO.html.md)
 
-    [ReqQryUserSession](REQQRYUSERSESSION.html)
+    [ReqQryUserSession](pages/195-JYJK-CTHOSTFTDCTRADERAPI-REQQRYUSERSESSION.html.md)
 
-    [ReqGenSMSCode](REQGENSMSCODE.html)
+    [ReqGenSMSCode](pages/196-JYJK-CTHOSTFTDCTRADERAPI-REQGENSMSCODE.html.md)
 
-    [ReqSpdApply](REQSPDAPPLY.html)
+    [ReqSpdApply](pages/197-JYJK-CTHOSTFTDCTRADERAPI-REQSPDAPPLY.html.md)
 
-    [ReqSpdApplyAction](REQSPDAPPLYACTION.html)
+    [ReqSpdApplyAction](pages/198-JYJK-CTHOSTFTDCTRADERAPI-REQSPDAPPLYACTION.html.md)
 
-    [ReqQrySpdApply](REQQRYSPDAPPLY.html)
+    [ReqQrySpdApply](pages/199-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPDAPPLY.html.md)
 
-    [ReqHedgeCfm](REQHEDGECFM.html)
+    [ReqHedgeCfm](pages/200-JYJK-CTHOSTFTDCTRADERAPI-REQHEDGECFM.html.md)
 
-    [ReqHedgeCfmAction](REQHEDGECFMACTION.html)
+    [ReqHedgeCfmAction](pages/201-JYJK-CTHOSTFTDCTRADERAPI-REQHEDGECFMACTION.html.md)
 
-    [ReqQryHedgeCfm](REQQRYHEDGECFM.html)
+    [ReqQryHedgeCfm](pages/202-JYJK-CTHOSTFTDCTRADERAPI-REQQRYHEDGECFM.html.md)
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

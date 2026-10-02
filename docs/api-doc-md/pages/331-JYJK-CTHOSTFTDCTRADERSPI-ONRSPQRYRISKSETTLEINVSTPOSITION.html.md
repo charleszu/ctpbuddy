@@ -1,14 +1,29 @@
 # OnRspQryRiskSettleInvstPosition
 
-OnRspQryRiskSettleInvstPosition
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-投资者风险结算持仓查询响应，当执行[ReqQryRiskSettleInvstPosition](../CTHOSTFTDCTRADERAPI/REQQRYRISKSETTLEINVSTPOSITION.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryRiskSettleInvstPosition<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+投资者风险结算持仓查询响应，当执行[ReqQryRiskSettleInvstPosition](pages/160-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRISKSETTLEINVSTPOSITION.html.md)后，该方法被调用。
+<a id="02a22a48-9da8-4c29-b0ad-2038b788b56f"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryRiskSettleInvstPosition(CThostFtdcRiskSettleInvstPositionField *pRiskSettleInvstPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="5a80682c-82e9-4e48-9eba-39d570a22a95"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pRiskSettleInvstPosition：投资者风险结算持仓
 
@@ -134,10 +149,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="58416bf5-a8a3-4f2a-b6e6-f2a7f9700490"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="0fe41ac8-1af8-4c3e-8a6d-d3ceeb35a397"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

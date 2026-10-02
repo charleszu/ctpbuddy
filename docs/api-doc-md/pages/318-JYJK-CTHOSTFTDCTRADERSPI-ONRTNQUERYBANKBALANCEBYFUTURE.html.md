@@ -1,14 +1,29 @@
 # OnRtnQueryBankBalanceByFuture
 
-OnRtnQueryBankBalanceByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期货发起查询银行余额通知，当执行[ReqQueryBankAccountMoneyByFuture](../CTHOSTFTDCTRADERAPI/REQQUERYBANKACCOUNTMONEYBYFUTURE.html)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRtnQueryBankBalanceByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期货发起查询银行余额通知，当执行[ReqQueryBankAccountMoneyByFuture](pages/139-JYJK-CTHOSTFTDCTRADERAPI-REQQUERYBANKACCOUNTMONEYBYFUTURE.html.md)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="a5ed3676-6654-4d87-9529-c79ace8ad483"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnQueryBankBalanceByFuture(CThostFtdcNotifyQueryAccountField *pNotifyQueryAccount) {};
 
-◇ 2. 参数
+<a id="b491dc5b-945f-47f7-8164-cdbe124de621"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pNotifyQueryAccount：查询账户信息通知
 
@@ -113,10 +128,20 @@ Password: 为密文，显示为“*”
 
 ErrorMsg：返回是否成功的回报
 
-◇ 3. 返回
+<a id="921a5edd-d807-4b5c-b8a5-5c69ac88b344"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="b4b47103-2403-4911-bf3a-d73c0ead04ae"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

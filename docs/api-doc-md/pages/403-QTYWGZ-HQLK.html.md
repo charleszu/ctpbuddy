@@ -1,10 +1,22 @@
 # 行情流控
 
-行情流控
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+行情流控<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 CTP交易系统基于安全和性能考虑，在行情中新增登录和流控限制，分别对应的配置项和api回调中的表现各不相同。此处将会给大家详细介绍。
+<a id="29ba707f-0ccb-4c33-8f63-ea917b3d7b6f"></a><a id="title1"></a>
 
-◇ 1. 行情登录验证
+<a id="header_span1"></a>◇ 1. 行情登录验证
+<a id="panel1"></a>
 
 配置在行情前置组件上，配置项为
 
@@ -14,7 +26,10 @@ LoginVerify=yes
 
 API报错“CTP: 不合法的登录”
 
-◇ 2. 单session登录频率限制
+<a id="ac61146f-05d4-415a-8fb6-68e711bd1749"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 单session登录频率限制
+<a id="panel2"></a>
 
 配置在行情前置组件上，配置项为
 
@@ -26,7 +41,10 @@ LoginFreq=1
 
 API报错“CTP: api login over limit freq”
 
-◇ 3. 给各个session发送缓存包限制
+<a id="c945a153-814d-4df9-995c-266003d9aae7"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 给各个session发送缓存包限制
+<a id="panel3"></a>
 
 配置在行情前置组件上，配置项为
 
@@ -36,21 +54,27 @@ SendingListSize
 
 该配置项如不设置，默认该值为10000。如设置，则实际请求包的缓存上限为max（10000，设置的值）
 
-◇ 4. 行情前置连接数流控
+<a id="9bc79826-4486-4130-aad8-add5dd165b9a"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 行情前置连接数流控
+<a id="panel4"></a>
 
 前置连接数流控是指在本行情前置对同一IP每秒允许的最大API连接请求数。
 
 前置连接数流控配置在行情前置组件上，配置项为【ConnectFreq】。如果不设置就表示不限制流控。
 
-需要注意的是，API连接请求指的是API从init到[OnFrontConnected](../JYJK/CTHOSTFTDCTRADERSPI/ONFRONTCONNECTED.html)的过程，跟登录无关。可以简单理解为一次init就是一个连接请求。
+需要注意的是，API连接请求指的是API从init到[OnFrontConnected](pages/220-JYJK-CTHOSTFTDCTRADERSPI-ONFRONTCONNECTED.html.md)的过程，跟登录无关。可以简单理解为一次init就是一个连接请求。
 
 例如如果配置为20，则一秒内最多有20个session建立跟前置的连接。
 
-如果超过前置连接数流控则会被主动断开连接，触发[OnFrontDisconnected](../HQJK/CTHOSTFTDCMDSPI/ONFRONTDISCONNECTED.html)。因此用户如果发现自己的程序一连接前置就被断开，则除了版本问题外，有可能是遇到了连接数流控。
+如果超过前置连接数流控则会被主动断开连接，触发[OnFrontDisconnected](pages/047-HQJK-CTHOSTFTDCMDSPI-ONFRONTDISCONNECTED.html.md)。因此用户如果发现自己的程序一连接前置就被断开，则除了版本问题外，有可能是遇到了连接数流控。
 
 想要指定ip不受流控限制的话，可以通过在front_md_se的bin目录下面新建一个文件名为whiteiplist的文件，每个ip单独一行。
 
-◇ 5. 行情前置IP最大session连接数限制、最大可订阅合约数限制
+<a id="ab75403a-56a7-48d6-b30b-5682c8593c9f"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. 行情前置IP最大session连接数限制、最大可订阅合约数限制
+<a id="panel5"></a>
 
 ctp系统版本自6.7.2P6开始，行情前置新增配置项。
 
@@ -69,3 +93,7 @@ MaxSubInstCnt=0
 若超 MaxSubInstCnt 限制后，会给 API 返回订阅失败，失败原因 6000，原因值“CTP:sub too many insts”
 
 想要指定ip不受以上限制，可以通过在front_md_se的bin目录下面新建一个文件名为whiteiplist的文件，每个ip单独一行。
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

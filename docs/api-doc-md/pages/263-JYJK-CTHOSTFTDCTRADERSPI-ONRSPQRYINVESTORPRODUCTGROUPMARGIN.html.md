@@ -1,14 +1,29 @@
 # OnRspQryInvestorProductGroupMargin
 
-OnRspQryInvestorProductGroupMargin
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询投资者品种/跨品种保证金响应，当执行[ReqQryInvestorProductGroupMargin](../CTHOSTFTDCTRADERAPI/REQQRYINVESTORPRODUCTGROUPMARGIN.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryInvestorProductGroupMargin<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询投资者品种/跨品种保证金响应，当执行[ReqQryInvestorProductGroupMargin](pages/112-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODUCTGROUPMARGIN.html.md)后，该方法被调用。
+<a id="c6c4bf34-fb49-4011-aa08-266a2e3eff80"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryInvestorProductGroupMargin(CThostFtdcInvestorProductGroupMarginField *pInvestorProductGroupMargin, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="7e3982cc-b4fd-4a10-9c7c-aadd2413771a"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInvestorProductGroupMargin：投资者品种/跨品种保证金
 
@@ -96,10 +111,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="16b918bd-560c-49ee-837a-c522470f260c"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="fc8d5e53-303e-4e80-a6fc-6d772b4b24cc"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

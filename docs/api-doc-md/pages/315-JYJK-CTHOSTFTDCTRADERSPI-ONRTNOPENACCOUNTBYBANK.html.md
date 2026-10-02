@@ -1,14 +1,29 @@
 # OnRtnOpenAccountByBank
 
-OnRtnOpenAccountByBank
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRtnOpenAccountByBank<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 银行发起银期开户通知，无Req属于私有流回报
+<a id="c41d3eee-52f9-4644-a355-d3cec73a0011"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnOpenAccountByBank(CThostFtdcOpenAccountField *pOpenAccount) {};
 
-◇ 2. 参数
+<a id="f8bca0e4-d031-438f-a972-76aa9af88fc3"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pOpenAccount：银期开户信息
 
@@ -121,10 +136,20 @@ BrokerBranchID：一般为空
 
 InstallID：CTP内部使用
 
-◇ 3. 返回
+<a id="d91b0fe8-d9da-4f37-ade2-24b3b9fcd092"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="59dd4455-8835-4947-b6af-7680668ed729"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

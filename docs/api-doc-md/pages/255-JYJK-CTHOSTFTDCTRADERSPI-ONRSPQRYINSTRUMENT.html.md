@@ -1,14 +1,29 @@
 # OnRspQryInstrument
 
-OnRspQryInstrument
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询合约响应，当执行[ReqQryInstrument](../CTHOSTFTDCTRADERAPI/REQQRYINSTRUMENT.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryInstrument<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询合约响应，当执行[ReqQryInstrument](pages/104-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINSTRUMENT.html.md)后，该方法被调用。
+<a id="7d3af42e-8f28-4de4-a4d2-c308e20e6353"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryInstrument(CThostFtdcInstrumentField *pInstrument, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="0382da69-3e61-4aba-988c-296734fc5abc"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInstrument：合约
 
@@ -99,7 +114,11 @@ DeliveryYear：交割年份（取自交易所）
 
 DeliveryMonth：交割月（取自交易所）
 
+<a id="anchor-id-01"></a>
+
 MaxMarketOrderVolume:（取自交易所，郑商所的由柜台产品设置）
+
+<a id="anchor-id-02"></a>
 
 MinMarketOrderVolume:（取自交易所，郑商所的由柜台产品设置）
 
@@ -123,19 +142,23 @@ EndDelivDate：结束交割日（取自交易所）
 
 取自交易所表示这些字段每天更新自交易所，其余字段为柜台设置值。
 
+<a id="anchor-id-04"></a>
+
 PositionDateType:持仓日期类型（区分产品是否有昨仓和今仓的区别，只有上海和能源是使用历史持仓）
+
+<a id="anchor-id-03"></a>
 
 LongMarginRatio：多头保证金率（终值），算法如下：
 
-跟随交易所多头保证金率：LongMarginRatioByMoney（由[OnRspQryExchangeMarginRate](ONRSPQRYEXCHANGEMARGINRATE.html)查到）+LongMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](ONRSPQRYEXCHANGEMARGINRATEADJUST.html)查到）
+跟随交易所多头保证金率：LongMarginRatioByMoney（由[OnRspQryExchangeMarginRate](pages/250-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATE.html.md)查到）+LongMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](pages/251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html.md)查到）
 
-不跟随交易所多头保证金率：NoLongMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](ONRSPQRYEXCHANGEMARGINRATEADJUST.html)查到）
+不跟随交易所多头保证金率：NoLongMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](pages/251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html.md)查到）
 
 ShortMarginRatio：空头保证金率（终值），算法如下：
 
-跟随交易所空头保证金率：ShortMarginRatioByMoney（由[OnRspQryExchangeMarginRate](ONRSPQRYEXCHANGEMARGINRATE.html)查到）+ShortMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](ONRSPQRYEXCHANGEMARGINRATEADJUST.html)查到）
+跟随交易所空头保证金率：ShortMarginRatioByMoney（由[OnRspQryExchangeMarginRate](pages/250-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATE.html.md)查到）+ShortMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](pages/251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html.md)查到）
 
-不跟随交易所空头保证金率：NoShortMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](ONRSPQRYEXCHANGEMARGINRATEADJUST.html)查到）
+不跟随交易所空头保证金率：NoShortMarginRatioByMoney（由[OnRspQryExchangeMarginRateAdjust](pages/251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html.md)查到）
 
 pRspInfo：响应信息
 
@@ -154,13 +177,27 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="ee3b7202-b4b3-4479-a209-9bce8e18f41c"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="93ced30e-a6ad-4c59-a4b6-9a0ec7054b5a"></a><a id="title4"></a>
 
-月均价合约代码是否和其他期货品种代码一样吗？
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
+
+<a id="region_header_1"></a>
+
+月均价合约代码是否和其他期货品种代码一样吗？<a id="region_panel_1"></a>
 
 | 不一样，例：pp2607F(聚乙烯均价合约) |
 |---|
+
+<a id="region_tail_1"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

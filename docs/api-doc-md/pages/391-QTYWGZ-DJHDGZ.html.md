@@ -1,14 +1,26 @@
 # 报价回调规则
 
-报价回调规则
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+报价回调规则<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 本文例举了一些常用的报价操作所对应的回调规则。在给定交易所报价回报顺序的前提下，CTP返回给API的回调顺序是固定的。
 
 特别要注意，大商所只返回一次报价状态回报，例如一笔报价从报入到未成交到最终成交，一共有三个状态，但是大商所只推送未成交报价回报，全部成交后不推送成交报价回报。甚至在查询报价时，其报价状态也仍然是未成交状态。用户在测试和实现自己业务的时候要格外注意这点。
 
 目前国内几家交易所的报价规则各不相同，本文不做详细例举，希望大家在梳理规则时学会举一反三。
+<a id="464cf512-13bf-4505-a216-198610fc6798"></a><a id="title1"></a>
 
-◇ 1. 术语说明
+<a id="header_span1"></a>◇ 1. 术语说明
+<a id="panel1"></a>
 
 - 报价衍生单
 
@@ -16,17 +28,20 @@
 
 - 报价回报
 
-指报价的状态回报，有未知单报价回报、未成交报价回报、全部成交报价回报。对应回调函数[OnRtnQuote](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNQUOTE.html)，以QuoteStatus字段区分。
+指报价的状态回报，有未知单报价回报、未成交报价回报、全部成交报价回报。对应回调函数[OnRtnQuote](pages/319-JYJK-CTHOSTFTDCTRADERSPI-ONRTNQUOTE.html.md)，以QuoteStatus字段区分。
 
 - 报单回报
 
-指报单的状态回报，有未知单报单回报、未成交报单回报、部分成交报单回报、全部成交报单回报和撤单回报。对应回调函数[OnRtnOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNORDER.html)，以OrderStatus字段区分。
+指报单的状态回报，有未知单报单回报、未成交报单回报、部分成交报单回报、全部成交报单回报和撤单回报。对应回调函数[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)，以OrderStatus字段区分。
 
 - 成交回报
 
-指报单成交后推送的成交回报，对应回调函数[OnRtnTrade](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNTRADE.html)。
+指报单成交后推送的成交回报，对应回调函数[OnRtnTrade](pages/326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html.md)。
 
-◇ 2. 回调规则
+<a id="ecb1c6f0-ed5f-47b1-a4b5-55c275e2428b"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 回调规则
+<a id="panel2"></a>
 
 - 测试场景1
 
@@ -191,3 +206,7 @@ OnRtnOrder    （已撤单—买） |  |
 |---|---|---|
 
 大商所报价后，交易所推送报价响应（未成交），此时撤报价，返回两腿的报单回报（已撤单），但是报价状态不会再推送
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

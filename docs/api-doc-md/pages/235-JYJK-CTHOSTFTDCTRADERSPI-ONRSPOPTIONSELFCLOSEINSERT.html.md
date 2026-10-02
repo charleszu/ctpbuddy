@@ -1,14 +1,29 @@
 # OnRspOptionSelfCloseInsert
 
-OnRspOptionSelfCloseInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期权自对冲录入请求响应，当执行[ReqOptionSelfCloseInsert](../CTHOSTFTDCTRADERAPI/REQOPTIONSELFCLOSEINSERT.html)后，该方法被调用
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspOptionSelfCloseInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期权自对冲录入请求响应，当执行[ReqOptionSelfCloseInsert](pages/084-JYJK-CTHOSTFTDCTRADERAPI-REQOPTIONSELFCLOSEINSERT.html.md)后，该方法被调用
+<a id="708ea034-3ce8-46aa-8ee1-7c0bf7dc9d91"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspOptionSelfCloseInsert(CThostFtdcInputOptionSelfCloseField *pInputOptionSelfClose, CThostFtdcRspInfoField *pRspInfo, , bool bIsLast) {};
 
-◇ 2. 参数
+<a id="a8b30a9d-fb08-47c1-9c68-29974bde3f31"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOptionSelfClose：输入的期权自对冲
 
@@ -74,10 +89,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="f9702393-8c2e-425c-8c4b-8a70974c5e5f"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="544e7050-94f3-470a-b41b-4119dfba92c1"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

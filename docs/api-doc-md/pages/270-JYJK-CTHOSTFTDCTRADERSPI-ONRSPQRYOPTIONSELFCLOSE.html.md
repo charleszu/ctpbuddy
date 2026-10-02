@@ -1,14 +1,29 @@
 # OnRspQryOptionSelfClose
 
-OnRspQryOptionSelfClose
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询期权自对冲响应，当执行[ReqQryOptionSelfClose](../CTHOSTFTDCTRADERAPI/REQQRYOPTIONSELFCLOSE.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryOptionSelfClose<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询期权自对冲响应，当执行[ReqQryOptionSelfClose](pages/119-JYJK-CTHOSTFTDCTRADERAPI-REQQRYOPTIONSELFCLOSE.html.md)后，该方法被调用。
+<a id="623c521c-a987-4ec8-9505-701ce7b84f0e"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryOptionSelfClose(CThostFtdcOptionSelfCloseField *pOptionSelfClose, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="39ff1c89-6721-4fe1-92d9-5b20c1b70eb5"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pOptionSelfClose：期权自对冲
 
@@ -128,10 +143,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="b3f01fe3-c03c-4b0d-b2cc-f3d7b3cd0300"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="e3c4cbfd-f088-4b82-8e1f-638b7742f6cb"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

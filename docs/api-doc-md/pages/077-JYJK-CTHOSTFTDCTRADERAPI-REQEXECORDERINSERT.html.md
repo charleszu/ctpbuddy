@@ -1,16 +1,26 @@
 # ReqExecOrderInsert
 
-ReqExecOrderInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-执行宣告录入请求、详见[期货期权的行权、自对冲](../../QTYWGZ/QHQQDHQ-ZDCGZ.html)
+<a id="printArea"></a>
 
-关于接口中的重要序号说明详见[接口中一些重要序号说明](../../QTYWGZ/JKZYXZYXHSM.html)
+<a id="file_header"></a>
 
-关于大商所行权二阶段业务详见[大商所行权优化二阶段业务](../../QTYWGZ/DSSHQYHEJDYW.html)
+ReqExecOrderInsert<a id="content"></a>
 
-错误响应: [OnErrRtnExecOrderInsert](../CTHOSTFTDCTRADERSPI/ONERRRTNEXECORDERINSERT.html)，[OnRspExecOrderInsert](../CTHOSTFTDCTRADERSPI/ONRSPEXECORDERINSERT.html)
+<a id="left_menu"></a>
 
-正确响应: [OnRtnExecOrder](../CTHOSTFTDCTRADERSPI/ONRTNEXECORDER.html)
+  ** **
+
+执行宣告录入请求、详见[期货期权的行权、自对冲](pages/402-QTYWGZ-QHQQDHQ-ZDCGZ.html.md)
+
+关于接口中的重要序号说明详见[接口中一些重要序号说明](pages/401-QTYWGZ-JKZYXZYXHSM.html.md)
+
+关于大商所行权二阶段业务详见[大商所行权优化二阶段业务](pages/404-QTYWGZ-DSSHQYHEJDYW.html.md)
+
+错误响应: [OnErrRtnExecOrderInsert](pages/208-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNEXECORDERINSERT.html.md)，[OnRspExecOrderInsert](pages/228-JYJK-CTHOSTFTDCTRADERSPI-ONRSPEXECORDERINSERT.html.md)
+
+正确响应: [OnRtnExecOrder](pages/308-JYJK-CTHOSTFTDCTRADERSPI-ONRTNEXECORDER.html.md)
 
 **注：
 
@@ -19,12 +29,17 @@ ReqExecOrderInsert
 需要实现大商所期权放弃申请，使用此接口。
 
 兼容支持大商所“取消到期自动行权接口”，大商所行权二阶段业务上线前支持申报大商所“取消到期自动行权”接口（按照原有实现方式，调用行权接口，手数为0手实现）；大商所行权二阶段业务上线后支持申报“期权放弃申请”使用此接口**
+<a id="e55f710d-ad00-4942-99f3-b2603e04ad19"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqExecOrderInsert(CThostFtdcInputExecOrderField *pInputExecOrder, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="5c00cdf3-32ac-45db-bb7d-776c75864498"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputExecOrder：输入的执行宣告
 
@@ -62,7 +77,10 @@ MacAddress：中继需填写客户MAC地址；非中继填写无效，直接取�
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="8c55a16d-e203-4212-b696-7d4b259a3e4f"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -72,7 +90,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="afe5a8da-a78f-4c00-b9a0-2ff5d327c233"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 大商所放弃行权示例
 
@@ -96,21 +117,42 @@ m_pUserApi->ReqExecOrderInsert(&OrderInsert, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="177f9123-4610-47bd-91ab-50adb61a3d95"></a><a id="title5"></a>
 
-盘中通过api进行中金所行权，报错“CTP:不支持的功能”为什么？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="region_header_1"></a>
+
+盘中通过api进行中金所行权，报错“CTP:不支持的功能”为什么？<a id="region_panel_1"></a>
 
 | 中金所不支持通过api行权，只能盘后通过会服提交行权申请。 |
 |---|
 
-盘中发出大商所的“取消到期日自动行权”指令后(Volume字段填0)后，为什么收到的响应字段和请求字段有所区别？
+<a id="region_tail_1"></a>
+
+<a id="region_header_2"></a>
+
+盘中发出大商所的“取消到期日自动行权”指令后(Volume字段填0)后，为什么收到的响应字段和请求字段有所区别？<a id="region_panel_2"></a>
 
 | 多次发出相同合约的该指令，CTP会将第一次请求的响应结果返回给api端，即每次请求收到的响应都是第一次请求的结果。 |
 |---|
 
-各家交易所的行权指令有什么不同？
+<a id="region_tail_2"></a>
+
+<a id="anchor-id-01"></a>
+
+<a id="region_header_3"></a>
+
+各家交易所的行权指令有什么不同？<a id="region_panel_3"></a>
 
 | 中金所不支持api发起行权
 郑商所closeflag必须为nottoclose
 上期、能源、大商所不限制 |
 |---|
+
+<a id="region_tail_3"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

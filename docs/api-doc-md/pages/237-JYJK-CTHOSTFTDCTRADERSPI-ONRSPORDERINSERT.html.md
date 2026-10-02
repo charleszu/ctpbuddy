@@ -1,16 +1,31 @@
 # OnRspOrderInsert
 
-OnRspOrderInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报单录入请求响应，当执行[ReqOrderInsert](../CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-详见[报单回调规则](../../QTYWGZ/DBHB.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnRspOrderInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报单录入请求响应，当执行[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+
+详见[报单回调规则](pages/389-QTYWGZ-DBHB.html.md)
+<a id="fc95563d-19e4-4785-9141-c7637f558f9b"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="7b8b799e-c19e-4afe-88dc-6b22d8d1e919"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOrder：输入报单
 
@@ -106,10 +121,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="5dc0c959-005f-4d8c-b07f-ba7accc67b5a"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="76b2bbfe-bf5d-4bdb-8984-8fa04a935074"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

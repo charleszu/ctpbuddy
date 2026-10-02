@@ -1,14 +1,29 @@
 # OnRspQryParkedOrderAction
 
-OnRspQryParkedOrderAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询预埋撤单响应，当执行[ReqQryParkedOrderAction](../CTHOSTFTDCTRADERAPI/REQQRYPARKEDORDERACTION.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryParkedOrderAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询预埋撤单响应，当执行[ReqQryParkedOrderAction](pages/122-JYJK-CTHOSTFTDCTRADERAPI-REQQRYPARKEDORDERACTION.html.md)后，该方法被调用。
+<a id="41801ab4-7ad6-4d2c-b738-22b9c40190a2"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryParkedOrderAction(CThostFtdcParkedOrderActionField *pParkedOrderAction, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="78c4adb2-bcf5-494b-8ca4-615170c98f94"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pParkedOrderAction：输入预埋单操作
 
@@ -86,10 +101,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="bf229f3f-fcbb-4080-9a5a-3b375d157eaf"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="af7cbd28-7ddb-450f-9610-af5f8ba6adcf"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

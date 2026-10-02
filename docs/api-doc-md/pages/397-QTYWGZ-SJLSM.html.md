@@ -1,10 +1,22 @@
 # 通讯模式
 
-通讯模式
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+通讯模式<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 交易员API使用建立在TCP协议之上FTD协议与交易托管系统进行通讯，交易托管系统负责投资者的交易业务处理。
+<a id="f69cdc5f-1ee5-4292-bae0-78fb4bea3681"></a><a id="title1"></a>
 
-◇ 1. 通讯模式
+<a id="header_span1"></a>◇ 1. 通讯模式
+<a id="panel1"></a>
 
 FTD 协议中的所有通讯都基于某个通讯模式。通讯模式实际上就是通讯双方协同工作的方式。
 
@@ -26,7 +38,10 @@ FTD涉及的通讯模式共有三种：
 
 无论哪种通讯模式，其通讯过程都如下图所示
 
-◇ 2. 数据流
+<a id="5d420b0c-0659-4f67-8aa9-7bb362d5c686"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 数据流
+<a id="panel2"></a>
 
 交易托管系统支持对话通讯模式、私有通讯模式、广播通讯模式：
 
@@ -44,7 +59,10 @@ FTD涉及的通讯模式共有三种：
 
 公共数据流是一个单向数据流，由交易系统发向交易托管系统，用于发送市场公共信息；公共数据流也是一个可靠的数据流，交易系统维护整个系统的公共数据流，在一个交易日内，交易托管系统断线恢复连接时，可以请求交易系统发送指定序号之后的公共数据流数据。
 
-◇ 3. 业务与接口对照
+<a id="bc050075-f6c2-461f-890b-21d4070de83f"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 业务与接口对照
+<a id="panel3"></a>
 
 | 业务类型 | 业务 | 请求接口 | 响应接口 | 数据流 |
 |---|---|---|---|---|
@@ -66,4 +84,8 @@ FTD涉及的通讯模式共有三种：
 | 合约查询 | CThostFtdcTraderApi::ReqQryInstrument | CThostFtdcTraderSpi::OnRspQryInstrument | 查询流 |  |
 | 通知 | 合约状态 | N/A | CThostFtdcTraderSpi::OnRtnInstrumentStatus | 公有流 |
 
-[交易接口](../JYJK/_JYJK.html)和私有流接口会有相互关联，如用户报单录入[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)，马上会收到报单响应[OnRspOrderInsert](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPORDERINSERT.html)，说明交易系统已经收到报单。报单进入交易系统后，如果报单的交易状态发生变化，就会收到报单回报[OnRtnOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNORDER.html)。如果报单被撮合(部分)成交，就会收到成交回报[OnRtnTrade](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNTRADE.html)。其中，一个用户的报单回报和成交回报也会被所属会员下其他的用户接受到。
+[交易接口](pages/059-JYJK-_JYJK.html.md)和私有流接口会有相互关联，如用户报单录入[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)，马上会收到报单响应[OnRspOrderInsert](pages/237-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERINSERT.html.md)，说明交易系统已经收到报单。报单进入交易系统后，如果报单的交易状态发生变化，就会收到报单回报[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)。如果报单被撮合(部分)成交，就会收到成交回报[OnRtnTrade](pages/326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html.md)。其中，一个用户的报单回报和成交回报也会被所属会员下其他的用户接受到。
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

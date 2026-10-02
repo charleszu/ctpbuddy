@@ -1,12 +1,23 @@
 # 做市商询价和报价
 
-做市商询价和报价
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-◇ 1. 指令介绍
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+做市商询价和报价<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **<a id="ccf37c7e-0545-4b16-a2a5-06b5296f0cd5"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 指令介绍
+<a id="panel1"></a>
 
 - 1.请求询价指令
 
-发起询价指令使用[ReqForQuoteInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQFORQUOTEINSERT.html)函数。
+发起询价指令使用[ReqForQuoteInsert](pages/078-JYJK-CTHOSTFTDCTRADERAPI-REQFORQUOTEINSERT.html.md)函数。
 
 参数CThostFtdcInputForQuoteField中，ForQuoteRef非必填，可由CTP交易核心自动生成。
 
@@ -52,15 +63,15 @@
 
 - 3.查询询价
 
-查询询价使用[ReqQryForQuote](../JYJK/CTHOSTFTDCTRADERAPI/REQQRYFORQUOTE.html)函数。
+查询询价使用[ReqQryForQuote](pages/103-JYJK-CTHOSTFTDCTRADERAPI-REQQRYFORQUOTE.html.md)函数。
 
-接收查询结果使用[OnRspQryForQuote](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPQRYFORQUOTE.html)函数
+接收查询结果使用[OnRspQryForQuote](pages/254-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYFORQUOTE.html.md)函数
 
 - 4.请求报价指令
 
-请求报价指令使用[ReqQuoteInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQQUOTEINSERT.html)函数。
+请求报价指令使用[ReqQuoteInsert](pages/143-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEINSERT.html.md)函数。
 
-上期所期货合约使用[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)报价
+上期所期货合约使用[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)报价
 
 参数CThostFtdcInputQuoteField中，QuoteRef、AskOrderRef、BidOrderRef非必填，如果手工填则要求AskOrderRef小于BidOrderRef，否则会报“CTP：重复的报单”。
 
@@ -75,31 +86,34 @@
 | OnRtnOrder | 报价录入成功后，如果是双边报价，CTP还会同时衍生出买卖两笔报价衍生单报入交易所，并返回相应的OnRtnOrder |
 | OnRtnTrade | 衍生单成交后，返回该成交回报 |
 
-对于大商所，交易所在接受报价后，将不再维护报价状态的更新，所以客户端在接收CTP的报价回报时，其报价状态没有完整生命周期，因此采用CTP接口的开发人员需要重点关注报价对应衍生报单的状态。上期所会维护报价的状态，但是跟报单状态独立，比如，如果两腿报单都已经成交，依然可以撤报价单，并且能成功。中金所的报价和撤销报价的时候，交易所会发送[OnRtnQuote](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNQUOTE.html)，会更新为已撤销。但是如果单独撤销两个衍生单，中金所不再更新报价的状态。
+对于大商所，交易所在接受报价后，将不再维护报价状态的更新，所以客户端在接收CTP的报价回报时，其报价状态没有完整生命周期，因此采用CTP接口的开发人员需要重点关注报价对应衍生报单的状态。上期所会维护报价的状态，但是跟报单状态独立，比如，如果两腿报单都已经成交，依然可以撤报价单，并且能成功。中金所的报价和撤销报价的时候，交易所会发送[OnRtnQuote](pages/319-JYJK-CTHOSTFTDCTRADERSPI-ONRTNQUOTE.html.md)，会更新为已撤销。但是如果单独撤销两个衍生单，中金所不再更新报价的状态。
 
-详见[报价回调规则](DJHDGZ.html)
+详见[报价回调规则](pages/391-QTYWGZ-DJHDGZ.html.md)
 
 - 6.撤销报价请求
 
-撤销报价请求使用[ReqQuoteAction](../JYJK/CTHOSTFTDCTRADERAPI/REQQUOTEACTION.html)函数。
+撤销报价请求使用[ReqQuoteAction](pages/142-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEACTION.html.md)函数。
 
 参数CThostFtdcInputQuoteActionField中，使用QuoteRef+SessionID+FrontID组合来撤单。
 
 - 7.撤销报价衍生单
 
-撤销报价衍生单使用[ReqOrderAction](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERACTION.html)函数。
+撤销报价衍生单使用[ReqOrderAction](pages/085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html.md)函数。
 
 参数CThostFtdcInputOrderActionField中，使用FrontID+SessionID+OrderRef组合来撤单。
 
-要注意的是，如果在报价的时候没有填写AskOrderRef和BidOrderRef，那么报价衍生单的响应[OnRtnOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNORDER.html)里的FrontID和SessionID是0。
+要注意的是，如果在报价的时候没有填写AskOrderRef和BidOrderRef，那么报价衍生单的响应[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)里的FrontID和SessionID是0。
 
 - 8.查询报价
 
-查询报价使用[ReqQryQuote](../JYJK/CTHOSTFTDCTRADERAPI/REQQRYQUOTE.html)函数。
+查询报价使用[ReqQryQuote](pages/126-JYJK-CTHOSTFTDCTRADERAPI-REQQRYQUOTE.html.md)函数。
 
-接收查询结果使用[OnRspQryQuote](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPQRYQUOTE.html)函数
+接收查询结果使用[OnRspQryQuote](pages/277-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYQUOTE.html.md)函数
 
-◇ 2. 四所区别
+<a id="c9e63622-07f6-407a-b5dd-dc9a585c3a2f"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 四所区别
+<a id="panel2"></a>
 
 下面列出四所在询价和报价上的一些区别。**注意：以下内容仅供参考，如果交易所的规则发生变化，文档并不会实时更新。**
 
@@ -111,6 +125,8 @@
 | 普通投资者是否可接收询价申报 | 可以 | 可以 | 可以 | 可以 |
 
 - 2.四所报价对比
+
+<a id="anchor-id-01"></a>
 
 |  | 中金所 | 大商所 | 郑商所 | 上期所 |
 |---|---|---|---|---|
@@ -125,9 +141,14 @@
 | 是否支持撤单腿 | 支持顶单功能，不支持撤单边衍生单 | 可以 | 不可以 | 不可以 |
 | 双边报价开平可否不一致 | 可以 | 可以 | 可以 | 可以 |
 
-◇ 3. OrderType和TradeType字段说明
+<a id="cd2e1ab5-461a-4b37-b74f-527f7af258b0"></a><a id="title3"></a>
 
-一笔报价会有两笔报价衍生单（[OnRtnOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNORDER.html)），报价成交后还会有成交回报（[OnRtnTrade](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNTRADE.html)）。[OnRtnOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNORDER.html)的OrderType和[OnRtnTrade](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNTRADE.html)的TradeType取自交易所回报。
+<a id="header_span3"></a>◇ 3. OrderType和TradeType字段说明
+<a id="panel3"></a>
+
+<a id="anchor-id-02"></a>
+
+一笔报价会有两笔报价衍生单（[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)），报价成交后还会有成交回报（[OnRtnTrade](pages/326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html.md)）。[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)的OrderType和[OnRtnTrade](pages/326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html.md)的TradeType取自交易所回报。
 
 上期所：交易所不返回TradeType和OrderType，所以在收到交易所回报后，两个字段都是空值。
 
@@ -136,3 +157,7 @@
 中金所：交易所返回OrderType为1（报价衍生单），TradeType为0（普通成交）
 
 郑商所：交易所返回OrderType为1（报价衍生单），TradeType为0（普通成交）
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

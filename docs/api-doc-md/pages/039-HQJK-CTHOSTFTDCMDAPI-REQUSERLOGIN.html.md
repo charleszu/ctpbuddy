@@ -1,10 +1,22 @@
 # ReqUserLogin
 
-ReqUserLogin
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-用户登录请求，对应响应[OnRspUserLogin](../../JYJK/CTHOSTFTDCTRADERSPI/ONRSPUSERLOGIN.html)。目前行情登陆不校验账号密码。
+<a id="printArea"></a>
 
-◇ 1.特别说明
+<a id="file_header"></a>
+
+ReqUserLogin<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+用户登录请求，对应响应[OnRspUserLogin](pages/299-JYJK-CTHOSTFTDCTRADERSPI-ONRSPUSERLOGIN.html.md)。目前行情登陆不校验账号密码。
+<a id="66597bee-1f51-4d40-aad3-9f7757f80926"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1.特别说明
+<a id="panel1"></a>
 
 自CTP交易系统升级6.6.2版本后，后台支持对用户登录行情前置进行身份校验。
 
@@ -14,13 +26,19 @@ ReqUserLogin
 
 若不启用，则无需验证，可直接发起登录。
 
-关于[行情流控](../../QTYWGZ/HQLK.html)详见[行情流控](../../QTYWGZ/HQLK.html)
+关于[行情流控](pages/403-QTYWGZ-HQLK.html.md)详见[行情流控](pages/403-QTYWGZ-HQLK.html.md)
 
-◇ 2. 函数原型
+<a id="c73fe118-f925-4595-b8ab-cfd68ab73015"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 函数原型
+<a id="panel2"></a>
 
 virtual int ReqUserLogin(CThostFtdcReqUserLoginField *pReqUserLoginField, int nRequestID) = 0;
 
-◇ 3. 参数
+<a id="f242ea28-4a1f-4bd8-8d4e-f18ed8a16b2b"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 参数
+<a id="panel3"></a>
 
 pReqUserLoginField：用户登录请求
 
@@ -67,7 +85,10 @@ IPAddress：系统自动获取，填写无效。
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 4. 返回
+<a id="f3d9c740-1f16-4931-9a74-b3d71f1e8c3f"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 返回
+<a id="panel4"></a>
 
 0，代表成功。
 
@@ -77,7 +98,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 5. 调用示例
+<a id="21f13bf4-d7c4-4db1-8e38-1d3961d761f9"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. 调用示例
+<a id="panel5"></a>
 
 ```
 CThostFtdcReqUserLoginField reqUserLogin = {0};
@@ -85,6 +109,13 @@ m_pUserMdApi->ReqUserLogin(&reqUserLogin, nRequestID++);
 
 ```
 
-◇ 6. FAQ
+<a id="297da93a-5827-4111-95d7-6a4c08b8d383"></a><a id="title6"></a>
+
+<a id="header_span6"></a>◇ 6. FAQ
+<a id="panel6"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

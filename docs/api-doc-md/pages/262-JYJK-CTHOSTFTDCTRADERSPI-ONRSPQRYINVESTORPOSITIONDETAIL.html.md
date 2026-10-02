@@ -1,16 +1,31 @@
 # OnRspQryInvestorPositionDetail
 
-OnRspQryInvestorPositionDetail
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询投资者持仓明细响应，当执行[ReqQryInvestorPositionDetail](../CTHOSTFTDCTRADERAPI/REQQRYINVESTORPOSITIONDETAIL.html)后，该方法被调用。
+<a id="printArea"></a>
 
-关于Tas的说明详见[TAS介绍](../../QTYWGZ/TASJS.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnRspQryInvestorPositionDetail<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询投资者持仓明细响应，当执行[ReqQryInvestorPositionDetail](pages/111-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPOSITIONDETAIL.html.md)后，该方法被调用。
+
+关于Tas的说明详见[TAS介绍](pages/398-QTYWGZ-TASJS.html.md)
+<a id="5e59e36a-7737-42a1-9efc-18262085e288"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryInvestorPositionDetail(CThostFtdcInvestorPositionDetailField *pInvestorPositionDetail, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="c86a346e-65ca-49ca-9a38-d18a9ddb523b"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInvestorPositionDetail：投资者持仓明细
 
@@ -85,7 +100,11 @@ struct CThostFtdcInvestorPositionDetailField
 
 SettlementPrice：该字段日初为昨结算价，仓位变动时，会更新为当时的最新价，不随行情变动。例如某持仓对应的合约最新价为10，持仓手数为2，此时以成交价20平仓了1手，平仓后该多头持仓的SettlementPrice会变更为10。
 
+<a id="anchor-id-01"></a>
+
 Volume：如果是大商所的持仓则按照先单一后组合的平仓顺序显示平仓后的剩余手数。
+
+<a id="anchor-id-02"></a>
 
 PositionProfitByTrade：大商所开启rule后，大商所的期权会计算持仓盈亏，其他交易所无影响（不计算持仓盈亏）。
 
@@ -106,10 +125,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="ae29c906-6bdc-4179-b201-be42ce3bcea6"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="9d8c1e57-dca1-4e50-afce-aa75ddb74f12"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

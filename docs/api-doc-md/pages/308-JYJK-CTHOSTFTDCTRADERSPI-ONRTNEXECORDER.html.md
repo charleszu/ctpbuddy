@@ -1,14 +1,29 @@
 # OnRtnExecOrder
 
-OnRtnExecOrder
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-执行宣告通知，当执行[ReqExecOrderInsert](../CTHOSTFTDCTRADERAPI/REQEXECORDERINSERT.html)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRtnExecOrder<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+执行宣告通知，当执行[ReqExecOrderInsert](pages/077-JYJK-CTHOSTFTDCTRADERAPI-REQEXECORDERINSERT.html.md)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="ec9b43f2-7af2-49b8-80e8-628b7ac34f37"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnExecOrder(CThostFtdcExecOrderField *pExecOrder) {};
 
-◇ 2. 参数
+<a id="5c433700-68a0-4202-a2ee-6b2a0d18d11f"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pExecOrder：执行宣告
 
@@ -119,10 +134,20 @@ ExecResult：执行宣告的最后状态，看是否已经执行
 
 StatusMsg：报单状态，明文
 
-◇ 3. 返回
+<a id="4b99a9ef-c921-44f9-a5a1-06ae82d340f8"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="8e33c751-3060-4aef-b845-7c8092f05617"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

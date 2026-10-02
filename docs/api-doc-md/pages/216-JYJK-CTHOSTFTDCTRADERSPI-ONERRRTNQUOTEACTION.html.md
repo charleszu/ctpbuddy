@@ -1,16 +1,31 @@
 # OnErrRtnQuoteAction
 
-OnErrRtnQuoteAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报价操作错误回报, 当执行[ReqQuoteAction](../CTHOSTFTDCTRADERAPI/REQQUOTEACTION.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-详见[做市商询价和报价](../../QTYWGZ/BJHXJ.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnErrRtnQuoteAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报价操作错误回报, 当执行[ReqQuoteAction](pages/142-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEACTION.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+
+详见[做市商询价和报价](pages/388-QTYWGZ-BJHXJ.html.md)
+<a id="67fa8459-7ad9-45c3-aca9-9c4cc4923f90"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnQuoteAction(CThostFtdcQuoteActionField *pQuoteAction, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="b3229161-8074-48a7-a21a-725c34c506ed"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQuoteAction：报价操作
 
@@ -100,10 +115,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="21b53f6f-609d-4acf-b461-7977885fd374"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="972ad30d-7e3a-4bf7-b5b6-80bb37eb6042"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,6 +1,16 @@
 # CThostFtdcMdApi
 
-CThostFtdcMdApi
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+CThostFtdcMdApi<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 |  | ■ 6.7.13_API接口说明
 └△ 行情接口
@@ -8,8 +18,10 @@ CThostFtdcMdApi
 |---|---|---|
 
 CthostFtdcMdApi类提供了行情api的初始化、登录、订阅等功能。
+<a id="bc2d6539-c2f4-4566-a3a4-ff29e6e5ab6f"></a><a id="title1"></a>
 
-◇ 1. 接口
+<a id="header_span1"></a>◇ 1. 接口
+<a id="panel1"></a>
 
 ```
 class MD_API_EXPORT CThostFtdcMdApi
@@ -85,7 +97,10 @@ protected:
 
 ```
 
-◇ 2. 示例代码
+<a id="74e58a2a-c9b1-4b09-8a55-ca581f053126"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 示例代码
+<a id="panel2"></a>
 
 ```
 class CMduserHandler : public CThostFtdcMdSpi
@@ -107,36 +122,40 @@ public:
 
 请参阅：
 
-    [CreateFtdcMdApi](CREATEFTDCMDAPI.html)
+    [CreateFtdcMdApi](pages/028-HQJK-CTHOSTFTDCMDAPI-CREATEFTDCMDAPI.html.md)
 
-    [GetApiVersion](GETAPIVERSION.html)
+    [GetApiVersion](pages/029-HQJK-CTHOSTFTDCMDAPI-GETAPIVERSION.html.md)
 
-    [GetTradingDay](GETTRADINGDAY.html)
+    [GetTradingDay](pages/030-HQJK-CTHOSTFTDCMDAPI-GETTRADINGDAY.html.md)
 
-    [Init](INIT.html)
+    [Init](pages/031-HQJK-CTHOSTFTDCMDAPI-INIT.html.md)
 
-    [Join](JOIN.html)
+    [Join](pages/032-HQJK-CTHOSTFTDCMDAPI-JOIN.html.md)
 
-    [RegisterFensUserInfo](REGISTERFENSUSERINFO.html)
+    [RegisterFensUserInfo](pages/033-HQJK-CTHOSTFTDCMDAPI-REGISTERFENSUSERINFO.html.md)
 
-    [RegisterFront](REGISTERFRONT.html)
+    [RegisterFront](pages/034-HQJK-CTHOSTFTDCMDAPI-REGISTERFRONT.html.md)
 
-    [RegisterNameServer](REGISTERNAMESERVER.html)
+    [RegisterNameServer](pages/035-HQJK-CTHOSTFTDCMDAPI-REGISTERNAMESERVER.html.md)
 
-    [RegisterSpi](REGISTERSPI.html)
+    [RegisterSpi](pages/036-HQJK-CTHOSTFTDCMDAPI-REGISTERSPI.html.md)
 
-    [Release](RELEASE.html)
+    [Release](pages/037-HQJK-CTHOSTFTDCMDAPI-RELEASE.html.md)
 
-    [ReqQryMulticastInstrument](REQQRYMULTICASTINSTRUMENT.html)
+    [ReqQryMulticastInstrument](pages/038-HQJK-CTHOSTFTDCMDAPI-REQQRYMULTICASTINSTRUMENT.html.md)
 
-    [ReqUserLogin](REQUSERLOGIN.html)
+    [ReqUserLogin](pages/039-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGIN.html.md)
 
-    [ReqUserLogout](REQUSERLOGOUT.html)
+    [ReqUserLogout](pages/040-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGOUT.html.md)
 
-    [SubscribeForQuoteRsp](SUBSCRIBEFORQUOTERSP.html)
+    [SubscribeForQuoteRsp](pages/041-HQJK-CTHOSTFTDCMDAPI-SUBSCRIBEFORQUOTERSP.html.md)
 
-    [SubscribeMarketData](SUBSCRIBEMARKETDATA.html)
+    [SubscribeMarketData](pages/042-HQJK-CTHOSTFTDCMDAPI-SUBSCRIBEMARKETDATA.html.md)
 
-    [UnSubscribeForQuoteRsp](UNSUBSCRIBEFORQUOTERSP.html)
+    [UnSubscribeForQuoteRsp](pages/043-HQJK-CTHOSTFTDCMDAPI-UNSUBSCRIBEFORQUOTERSP.html.md)
 
-    [UnSubscribeMarketData](UNSUBSCRIBEMARKETDATA.html)
+    [UnSubscribeMarketData](pages/044-HQJK-CTHOSTFTDCMDAPI-UNSUBSCRIBEMARKETDATA.html.md)
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

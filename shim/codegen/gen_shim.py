@@ -99,7 +99,12 @@ REQ_OF_RSP = {
 #   qry     query stream row (bIsLast = false); QRY_LAST completes the stream.
 #   cached  success response with an EMPTY payload: the pending request's
 #           cached input struct is passed (RSP_ORDER_INSERT / RSP_ORDER_ACTION).
-#   errrtn  ERR_RTN_* failure: payload = RspInfoField; cached input passed.
+#   cached+err_rsp: a RSP_ERROR completing this request answers on the
+#           response surface itself -- OnRsp*(NULL, pRspInfo, bIsLast=true),
+#           the front-office half of a rejection (DESIGN §8.12).
+#   errrtn  ERR_RTN_* failure: payload = the client's own input struct ++
+#           RspInfoField ("payload_input") -- the exchange half of a rejection,
+#           sent after the success response already consumed the pending.
 #   sub     subscribe response, one per instrument; bIsLast on the last one.
 #   push    server push (req_id = 0).
 TD_DISPATCH = [
@@ -107,10 +112,13 @@ TD_DISPATCH = [
     ("rsp", "RSP_USER_LOGOUT", "CThostFtdcUserLogoutField", "OnRspUserLogout", {}),
     ("rsp", "RSP_SETTLE_CONFIRM", "CThostFtdcSettlementInfoConfirmField", "OnRspSettlementInfoConfirm", {}),
     ("cached", "RSP_ORDER_INSERT", "CThostFtdcInputOrderField", "OnRspOrderInsert",
-     {"err": "OnErrRtnOrderInsert", "cache": "input_order"}),
-    ("errrtn", "ERR_RTN_ORDER_INSERT", "CThostFtdcInputOrderField", "OnErrRtnOrderInsert", {"cache": "input_order"}),
-    ("cached", "RSP_ORDER_ACTION", "CThostFtdcInputOrderActionField", "OnRspOrderAction", {"cache": "input_action"}),
-    ("errrtn", "ERR_RTN_ORDER_ACTION", "CThostFtdcOrderActionField", "OnErrRtnOrderAction", {"synth_action": True}),
+     {"cache": "input_order", "err_rsp": True}),
+    ("errrtn", "ERR_RTN_ORDER_INSERT", "CThostFtdcInputOrderField", "OnErrRtnOrderInsert",
+     {"payload_input": True}),
+    ("cached", "RSP_ORDER_ACTION", "CThostFtdcInputOrderActionField", "OnRspOrderAction",
+     {"cache": "input_action", "err_rsp": True}),
+    ("errrtn", "ERR_RTN_ORDER_ACTION", "CThostFtdcInputOrderActionField", "OnErrRtnOrderAction",
+     {"payload_input": True, "synth_action": True}),
     ("qry", "RSP_QRY_ORDER", "CThostFtdcOrderField", "OnRspQryOrder", {}),
     ("qry", "RSP_QRY_TRADE", "CThostFtdcTradeField", "OnRspQryTrade", {}),
     ("qry", "RSP_QRY_INVESTOR_POSITION", "CThostFtdcInvestorPositionField", "OnRspQryInvestorPosition", {}),
@@ -358,7 +366,25 @@ def gen_dispatch(api, rows, spi_type):
             out.append("}")
             out.append("")
         elif kind == "errrtn":
-            if opt.get("synth_action"):
+            if opt.get("payload_input"):
+                # Payload = the client's own input struct ++ RspInfoField: the
+                # success response has already consumed the pending entry, so the
+                # input must ride along (DESIGN §8.12, #42).
+                out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
+                out.append("    %s in{};" % struct)
+                out.append("    CThostFtdcRspInfoField rsp{};")
+                out.append("    const size_t n = sizeof(in);")
+                out.append("    if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);")
+                out.append("    if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));")
+                if opt.get("synth_action"):
+                    out.append("    CThostFtdcOrderActionField act{};")
+                    out.append("    synth_order_action(act, in);")
+                    out.append("    static_cast<%s*>(c.spi())->%s(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));" % (spi_type, fn))
+                else:
+                    out.append("    static_cast<%s*>(c.spi())->%s(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));" % (spi_type, fn))
+                out.append("}")
+                out.append("")
+            elif opt.get("synth_action"):
                 out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
                 out.append("    CThostFtdcRspInfoField rsp{};")
                 out.append("    payload_as(f, rsp);")
@@ -419,11 +445,13 @@ def gen_dispatch(api, rows, spi_type):
             out.append("    static_cast<%s*>(c.spi())->%s(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);" % (spi_type, fn))
             out.append("}")
             out.append("")
-        elif kind == "cached" and opt.get("err"):
-            out.append("static void %s_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending& pd) {"
+        elif kind == "cached" and opt.get("err_rsp"):
+            # the request failed at the front office (front-office half of a
+            # rejection): the callback answers NULL input + pRspInfo
+            # (DESIGN §8.12); the 错单回报 half never follows these codes.
+            out.append("static void %s_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {"
                        % ("row_%s" % fn))
-            out.append("    static_cast<%s*>(c.spi())->%s(const_cast<%s*>(&pd.%s), const_cast<CThostFtdcRspInfoField*>(&rsp));"
-                       % (spi_type, opt["err"], struct, opt["cache"]))
+            out.append("    static_cast<%s*>(c.spi())->%s(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);" % (spi_type, fn))
             out.append("}")
             out.append("")
 
@@ -441,7 +469,7 @@ def gen_dispatch(api, rows, spi_type):
             out.append("    {msgs::%s, &%s, &%s_last, &%s_err, %s}," % (msg, var, var, var, req_init))
         elif kind == "rsp":
             out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s}," % (msg, var, var, req_init))
-        elif kind == "cached" and opt.get("err"):
+        elif kind == "cached" and opt.get("err_rsp"):
             out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s}," % (msg, var, var, req_init))
         else:
             out.append("    {msgs::%s, &%s, nullptr, nullptr, %s}," % (msg, var, req_init))

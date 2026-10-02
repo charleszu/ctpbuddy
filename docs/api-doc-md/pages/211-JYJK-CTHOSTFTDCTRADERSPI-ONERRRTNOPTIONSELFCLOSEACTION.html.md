@@ -1,14 +1,29 @@
 # OnErrRtnOptionSelfCloseAction
 
-OnErrRtnOptionSelfCloseAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期权自对冲操作错误回报，当执行[ReqOptionSelfCloseAction](../CTHOSTFTDCTRADERAPI/REQOPTIONSELFCLOSEACTION.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnOptionSelfCloseAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期权自对冲操作错误回报，当执行[ReqOptionSelfCloseAction](pages/083-JYJK-CTHOSTFTDCTRADERAPI-REQOPTIONSELFCLOSEACTION.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="868b715c-8c8e-48f5-9129-738fb6d43d1a"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnOptionSelfCloseAction(CThostFtdcOptionSelfCloseActionField *pOptionSelfCloseAction, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="0f6c11df-693e-4a15-814d-7595002530bc"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pOptionSelfCloseAction：期权自对冲操作
 
@@ -96,10 +111,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="0e037f78-c28a-43cc-a737-f16be321a60d"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="d7d887a7-0095-4ae0-97af-77b8f6ffd8c5"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

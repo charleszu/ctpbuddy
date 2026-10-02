@@ -1,30 +1,48 @@
 # 大商所组保
 
-大商所组保
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+大商所组保<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 大商所期权上市后，为了更好的服务市场，大商所启动了期权六期项目，主要从行权功能优化、期权套保、组合保证金优惠三方面完善期权相关业务。
 
 大商所目前支持的组合有：期货对锁，期货跨期，期货跨品种，备兑买权，备兑卖权，期权跨式，期权宽跨式共7种，投保标志支持投机-投机，套保-套保，投机-套保，套保-投机共4种。
 
 本文主要就API针对组保业务的一些调整和特性做相关说明，具体业务规则请参考交易所文档。
+<a id="5c5a293a-6ea5-46a9-bef7-e17beea3ab07"></a><a id="title1"></a>
 
-◇ 1. 接口说明
+<a id="header_span1"></a>◇ 1. 接口说明
+<a id="panel1"></a>
 
-录入请求：[ReqCombActionInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQCOMBACTIONINSERT.html)
+录入请求：[ReqCombActionInsert](pages/075-JYJK-CTHOSTFTDCTRADERAPI-REQCOMBACTIONINSERT.html.md)
 
-错误响应：[OnErrRtnCombActionInsert](../JYJK/CTHOSTFTDCTRADERSPI/ONERRRTNCOMBACTIONINSERT.html)，[OnRspCombActionInsert](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPCOMBACTIONINSERT.html)
+错误响应：[OnErrRtnCombActionInsert](pages/206-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNCOMBACTIONINSERT.html.md)，[OnRspCombActionInsert](pages/225-JYJK-CTHOSTFTDCTRADERSPI-ONRSPCOMBACTIONINSERT.html.md)
 
-正确响应：[OnRtnCombAction](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNCOMBACTION.html)
+正确响应：[OnRtnCombAction](pages/306-JYJK-CTHOSTFTDCTRADERSPI-ONRTNCOMBACTION.html.md)
 
 注意，这些接口并非新增，而是大商所的组合业务复用了此接口。
 
-◇ 2. 可申请组合的合约
+<a id="89286195-b4b0-4458-8440-49f87503cc59"></a><a id="title2"></a>
 
-组合和拆分的合约为大商所组合优惠表中所列的合约，但目前CTP暂时不支持此优惠表的查询。在实际操作中，用户可通过[OnRspQryInstrument](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPQRYINSTRUMENT.html)或[OnRtnDepthMarketData](../HQJK/CTHOSTFTDCMDSPI/ONRTNDEPTHMARKETDATA.html)里返回的组合合约来填写。
+<a id="header_span2"></a>◇ 2. 可申请组合的合约
+<a id="panel2"></a>
+
+组合和拆分的合约为大商所组合优惠表中所列的合约，但目前CTP暂时不支持此优惠表的查询。在实际操作中，用户可通过[OnRspQryInstrument](pages/255-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINSTRUMENT.html.md)或[OnRtnDepthMarketData](pages/057-HQJK-CTHOSTFTDCMDSPI-ONRTNDEPTHMARKETDATA.html.md)里返回的组合合约来填写。
 
 目前的套利单合约（期货跨期和跨品种）基本都在大商所组合优惠表中。但是有一种情况，就是新合约上市，套利合约也是新合约的时候，当天是不包括在组合优惠表中的。
 
-◇ 3. 申请组合填写规则
+<a id="39a225c1-994f-4e2c-937a-4e7e2755fbbe"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 申请组合填写规则
+<a id="panel3"></a>
 
 - 合约（InstrumentID）：
 
@@ -94,15 +112,18 @@ k：期权对锁组合：组合买卖方向为买
 
 投机套保类型支持‘投机’（指左右两腿都是投机），‘保值’（指左右两腿都是套保），‘投套（指左腿投机右腿套保）’，‘套投（指左腿套保右腿投机）’。
 
-盘中的话，如果通过套利报单的话（[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)），是只支持投机-投机，套保-套保；如果是通过申请组合形成组合单的话，支持投机-投机，套保-套保，投机-套保，套保-投机。
+盘中的话，如果通过套利报单的话（[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)），是只支持投机-投机，套保-套保；如果是通过申请组合形成组合单的话，支持投机-投机，套保-套保，投机-套保，套保-投机。
 
 - 交易所（ExchangeID）
 
 该字段必填。
 
-◇ 4. 仓位计算规则
+<a id="2f87952d-2b9e-4597-a2f4-f63c24cc4a91"></a><a id="title4"></a>
 
-组合合约申请接受后，会将现有的两腿持仓组合到一起，形成组合持仓。此时，在持仓汇总（[OnRspQryInvestorPosition](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPQRYINVESTORPOSITION.html)）里会显示三条持仓记录，分别是新增的组合合约持仓，原多头合约持仓和原空头合约持仓。而持仓明细（[OnRspQryInvestorPositionDetail](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPQRYINVESTORPOSITIONDETAIL.html)）里不会新增组合合约记录。
+<a id="header_span4"></a>◇ 4. 仓位计算规则
+<a id="panel4"></a>
+
+组合合约申请接受后，会将现有的两腿持仓组合到一起，形成组合持仓。此时，在持仓汇总（[OnRspQryInvestorPosition](pages/260-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINVESTORPOSITION.html.md)）里会显示三条持仓记录，分别是新增的组合合约持仓，原多头合约持仓和原空头合约持仓。而持仓明细（[OnRspQryInvestorPositionDetail](pages/262-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINVESTORPOSITIONDETAIL.html.md)）里不会新增组合合约记录。
 
 1)  比如投资者在大商所买入1手“SP a0905&a0909”合约，形成的持仓汇总如下：
 
@@ -120,13 +141,18 @@ k：期权对锁组合：组合买卖方向为买
 | c1909-P-1680 | 0 | 1 |
 | c1909-C-2020 | 0 | 1 |
 
-◇ 5. 平仓盈亏计算和保证金释放计算原则
+<a id="52835f37-82e4-4ede-923e-68617cf8b4c7"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. 平仓盈亏计算和保证金释放计算原则
+<a id="panel5"></a>
 
 平仓盈亏计算和保证金释放计算原则如下：
 
 1）在计算平仓盈亏时，采用先开先平原则。
 
 2）在计算保证金释放时，采用先平单腿持仓，后平优惠组合持仓的原则，优惠组合按照优先级从低到高的顺序进行打破。
+
+<a id="anchor-id-10"></a>
 
 3）投资者持仓明细里面的TimeFirstVolume，是指大商所的持仓按照先开先平的平仓顺序平仓后的剩余手数
 
@@ -160,7 +186,10 @@ LastPrice*Position*VolumeMultiple
 
 ```
 
-◇ 6. 代码示例
+<a id="88394b6c-d757-4dd9-95bb-a1d4453547e0"></a><a id="title6"></a>
+
+<a id="header_span6"></a>◇ 6. 代码示例
+<a id="panel6"></a>
 
 场景：现有c1909-P-1680和c1909-C-2020各一手的投机卖仓，申请组合代码示例如下：
 
@@ -180,9 +209,20 @@ LastPrice*Position*VolumeMultiple
 
 ```
 
-◇ 7. FAQ
+<a id="885a4ac8-d2c7-441e-abc1-067be0257673"></a><a id="title7"></a>
 
-查询合约的时候发现合约id不全
+<a id="header_span7"></a>◇ 7. FAQ
+<a id="panel7"></a>
+
+<a id="region_header_1"></a>
+
+查询合约的时候发现合约id不全<a id="region_panel_1"></a>
 
 | 对于老版本api如果有查询组合合约，或者收到的组合合约id超过了30个字符，超过的部分会被截断，行情中也是如此。 |
 |---|
+
+<a id="region_tail_1"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,14 +1,29 @@
 # OnRspQryDepthMarketData
 
-OnRspQryDepthMarketData
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询行情响应，当执行[ReqQryDepthMarketData](../CTHOSTFTDCTRADERAPI/REQQRYDEPTHMARKETDATA.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryDepthMarketData<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询行情响应，当执行[ReqQryDepthMarketData](pages/096-JYJK-CTHOSTFTDCTRADERAPI-REQQRYDEPTHMARKETDATA.html.md)后，该方法被调用。
+<a id="7ce7400e-06c6-454d-8fa7-a2e57e80f537"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryDepthMarketData(CThostFtdcDepthMarketDataField *pDepthMarketData, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="3cbeacf4-73f6-4ae6-b658-83b67f12200f"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pDepthMarketData：深度行情
 
@@ -134,10 +149,20 @@ Turnover：成交金额。自6.7.2版本开始，普通行情前置front的郑�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="6f77ab54-dcda-4246-8cb5-4b28238d622d"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="fd231e01-8539-4dcb-97a6-8ed1520c0156"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

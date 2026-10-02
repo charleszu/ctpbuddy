@@ -1,18 +1,33 @@
 # ReqCancelOffsetSetting
 
-ReqCancelOffsetSetting
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-对冲设置撤销请求，对应响应：对冲设置撤销请求响应[OnRspCancelOffsetSetting](../CTHOSTFTDCTRADERSPI/ONRSPCANCELOFFSETSETTING.html),对冲设置通知[OnRtnOffsetSetting](../CTHOSTFTDCTRADERSPI/ONRTNOFFSETSETTING.html),对冲设置撤销错误回报[OnErrRtnCancelOffsetSetting](../CTHOSTFTDCTRADERSPI/ONERRRTNCANCELOFFSETSETTING.html)
+<a id="printArea"></a>
 
-大商所二阶段行权优化详见[大商所行权优化二阶段业务](../../QTYWGZ/DSSHQYHEJDYW.html)
+<a id="file_header"></a>
+
+ReqCancelOffsetSetting<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+对冲设置撤销请求，对应响应：对冲设置撤销请求响应[OnRspCancelOffsetSetting](pages/362-JYJK-CTHOSTFTDCTRADERSPI-ONRSPCANCELOFFSETSETTING.html.md),对冲设置通知[OnRtnOffsetSetting](pages/363-JYJK-CTHOSTFTDCTRADERSPI-ONRTNOFFSETSETTING.html.md),对冲设置撤销错误回报[OnErrRtnCancelOffsetSetting](pages/365-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNCANCELOFFSETSETTING.html.md)
+
+大商所二阶段行权优化详见[大商所行权优化二阶段业务](pages/404-QTYWGZ-DSSHQYHEJDYW.html.md)
 
 **注意：该接口仅适用大商所。**
+<a id="4d607efb-21ce-4458-a9de-27f8e346c2ac"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqCancelOffsetSetting(CThostFtdcInputOffsetSettingField *pInputOffsetSetting, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="906836e7-0e93-4332-ba07-2bd523fd2af0"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOffsetSetting：输入的对冲设置
 
@@ -34,7 +49,10 @@ pInputOffsetSetting：输入的对冲设置
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="60e6b200-73cb-4365-a6b5-033967bef93e"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -44,7 +62,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="ae7495b1-1c82-429a-acab-1cd4b7ffa511"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcInputOffsetSettingField a = { 0 };
@@ -57,6 +78,13 @@ m_pUserApi->ReqCancelOffsetSetting(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="0b6f7ce6-db67-41f0-842a-75e54c53248c"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

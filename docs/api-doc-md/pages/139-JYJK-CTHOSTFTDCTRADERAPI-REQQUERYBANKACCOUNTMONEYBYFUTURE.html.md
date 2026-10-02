@@ -1,18 +1,33 @@
 # ReqQueryBankAccountMoneyByFuture
 
-ReqQueryBankAccountMoneyByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQueryBankAccountMoneyByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 期货发起查询银行余额请求
 
-错误响应: [OnRspQueryBankAccountMoneyByFuture](../CTHOSTFTDCTRADERSPI/ONRSPQUERYBANKACCOUNTMONEYBYFUTURE.html)
+错误响应: [OnRspQueryBankAccountMoneyByFuture](pages/290-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQUERYBANKACCOUNTMONEYBYFUTURE.html.md)
 
-正确响应: [OnRtnQueryBankBalanceByFuture](../CTHOSTFTDCTRADERSPI/ONRTNQUERYBANKBALANCEBYFUTURE.html)
+正确响应: [OnRtnQueryBankBalanceByFuture](pages/318-JYJK-CTHOSTFTDCTRADERSPI-ONRTNQUERYBANKBALANCEBYFUTURE.html.md)
+<a id="82403fc2-9446-4a93-854b-8b73ccf312e9"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQueryBankAccountMoneyByFuture(CThostFtdcReqQueryAccountField *pReqQueryAccount, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="0c871195-ae81-4788-b2a4-9ccdf2940f7f"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pReqQueryAccount：查询账户信息请求
 
@@ -105,13 +120,18 @@ InstallID：ctp内部使用，不用填
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
+<a id="anchor-id-01"></a>
+
 Brokerid:必填项
 
 InvestorID:必填项
 
 UserID:必填项
 
-◇ 3. 返回
+<a id="bc7adfa8-42f1-47a6-bade-ee1643d0d3f0"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -121,10 +141,20 @@ UserID:必填项
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="a5e72942-cc11-44b1-9474-a832608f835d"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="7bc029eb-793e-4c80-83cc-52693ab35664"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,18 +1,33 @@
 # OnRtnTrade
 
-OnRtnTrade
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRtnTrade<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 成交通知，报单发出后有成交则通过此接口返回。私有流
 
-详见[报单回调规则](../../QTYWGZ/DBHB.html)
+详见[报单回调规则](pages/389-QTYWGZ-DBHB.html.md)
 
-关于Tas的说明详见[TAS介绍](../../QTYWGZ/TASJS.html)
+关于Tas的说明详见[TAS介绍](pages/398-QTYWGZ-TASJS.html.md)
+<a id="4eb51202-c027-401f-91fb-20b387d9370d"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnTrade(CThostFtdcTradeField *pTrade) {};
 
-◇ 2. 参数
+<a id="4fd00a0d-30b1-4673-9e46-354f1e64a8db"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pTrade：成交
 
@@ -89,21 +104,37 @@ struct CThostFtdcTradeField
 
 ```
 
-TradeType：成交类型，[报价中的情况](../../qtywgz/bjhxj.html#anchor-id-02)
+TradeType：成交类型，[报价中的情况](pages/388-QTYWGZ-BJHXJ.html.md#anchor-id-02)
 
-◇ 3. 返回
+<a id="18af9b62-5e7f-4bbd-a05b-f017ef65cc9e"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="15865782-53c8-47e3-83b0-10508ae80c7b"></a><a id="title4"></a>
 
-不同交易所，为什么TradeDate有的是自然日有的是交易日？
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
+
+<a id="anchor-id-10"></a>
+
+<a id="region_header_1"></a>
+
+不同交易所，为什么TradeDate有的是自然日有的是交易日？<a id="region_panel_1"></a>
 
 | TradeDate字段，大商所、郑商所回报中该字段为交易日；上期所、能源回报为自然日。
 建议确认一笔成交的时间用Tradingday+TradeTime这一组字段。 |
 |---|
 
-成交中的，PriceSource（成交价来源）是什么意思？
+<a id="region_tail_1"></a>
+
+<a id="anchor-id-11"></a>
+
+<a id="region_header_2"></a>
+
+成交中的，PriceSource（成交价来源）是什么意思？<a id="region_panel_2"></a>
 
 | 报单撮合产生的最新成交价取买价、卖价及前成交价三者居中的价格。
 买价≥卖价≥前成交价, 最新成交价=卖价
@@ -111,3 +142,9 @@ TradeType：成交类型，[报价中的情况](../../qtywgz/bjhxj.html#anchor-i
 前成交价≥买价≥卖价, 最新成交价=买价
 和头文件的三个枚举值匹配 |
 |---|
+
+<a id="region_tail_2"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

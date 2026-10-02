@@ -1,8 +1,18 @@
 # OnRspQryInvestorPosition
 
-OnRspQryInvestorPosition
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询投资者持仓响应，当执行[ReqQryInvestorPosition](../CTHOSTFTDCTRADERAPI/REQQRYINVESTORPOSITION.html)后，该方法被调用。
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRspQryInvestorPosition<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询投资者持仓响应，当执行[ReqQryInvestorPosition](pages/109-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPOSITION.html.md)后，该方法被调用。
 
 CTP 系统将持仓明细记录按合约，持仓方向，开仓日期（仅针对上期所，区分昨仓、今仓）进行汇总。
 
@@ -10,13 +20,18 @@ CTP 系统将持仓明细记录按合约，持仓方向，开仓日期（仅针�
 
 买可平数量=空头仓-longfrozen
 
-关于Tas的说明详见[TAS介绍](../../QTYWGZ/TASJS.html)
+关于Tas的说明详见[TAS介绍](pages/398-QTYWGZ-TASJS.html.md)
+<a id="81146c57-877e-437c-9836-76cad656b446"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInvestorPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="d6f7711f-5a16-4275-b3e8-47e3f3cd766e"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInvestorPosition：投资者持仓
 
@@ -143,7 +158,11 @@ YdStrikeFrozen：该字段是给个股期权用的，期货期权里一直保持
 
 PositionCost：持仓成本=上日持仓 * 昨结算价 * 合约乘数 + SUM（今日持仓 * 开仓价 * 合约乘数）
 
+<a id="anchor-id-02"></a>
+
 PositionDate：持仓日期（用于区分上海和能源的仓是今仓还是昨仓）
+
+<a id="anchor-id-03"></a>
 
 OpenAmount:开仓金额（所有开仓单的金额累加用于计算开仓手续费）开仓金额是当天一直累加，即使仓位平掉了手续费也要计算。
 
@@ -174,19 +193,39 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="116a82e6-09f0-40f3-a516-9472d5e7de27"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="d9d22a52-2d25-407f-94e9-a8bc2837d0c2"></a><a id="title4"></a>
 
-投资者发现自己账号里面莫名其妙多了一条“PRT SR711&SR711C6000"的持仓，是什么原因？
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
+
+<a id="region_header_1"></a>
+
+投资者发现自己账号里面莫名其妙多了一条“PRT SR711&SR711C6000"的持仓，是什么原因？<a id="region_panel_1"></a>
 
 | 这个合约是郑商所跨式，宽跨式期权组合合约。此合约不需要投资者使用特别的指令构建，只要客户持有可以构成备兑期权组合的持仓。在每日结算的时候，郑商所会将符合条件的期权和期货持仓自动确认为备兑期权套利持仓，包括备兑看涨期权套利和备兑看跌期权套利，并给予保证金优惠。
 对于此期权合约，投资者需要分腿平仓，不需要管这个是否为备兑组合。 |
 |---|
 
-各大交易所保证金的单边收取规则有的是盘中生效，有的是结算后生效。那查询的持仓中的保证金占用是否有区别？
+<a id="region_tail_1"></a>
+
+<a id="anchor-id-01"></a>
+
+<a id="region_header_2"></a>
+
+各大交易所保证金的单边收取规则有的是盘中生效，有的是结算后生效。那查询的持仓中的保证金占用是否有区别？<a id="region_panel_2"></a>
 
 | 查询后的结果都是按照优惠收取。 |
 |---|
+
+<a id="region_tail_2"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

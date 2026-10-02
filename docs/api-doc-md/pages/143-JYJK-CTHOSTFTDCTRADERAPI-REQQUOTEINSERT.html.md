@@ -1,26 +1,41 @@
 # ReqQuoteInsert
 
-ReqQuoteInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报价录入请求，如果出错，则返回响应[OnRspQuoteInsert](../CTHOSTFTDCTRADERSPI/ONRSPQUOTEINSERT.html)和[OnErrRtnQuoteInsert](../CTHOSTFTDCTRADERSPI/ONERRRTNQUOTEINSERT.html)；正确则推送[OnRtnQuote](../CTHOSTFTDCTRADERSPI/ONRTNQUOTE.html)、[OnRtnOrder](../CTHOSTFTDCTRADERSPI/ONRTNORDER.html)和[OnRtnTrade](../CTHOSTFTDCTRADERSPI/ONRTNTRADE.html)。
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQuoteInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报价录入请求，如果出错，则返回响应[OnRspQuoteInsert](pages/293-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQUOTEINSERT.html.md)和[OnErrRtnQuoteInsert](pages/217-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNQUOTEINSERT.html.md)；正确则推送[OnRtnQuote](pages/319-JYJK-CTHOSTFTDCTRADERSPI-ONRTNQUOTE.html.md)、[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)和[OnRtnTrade](pages/326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html.md)。
 
 单边报价和双边报价，都是用一个接口 ReqQuoteInsert。
 
 在单边报价的时候，只需要另一边的数量填0，交易核心就能区分开。另外，无论是单边还是双边，Ask/BidOrderRef都是要填的。
 
-除上期所的期货合约使用[ReqOrderInsert](REQORDERINSERT.html)接口报价，其他交易所均使用本接口报价。
+除上期所的期货合约使用[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)接口报价，其他交易所均使用本接口报价。
 
-详见[做市商询价和报价](../../QTYWGZ/BJHXJ.html)
+详见[做市商询价和报价](pages/388-QTYWGZ-BJHXJ.html.md)
 
-回调规则详见[报价回调规则](../../QTYWGZ/DJHDGZ.html)
+回调规则详见[报价回调规则](pages/391-QTYWGZ-DJHDGZ.html.md)
 
-关于接口中的重要序号说明详见[接口中一些重要序号说明](../../QTYWGZ/JKZYXZYXHSM.html)
+关于接口中的重要序号说明详见[接口中一些重要序号说明](pages/401-QTYWGZ-JKZYXZYXHSM.html.md)
+<a id="6f292b8b-a627-439a-b3f0-ab82a514f9bf"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQuoteInsert(CThostFtdcInputQuoteField *pInputQuote, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="906d3985-6f41-4dbf-9ff5-308cb17860aa"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputQuote：输入的报价
 
@@ -74,7 +89,10 @@ SessionReqSeq：一个session中，一笔业务流程周期中唯一序号，此
 
 OrderMemo：该字段CTP不做任何处理，即终端填写什么CTP就返回什么。可以用来给多账户系统做标记用。
 
-◇ 3. 返回
+<a id="fbd407eb-5a96-42eb-9dca-5145a980a1da"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -84,7 +102,10 @@ OrderMemo：该字段CTP不做任何处理，即终端填写什么CTP就返回�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4.示例调用
+<a id="14d524d2-b334-444d-8d8c-38ec1b47eb0a"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4.示例调用
+<a id="panel4"></a>
 
 ```
 CThostFtdcInputQuoteField t = { 0 };
@@ -109,19 +130,32 @@ m_pUserApi->ReqQuoteInsert(&t, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="ec8a2949-67ca-4aee-8680-9495c00eabe9"></a><a id="title5"></a>
 
-询价时报：“没有该合约的做市商”？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="region_header_1"></a>
+
+询价时报：“没有该合约的做市商”？<a id="region_panel_1"></a>
 
 | 这是因为询价合约不对，目前期权合约可以参加询价。 |
 |---|
 
-询价时报：“CTP：当前时间禁止询价”？
+<a id="region_tail_1"></a>
+
+<a id="region_header_2"></a>
+
+询价时报：“CTP：当前时间禁止询价”？<a id="region_panel_2"></a>
 
 | 这是因为期货公司一般把询价限制时间设置为60秒询价一次，周期内不能多次询价。 |
 |---|
 
-询价时报：“CTP：当前价差禁止询价”？
+<a id="region_tail_2"></a>
+
+<a id="region_header_3"></a>
+
+询价时报：“CTP：当前价差禁止询价”？<a id="region_panel_3"></a>
 
 | 经纪公司代码 | 合约代码 | 交易所代码 | 最新价 | 价差 |
 |---|---|---|---|---|
@@ -143,12 +177,20 @@ m_pUserApi->ReqQuoteInsert(&t, nRequestID++);
 | 1008 | SRC | CZCE | 500 | 75 | 75 |
 |---|---|---|---|---|---|
 
-“非法的做市商响应”是什么原因？
+<a id="region_tail_3"></a>
+
+<a id="region_header_4"></a>
+
+“非法的做市商响应”是什么原因？<a id="region_panel_4"></a>
 
 | 这可能是所用交易编码非做市商专用所致。 |
 |---|
 
-各家交易所第二次报价是否会撤销第一次报价？
+<a id="region_tail_4"></a>
+
+<a id="region_header_5"></a>
+
+各家交易所第二次报价是否会撤销第一次报价？<a id="region_panel_5"></a>
 
 | 中金所：不会撤销
 大商所：不会撤销
@@ -156,10 +198,20 @@ m_pUserApi->ReqQuoteInsert(&t, nRequestID++);
 上期所：会撤销 |
 |---|
 
-各家交易所使用的报价接口是否一样？
+<a id="region_tail_5"></a>
+
+<a id="region_header_6"></a>
+
+各家交易所使用的报价接口是否一样？<a id="region_panel_6"></a>
 
 | 中金所：只有期权做市商,使用ReqQuoteInsert
 大商所：使用ReqQuoteInsert
 郑商所：使用ReqQuoteInsert
 上期所：期货合约使用ReqOrderInsert，期权合约使用ReqQuoteInsert |
 |---|
+
+<a id="region_tail_6"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

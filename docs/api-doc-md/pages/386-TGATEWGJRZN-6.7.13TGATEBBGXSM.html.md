@@ -1,13 +1,29 @@
 # 6.7.13TGate版本更新说明
 
-6.7.13TGate版本更新说明
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+6.7.13TGate版本更新说明<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 版本号：v6.7.13_20260205  9:55:14.11919
 
 后台版本：V6.7.13
 
 变更说明：此版本做了交易网关tgateAPI的评测与生产版本合并，若不修改默认模式，默认接入的是红区生产版本。
+<a id="1f9b8df5-a784-4230-91f8-df13e05da64e"></a><a id="title1"></a>
 
-◇ 1. API变动
+<a id="header_span1"></a>◇ 1. API变动
+<a id="panel1"></a>
 
 windows版本TgateAPI的OpenSSL库升级至v1.1.1w版本，解决多实例并发场景下API偶发性崩溃的问题。
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

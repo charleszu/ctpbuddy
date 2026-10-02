@@ -1,18 +1,35 @@
 # TGate网关接入指南
 
-TGate网关接入指南
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-◇ 1. TGate简介
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+TGate网关接入指南<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **<a id="0355812e-4b94-4a32-ba1a-2e9cc0b1719f"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. TGate简介
+<a id="panel1"></a>
 
 TGate(CTP交易网关)是CTP fens组件的全新换代，相较于fens有着更轻量、客户端适配成本低、易维护、易使用等优点。用户可以通过查询的方式实时获取其所在中心可接入的服务地址信息，包括交易、行情、银期转账等服务地址，灵活设计策略选择地址。即使盘中切换了交易中心，客户端可自动快速获取新的地址接入。
 
-◇ 2. TGate接入场景
+<a id="c3362c96-0414-46ff-9deb-05deb7dbe828"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. TGate接入场景
+<a id="panel2"></a>
 
 TGate连接CTP获取全量各中心前置地址列表以及用户与交易中心对应关系。配套提供的TGateAPi为终端实现统一接入管理提供完整的解决方案。用户终端通过TGateAPi连接TGate发起查询前置地址请求，无需登录，TGate根据客户请求返回所在交易中心全部可接入的服务地址。
 
 无论客户是在CTP次中心，还是在异构分中心做交易，只需将其可连接的前置地址维护在CTP柜台，终端通过TGate获取地址列表，不必再做过滤即可接入所在中心的交易系统。即使盘中发生交易中心切换，对于终端也只需重新获取一次地址列表，重新连接即可，省略繁琐的站点切换。
 
-◇ 3. 接口文件列表
+<a id="dc406d27-255f-444c-9d70-0db8654e46a3"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 接口文件列表
+<a id="panel3"></a>
 
 | 文件名 | 详情 |
 |---|---|
@@ -25,7 +42,10 @@ TGate连接CTP获取全量各中心前置地址列表以及用户与交易中心
 | error.xml |  |
 | FTD_tgateapi.xml | FTD协议中用到的各种包和域 |
 
-◇ 4. TGateApi使用介绍
+<a id="1bae909a-bf6e-4a1c-9101-125082d03f33"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. TGateApi使用介绍
+<a id="panel4"></a>
 
 新增TGateAPI实现终端与交易网关的接入与通讯。
 
@@ -41,13 +61,16 @@ TGateAPI提供了两个接口，分别为CTGateFtdcApi和CTGateFtdcSpi。这两�
 
 在途查询流控为1笔
 
-[Release](../JYJK/CTHOSTFTDCTRADERAPI/RELEASE.html)不是线程安全的，多线程使用需要加锁
+[Release](pages/072-JYJK-CTHOSTFTDCTRADERAPI-RELEASE.html.md)不是线程安全的，多线程使用需要加锁
 
 API请求的输入参数不能为 NULL。
 
 API请求的返回参数，0表示正确，其他表示错误。
 
-◇ 5. TGateApi示例
+<a id="40d4d6ea-5639-4e10-9271-78ad81701988"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. TGateApi示例
+<a id="panel5"></a>
 
 本次API新增一个查询接口ReqQryTGIpAddrParam，入参BrokerID、UserID要求必填。
 
@@ -104,3 +127,7 @@ API请求的返回参数，0表示正确，其他表示错误。
 ```
 
   注意：连到非tgate地址，会返回-4 "API验证失败"的报错
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

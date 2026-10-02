@@ -1,16 +1,31 @@
 # OnRspQuoteInsert
 
-OnRspQuoteInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报价录入请求响应，当执行[ReqQuoteInsert](../CTHOSTFTDCTRADERAPI/REQQUOTEINSERT.html)后有字段填写不对之类的CTP报错则通过此接口返回。
+<a id="printArea"></a>
 
-详见[做市商询价和报价](../../QTYWGZ/BJHXJ.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnRspQuoteInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报价录入请求响应，当执行[ReqQuoteInsert](pages/143-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEINSERT.html.md)后有字段填写不对之类的CTP报错则通过此接口返回。
+
+详见[做市商询价和报价](pages/388-QTYWGZ-BJHXJ.html.md)
+<a id="251b36af-9b80-4186-83bc-4762a4e0aba5"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQuoteInsert(CThostFtdcInputQuoteField *pInputQuote, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="0ea9bfd9-81a6-4b15-9464-3b2299057eca"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputQuote：输入的报价
 
@@ -98,10 +113,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="15ba4370-459d-42b9-af43-50ae2d1a7d20"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="45f05758-0c55-482d-968f-c3baa50d4e89"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

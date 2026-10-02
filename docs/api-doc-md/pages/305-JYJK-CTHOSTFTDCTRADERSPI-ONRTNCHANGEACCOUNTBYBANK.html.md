@@ -1,14 +1,29 @@
 # OnRtnChangeAccountByBank
 
-OnRtnChangeAccountByBank
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRtnChangeAccountByBank<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 银行发起变更银行账号通知，无Req属于私有流回报
+<a id="dc27cc34-141e-40f4-a92a-a056e1bd6443"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnChangeAccountByBank(CThostFtdcChangeAccountField *pChangeAccount) {};
 
-◇ 2. 参数
+<a id="a9f204aa-75ef-4e27-b1e8-6c9aa17631f7"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pChangeAccount：银期变更银行账号信息
 
@@ -113,10 +128,20 @@ BrokerBranchID：一般为空
 
 InstallID：CTP内部使用
 
-◇ 3. 返回
+<a id="9fbe9e3c-5fc3-4d4f-b2ca-5f8e19bf5192"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="c7c9bb19-7289-441b-95f7-54419428c214"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

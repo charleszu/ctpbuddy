@@ -1,16 +1,31 @@
 # RegisterFensUserInfo
 
-RegisterFensUserInfo
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-注册名字服务器用户信息，调用[RegisterNameServer](REGISTERNAMESERVER.html)前需要先使用[RegisterFensUserInfo](../../HQJK/CTHOSTFTDCMDAPI/REGISTERFENSUSERINFO.html)设置登录模式。
+<a id="printArea"></a>
 
-详见[fens连接说明](../../QTYWGZ/FENS.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+RegisterFensUserInfo<a id="content"></a>
 
-virtual void [RegisterFensUserInfo](../../HQJK/CTHOSTFTDCMDAPI/REGISTERFENSUSERINFO.html)(CThostFtdcFensUserInfoField * pFensUserInfo) = 0;
+<a id="left_menu"></a>
 
-◇ 2. 参数
+  ** **
+
+注册名字服务器用户信息，调用[RegisterNameServer](pages/069-JYJK-CTHOSTFTDCTRADERAPI-REGISTERNAMESERVER.html.md)前需要先使用[RegisterFensUserInfo](pages/033-HQJK-CTHOSTFTDCMDAPI-REGISTERFENSUSERINFO.html.md)设置登录模式。
+
+详见[fens连接说明](pages/393-QTYWGZ-FENS.html.md)
+<a id="96085fba-4354-4116-aebe-a712a43a5987"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
+
+virtual void [RegisterFensUserInfo](pages/033-HQJK-CTHOSTFTDCMDAPI-REGISTERFENSUSERINFO.html.md)(CThostFtdcFensUserInfoField * pFensUserInfo) = 0;
+
+<a id="de7f4013-54ba-412a-8a67-eafbfef3dec0"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 CThostFtdcFensUserInfoField：Fens用户信息
 
@@ -22,11 +37,17 @@ CThostFtdcFensUserInfoField：Fens用户信息
 
 LoginMode：填写THOST_FTDC_LM_Trade
 
-◇ 3. 返回
+<a id="b8a4d66b-a4ce-4e55-844d-8d2d1fb6c45d"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 无
 
-◇ 4. 调用示例
+<a id="ac4af966-038a-4d63-acfa-429c1bf28ac4"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcTraderApi *pUserApi = CThostFtdcTraderApi::CreateFtdcTraderApi("F:\\flow\\");
@@ -45,6 +66,13 @@ pUserApi->Init();
 
 ```
 
-◇ 5. FAQ
+<a id="151807c2-9518-483d-946d-bb0292ff6abf"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

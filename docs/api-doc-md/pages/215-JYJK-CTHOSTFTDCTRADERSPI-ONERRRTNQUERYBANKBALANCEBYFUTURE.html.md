@@ -1,14 +1,29 @@
 # OnErrRtnQueryBankBalanceByFuture
 
-OnErrRtnQueryBankBalanceByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期货发起查询银行余额错误回报，当执行[ReqQueryBankAccountMoneyByFuture](../CTHOSTFTDCTRADERAPI/REQQUERYBANKACCOUNTMONEYBYFUTURE.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnQueryBankBalanceByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期货发起查询银行余额错误回报，当执行[ReqQueryBankAccountMoneyByFuture](pages/139-JYJK-CTHOSTFTDCTRADERAPI-REQQUERYBANKACCOUNTMONEYBYFUTURE.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="b1feedbf-c8c1-4669-bcac-b2c272e5fa4a"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnQueryBankBalanceByFuture(CThostFtdcReqQueryAccountField *pReqQueryAccount, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="ebb3d357-0919-4dba-af5d-ce193359a5ad"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pReqQueryAccount：查询账户信息请求
 
@@ -120,10 +135,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="6c4ab3b6-0aa9-42e8-9122-8749070f43e1"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="f3e246dc-add5-4210-976d-a16aae666f44"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

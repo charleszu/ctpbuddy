@@ -1,14 +1,29 @@
 # SubmitUserSystemInfo
 
-SubmitUserSystemInfo
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+SubmitUserSystemInfo<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 上报用户终端信息，用于中继服务器操作员登录模式，操作员登录后，可以多次调用该接口上报不同客户信息。
+<a id="db515e5f-7cf2-404c-83bd-b2db17ba5542"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int SubmitUserSystemInfo(CThostFtdcUserSystemInfoField *pUserSystemInfo) = 0;
 
-◇ 2. 参数
+<a id="8c9c582a-091b-40f1-8f9e-d0bf726320a2"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pUserSystemInfo：用户系统信息
 
@@ -38,7 +53,10 @@ ClientLoginTime：用户登录中继时间，由中继服务器采集和填写
 
 ClientAppid：用户终端的appid，由中继服务器采集和填写
 
-◇ 3. 返回
+<a id="b7699f3a-d486-4329-8443-f2bf090fc7ba"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0 正确
 
@@ -52,9 +70,14 @@ ClientAppid：用户终端的appid，由中继服务器采集和填写
 
 -6 采集结果字段错误
 
+<a id="anchor-id-01"></a>
+
 -7 采集库的版本类型和生产库的不一致
 
-◇ 4. 调用示例
+<a id="cbc41c9c-b643-449b-b03c-f932e0e78fcd"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 //一对多中继终端使用方法
 
@@ -92,20 +115,39 @@ char pSystemInfo[344];
 
 ```
 
-◇ 5. FAQ
+<a id="d604bdd8-95fb-43c2-8a2e-3e4270836138"></a><a id="title5"></a>
 
-采集信息上报时候总是提示operation not permitted，这是为什么？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="region_header_1"></a>
+
+采集信息上报时候总是提示operation not permitted，这是为什么？<a id="region_panel_1"></a>
 
 | 如果提示operation not permitted，可能是AppID类型错误。例如，直连模式的AppID，却错误调用了SubmitUserSystemInfo。
 此错误不会通过特定接口返回，只在标准输出中提示，例如直接在屏幕上打印出来。 |
 |---|
 
-不上报采集信息，会影响登录吗？
+<a id="region_tail_1"></a>
+
+<a id="region_header_2"></a>
+
+不上报采集信息，会影响登录吗？<a id="region_panel_2"></a>
 
 | 不影响登录，CTP不做控制，但这样不符合监管要求。 |
 |---|
 
-一对多模式下，如果认证成功后，密码输错导致登录失败了，是否要退出登录，重新认证和登录？
+<a id="region_tail_2"></a>
+
+<a id="region_header_3"></a>
+
+一对多模式下，如果认证成功后，密码输错导致登录失败了，是否要退出登录，重新认证和登录？<a id="region_panel_3"></a>
 
 | 要退出登录，重新认证和登录。否则继续登录的话会导致submitusersysinfo调用失败！ |
 |---|
+
+<a id="region_tail_3"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,14 +1,29 @@
 # OnRtnErrorConditionalOrder
 
-OnRtnErrorConditionalOrder
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRtnErrorConditionalOrder<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 提示条件单校验错误。
+<a id="b01b1ae7-7b0e-4d4a-a93e-e9659f98bcf8"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnErrorConditionalOrder(CThostFtdcErrorConditionalOrderField *pErrorConditionalOrder) {};
 
-◇ 2. 参数
+<a id="f9c5905c-abd8-48ef-b076-0a65b0e5948a"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pErrorConditionalOrder：查询错误报单操作
 
@@ -173,10 +188,20 @@ TraderID：是席位号
 
 ActiveUserID：是ctp内部使用字段，建议投资者不要使用
 
-◇ 3. 返回
+<a id="95fcf369-5f79-49f6-aca8-9d67b2ee2d97"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="6ad64db6-91b9-4fe5-9bdf-52b2289bf355"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

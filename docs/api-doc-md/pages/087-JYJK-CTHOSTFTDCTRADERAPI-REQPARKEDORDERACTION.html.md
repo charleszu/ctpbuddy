@@ -1,16 +1,31 @@
 # ReqParkedOrderAction
 
-ReqParkedOrderAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqParkedOrderAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 预埋撤单录入请求
 
-响应: [OnRspParkedOrderAction](../CTHOSTFTDCTRADERSPI/ONRSPPARKEDORDERACTION.html)
+响应: [OnRspParkedOrderAction](pages/238-JYJK-CTHOSTFTDCTRADERSPI-ONRSPPARKEDORDERACTION.html.md)
+<a id="93b6fca1-633b-4f23-be21-3f7051c12247"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqParkedOrderAction(CThostFtdcParkedOrderActionField *pParkedOrderAction, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="3a343f2b-7e9e-4e9f-911d-56d726c83989"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pParkedOrderAction：输入预埋单操作
 
@@ -59,7 +74,10 @@ IPAddress：手工填写本机IP地址，不自动获取。填写规则如下：
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="39cd07d9-2a20-415f-b590-1e0f5e292243"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -69,7 +87,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="2b0536ba-bf24-4b74-aa2c-c3b09ccf6040"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcParkedOrderActionField a = { 0 };
@@ -84,6 +105,13 @@ m_pUserApi->ReqParkedOrderAction(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="b67d9f78-5845-4dad-87fb-47ce33f8edf9"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

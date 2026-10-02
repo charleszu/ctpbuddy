@@ -50,6 +50,7 @@ from .journal import (
 )
 from .sdk import Admin, Client, CTPError
 from .scenario import load_scenario_spec
+from .wire import ERR_RTN_ORDER_INSERT
 
 #: Journal events that are inputs to a replay (requests + the tick trace).
 REPLAYABLE_TYPES = frozenset({
@@ -63,6 +64,9 @@ REPLAYABLE_TYPES = frozenset({
 _ADMIN_INPUTS = frozenset({"reset_account", "deposit", "withdraw", "settle", "admin"})
 
 _STEP_TIMEOUT = 20.0
+#: How long a replay waits for the post-response 错单回报 half of a
+#: rejection (DESIGN §8.12) before judging an instruction accepted.
+_REPLAY_RTN_WAIT = 2.0
 
 
 class ReplayError(Exception):
@@ -359,9 +363,17 @@ class _Walker:
             min_volume=int(d.get("min_volume", 1)),
         )
         ref = kw["order_ref"] or "?"
+        cli.clear_late()
         try:
             cli.order_insert(**kw)
             _drain(cli)
+            # the exchange half of a rejection lands AFTER the front-office
+            # success Rsp (DESIGN §8.12): wait for it before judging the
+            # replay's outcome -- replaying the journal must reproduce not
+            # just the recorded core stream but the visible push surface.
+            late = cli.wait_late(ERR_RTN_ORDER_INSERT, timeout=_REPLAY_RTN_WAIT)
+            if late is not None:
+                raise CTPError.from_frame(late)
         except CTPError as e:
             if expected_accepted:
                 self.problems.append(

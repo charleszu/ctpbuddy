@@ -1,14 +1,29 @@
 # ReqSettlementInfoConfirm
 
-ReqSettlementInfoConfirm
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-投资者结算结果确认，在开始每日交易前都需要先确认上一日结算单，只需要确认一次。对应响应[OnRspSettlementInfoConfirm](../CTHOSTFTDCTRADERSPI/ONRSPSETTLEMENTINFOCONFIRM.html)。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+ReqSettlementInfoConfirm<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+投资者结算结果确认，在开始每日交易前都需要先确认上一日结算单，只需要确认一次。对应响应[OnRspSettlementInfoConfirm](pages/296-JYJK-CTHOSTFTDCTRADERSPI-ONRSPSETTLEMENTINFOCONFIRM.html.md)。
+<a id="ff8e6774-6c9d-4992-b0f5-daa3c175aca2"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqSettlementInfoConfirm(CThostFtdcSettlementInfoConfirmField *pSettlementInfoConfirm, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="8037dc0a-d89e-4324-a31f-20e22ed686fb"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pSettlementInfoConfirm：投资者结算结果确认信息
 
@@ -24,7 +39,10 @@ pSettlementInfoConfirm：投资者结算结果确认信息
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="2b008d28-96f1-4620-a798-18026622ad9f"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -34,7 +52,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="472e7d0c-770f-447d-97ca-c4a08d74dca3"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcSettlementInfoConfirmField Confirm = { 0 };
@@ -44,6 +65,13 @@ m_pUserApi->ReqSettlementInfoConfirm(&Confirm, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="3eae68e4-c089-4a26-aa7c-225bd69f06e4"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

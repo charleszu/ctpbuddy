@@ -1,30 +1,45 @@
 # 报单回调规则
 
-报单回调规则
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+报单回调规则<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 本文例举了一些常用的报单操作所对应的回调规则。在给定交易所报单回报顺序的前提下，CTP返回给API的回调顺序是固定的。
 
 目前大商所的回报比较特殊，当一笔委托全部成交后，大商所直接返回该笔委托的成交回报，而不返回状态为全部成交的报单回报，对于这种情况，CTP会补一个状态为全部成交的报单回报，下文会举例说明。
+<a id="83e83128-4499-44fc-9f39-b766db31322e"></a><a id="title1"></a>
 
-◇ 1. 术语说明
+<a id="header_span1"></a>◇ 1. 术语说明
+<a id="panel1"></a>
 
 - 报单回报
 
-指报单的状态回报，有未知单报单回报、未成交报单回报、部分成交报单回报、全部成交报单回报和撤单回报。对应回调函数[OnRtnOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNORDER.html)，以OrderStatus字段区分。
+指报单的状态回报，有未知单报单回报、未成交报单回报、部分成交报单回报、全部成交报单回报和撤单回报。对应回调函数[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)，以OrderStatus字段区分。
 
 - 成交回报
 
-指报单成交后推送的成交回报，对应回调函数[OnRtnTrade](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNTRADE.html)。
+指报单成交后推送的成交回报，对应回调函数[OnRtnTrade](pages/326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html.md)。
 
 - 错单响应
 
-指报单被CTP拒绝后返回的响应通知，对应回调函数[OnRspOrderInsert](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPORDERINSERT.html)，其中ErrorID和ErrorMsg指明了错误原因。
+指报单被CTP拒绝后返回的响应通知，对应回调函数[OnRspOrderInsert](pages/237-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERINSERT.html.md)，其中ErrorID和ErrorMsg指明了错误原因。
 
 - 错单回报
 
-指报单被CTP或交易所拒绝后的报单的状态回报。对应回调函数[OnErrRtnOrderInsert](../JYJK/CTHOSTFTDCTRADERSPI/ONERRRTNORDERINSERT.html)。
+指报单被CTP或交易所拒绝后的报单的状态回报。对应回调函数[OnErrRtnOrderInsert](pages/214-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNORDERINSERT.html.md)。
 
-◇ 2. 回调规则
+<a id="deb9ef7c-1763-4558-8f4f-f8949beb1bf6"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 回调规则
+<a id="panel2"></a>
 
 - 测试场景1
 
@@ -184,7 +199,10 @@ OnRtnTrade
 OnRtnOrder （已撤单） |  |
 |---|---|---|
 
-◇ 3. 大商所特殊回调规则
+<a id="7cbe9007-9c3b-4d99-a72c-20d84ccf369f"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 大商所特殊回调规则
+<a id="panel3"></a>
 
 目前大商所的回报比较特殊，当一笔委托全部成交后，大商所直接返回该笔委托的成交回报，而不返回状态为全部成交的报单回报，对于这种情况，CTP会补一个状态为全部成交的报单回报。
 
@@ -231,3 +249,7 @@ ReqOrderAction
 OnRtnOrder （未成交）
 OnRtnOrder （已撤单） |  |
 |---|---|---|
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

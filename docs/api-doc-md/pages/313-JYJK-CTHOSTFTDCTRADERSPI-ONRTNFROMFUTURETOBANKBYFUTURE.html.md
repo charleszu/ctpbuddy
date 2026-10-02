@@ -1,14 +1,29 @@
 # OnRtnFromFutureToBankByFuture
 
-OnRtnFromFutureToBankByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-期货发起期货资金转银行通知，当执行[ReqFromFutureToBankByFuture](../CTHOSTFTDCTRADERAPI/REQFROMFUTURETOBANKBYFUTURE.html)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRtnFromFutureToBankByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+期货发起期货资金转银行通知，当执行[ReqFromFutureToBankByFuture](pages/080-JYJK-CTHOSTFTDCTRADERAPI-REQFROMFUTURETOBANKBYFUTURE.html.md)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="a210b96c-0c03-459b-883d-62ce0745f748"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnFromFutureToBankByFuture(CThostFtdcRspTransferField *pRspTransfer) {};
 
-◇ 2. 参数
+<a id="ef287e91-b1bd-4c91-ac3a-c6358331c85e"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pRspTransfer：银行发起银行资金转期货响应
 
@@ -127,10 +142,20 @@ TransferStatus：转账状态
 
 ErrorMsg：报错信息，若转账成功则显示为“交易成功”。
 
-◇ 3. 返回
+<a id="29a885ce-244b-4888-a1b6-6be6e7799432"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="5333f429-87c8-4e6d-89bb-7908d7b530fc"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

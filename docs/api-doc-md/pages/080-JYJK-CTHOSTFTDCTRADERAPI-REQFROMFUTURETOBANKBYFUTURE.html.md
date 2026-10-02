@@ -1,18 +1,33 @@
 # ReqFromFutureToBankByFuture
 
-ReqFromFutureToBankByFuture
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqFromFutureToBankByFuture<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 期货发起期货资金转银行请求
 
-错误响应: [OnRspFromFutureToBankByFuture](../CTHOSTFTDCTRADERSPI/ONRSPFROMFUTURETOBANKBYFUTURE.html)
+错误响应: [OnRspFromFutureToBankByFuture](pages/231-JYJK-CTHOSTFTDCTRADERSPI-ONRSPFROMFUTURETOBANKBYFUTURE.html.md)
 
-正确响应: [OnRtnFromFutureToBankByFuture](../CTHOSTFTDCTRADERSPI/ONRTNFROMFUTURETOBANKBYFUTURE.html)
+正确响应: [OnRtnFromFutureToBankByFuture](pages/313-JYJK-CTHOSTFTDCTRADERSPI-ONRTNFROMFUTURETOBANKBYFUTURE.html.md)
+<a id="9b059a85-416c-4382-a4af-f2e882b20efa"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqFromFutureToBankByFuture(CThostFtdcReqTransferField *pReqTransfer, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="dc7f5b68-bc6b-465b-a20d-c4b4cc70b5f4"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pReqTransfer：转账请求
 
@@ -123,7 +138,10 @@ TradeAmount：转账金额
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="c6e41611-488c-4fdc-aa46-daf2123392b6"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -133,7 +151,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="2be0d204-d0e7-4804-a9b7-0fbdf026e2bc"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcReqTransferField a = { 0 };
@@ -162,6 +183,13 @@ m_pUserApi->ReqFromFutureToBankByFuture(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="461c3e51-5a11-4b1a-8291-844e71a55a63"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

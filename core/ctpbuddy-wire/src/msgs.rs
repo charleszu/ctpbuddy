@@ -14,8 +14,14 @@
 //!   `CThostFtdcRspInfoField`): the pending request completes as
 //!   `OnRsp*(NULL, pRspInfo, bIsLast=true)`; outside a pending request it
 //!   surfaces as `OnRspError`;
-//! - `ERR_RTN_ORDER_INSERT` (payload = `CThostFtdcRspInfoField`) surfaces as
-//!   `OnErrRtnOrderInsert` with the client's cached input order;
+//! - `ERR_RTN_ORDER_INSERT` (payload = `CThostFtdcInputOrderField` ++
+//!   `CThostFtdcRspInfoField`) surfaces as `OnErrRtnOrderInsert` — the
+//!   exchange half of a rejection, sent after the front office already
+//!   answered the request, so the client's input rides along (the shim's
+//!   pending entry is consumed by then);
+//! - `ERR_RTN_ORDER_ACTION` (payload = `CThostFtdcInputOrderActionField` ++
+//!   `CThostFtdcRspInfoField`) surfaces as `OnErrRtnOrderAction`, paired with
+//!   the `RSP_ERROR` response half (官方报单回调规则 场景 6/7: 先响应后回报);
 //! - a query stream is terminated by `QRY_LAST` (empty payload) which
 //!   completes the pending `OnRspQry*(NULL, {0}, bIsLast=true)`;
 //! - `RTN_ORDER` / `RTN_TRADE` / `RTN_DEPTH_MD` are pushes with `req_id = 0`.

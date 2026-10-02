@@ -1,16 +1,31 @@
 # OnErrRtnCombActionInsert
 
-OnErrRtnCombActionInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnErrRtnCombActionInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 申请组合录入错误回报
 
-详细说明见[大商所组保](../../QTYWGZ/DCEZB.html)
+详细说明见[大商所组保](pages/390-QTYWGZ-DCEZB.html.md)
+<a id="f30043ed-3af4-460a-9385-868afbf08086"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnCombActionInsert(CThostFtdcInputCombActionField *pInputCombAction, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="518721ce-d9fd-4925-97bc-8719691e9187"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputCombAction：输入的申请组合
 
@@ -68,10 +83,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="d8984ea4-0296-418d-adfd-b56e26117ba4"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="25af3001-f17b-4e87-b157-a5e45c9ac951"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

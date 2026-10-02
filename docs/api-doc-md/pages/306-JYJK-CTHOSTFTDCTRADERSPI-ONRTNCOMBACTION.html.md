@@ -1,16 +1,31 @@
 # OnRtnCombAction
 
-OnRtnCombAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-申请组合通知，当执行[ReqCombActionInsert](../CTHOSTFTDCTRADERAPI/REQCOMBACTIONINSERT.html)后并且报出后，收到返回则调用此接口，私有流回报。
+<a id="printArea"></a>
 
-详细说明见[大商所组保](../../QTYWGZ/DCEZB.html)
+<a id="file_header"></a>
 
-◇ 1. 函数原型
+OnRtnCombAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+申请组合通知，当执行[ReqCombActionInsert](pages/075-JYJK-CTHOSTFTDCTRADERAPI-REQCOMBACTIONINSERT.html.md)后并且报出后，收到返回则调用此接口，私有流回报。
+
+详细说明见[大商所组保](pages/390-QTYWGZ-DCEZB.html.md)
+<a id="224cc204-fa87-4d51-80f6-f353ef85c558"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnCombAction(CThostFtdcCombActionField *pCombAction) {};
 
-◇ 2. 参数
+<a id="9251c0ff-841f-44a3-aaed-3f8415c19bbb"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pCombAction：申请组合
 
@@ -91,10 +106,20 @@ InstallID：CTP内部使用
 
 ActionStatus：报入组合后的报单状态
 
-◇ 3. 返回
+<a id="d4540494-3bac-40a3-9f43-f803854197a3"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="9d89e206-0df1-4357-b388-da4fc5999887"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

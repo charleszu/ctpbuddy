@@ -1,14 +1,29 @@
 # OnRspQryInvestorProdRULEMargin
 
-OnRspQryInvestorProdRULEMargin
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求投资者产品RULE保证金查询响应，当执行[ReqQryInvestorProdRULEMargin](../CTHOSTFTDCTRADERAPI/REQQRYINVESTORPRODRULEMARGIN.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryInvestorProdRULEMargin<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求投资者产品RULE保证金查询响应，当执行[ReqQryInvestorProdRULEMargin](pages/186-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODRULEMARGIN.html.md)后，该方法被调用。
+<a id="955a3523-054c-40b5-915b-60327dc8827f"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryInvestorProdRULEMargin(CThostFtdcInvestorProdRULEMarginField *pInvestorProdRULEMargin, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="f50c6ba3-8fef-4825-971e-f99b4fd2c439"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInvestorProdRULEMargin：投资者产品RULE保证金
 
@@ -90,10 +105,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="c9939990-10eb-4224-940b-10a5a4805a06"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="d49a5ba2-5c7e-4103-bfb0-668e35479a13"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

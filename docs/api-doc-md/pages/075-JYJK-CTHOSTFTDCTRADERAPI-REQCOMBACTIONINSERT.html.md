@@ -1,20 +1,35 @@
 # ReqCombActionInsert
 
-ReqCombActionInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqCombActionInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 申请组合录入请求
 
-错误响应: [OnErrRtnCombActionInsert](../CTHOSTFTDCTRADERSPI/ONERRRTNCOMBACTIONINSERT.html)，[OnRspCombActionInsert](../CTHOSTFTDCTRADERSPI/ONRSPCOMBACTIONINSERT.html)
+错误响应: [OnErrRtnCombActionInsert](pages/206-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNCOMBACTIONINSERT.html.md)，[OnRspCombActionInsert](pages/225-JYJK-CTHOSTFTDCTRADERSPI-ONRSPCOMBACTIONINSERT.html.md)
 
-正确响应: [OnRtnCombAction](../CTHOSTFTDCTRADERSPI/ONRTNCOMBACTION.html)
+正确响应: [OnRtnCombAction](pages/306-JYJK-CTHOSTFTDCTRADERSPI-ONRTNCOMBACTION.html.md)
 
-详细说明见[大商所组保](../../QTYWGZ/DCEZB.html)
+详细说明见[大商所组保](pages/390-QTYWGZ-DCEZB.html.md)
+<a id="7aba5d45-6c23-435d-b486-f7b035b80229"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqCombActionInsert(CThostFtdcInputCombActionField *pInputCombAction, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="402c3df0-f1c5-47b2-bb00-56484c488faf"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputCombAction：输入的申请组合
 
@@ -44,7 +59,10 @@ MacAddress：中继需填写客户MAC地址；非中继填写无效，直接取�
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="85fda42e-15ca-4498-a016-8f717b869568"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -54,7 +72,12 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="e8528f60-465d-4d46-bd24-f3d0fd98f832"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
+
+<a id="anchor-id-01"></a>
 
 ```
     CThostFtdcInputCombActionField a = { 0 };
@@ -72,6 +95,13 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 ```
 
-◇ 5. FAQ
+<a id="5583e5ef-b8a4-4ef1-bb91-047601e3e489"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

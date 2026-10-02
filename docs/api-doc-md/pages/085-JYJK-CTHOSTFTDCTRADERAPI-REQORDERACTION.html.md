@@ -1,22 +1,37 @@
 # ReqOrderAction
 
-ReqOrderAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqOrderAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 报单操作请求
 
-错误响应: [OnRspOrderAction](../CTHOSTFTDCTRADERSPI/ONRSPORDERACTION.html)，[OnErrRtnOrderAction](../CTHOSTFTDCTRADERSPI/ONERRRTNORDERACTION.html)
+错误响应: [OnRspOrderAction](pages/236-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERACTION.html.md)，[OnErrRtnOrderAction](pages/213-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNORDERACTION.html.md)
 
-正确响应：[OnRtnOrder](../CTHOSTFTDCTRADERSPI/ONRTNORDER.html)
+正确响应：[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)
 
-关于流控详见[报单流控、查询流控和会话数控制](../../QTYWGZ/LK.html)
+关于流控详见[报单流控、查询流控和会话数控制](pages/396-QTYWGZ-LK.html.md)
 
-关于接口中的重要序号说明详见[接口中一些重要序号说明](../../QTYWGZ/JKZYXZYXHSM.html)
+关于接口中的重要序号说明详见[接口中一些重要序号说明](pages/401-QTYWGZ-JKZYXZYXHSM.html.md)
+<a id="f7217664-7719-45cd-8569-7aa24546185a"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="8cba21cf-5587-448d-85a6-fcaddfd4376e"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputOrderAction：输入报单操作
 
@@ -47,7 +62,7 @@ pInputOrderAction：输入报单操作
 
 **必填*1、必填*2**：两组选一组必填，能对应要撤的报单。
 
-OrderRef：对应要撤销的那笔报单的报单引用，需委托回报([OnRtnOrder](../CTHOSTFTDCTRADERSPI/ONRTNORDER.html))中完整的字符串，不可增减
+OrderRef：对应要撤销的那笔报单的报单引用，需委托回报([OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md))中完整的字符串，不可增减
 
 FrontID: 对应要撤销的那笔报单的前置编号
 
@@ -55,7 +70,7 @@ SessionID: 对应要撤销的那笔报单的会话编号
 
 ExchangeID: 对应要撤销的那笔报单的交易所ID
 
-OrderSysID: 对应要撤销的那笔报单的报单编号，需委托回报([OnRtnOrder](../CTHOSTFTDCTRADERSPI/ONRTNORDER.html))中完整的字符串，不可增减
+OrderSysID: 对应要撤销的那笔报单的报单编号，需委托回报([OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md))中完整的字符串，不可增减
 
 ActionFlag：只支持删除，不支持修改、激活、挂起。对于由其他柜台做的激活或挂起的报单，ctp系统能正常接收。
 
@@ -69,7 +84,10 @@ SessionReqSeq：一个session中，一笔业务流程周期中唯一序号，此
 
 OrderMemo：该字段CTP不做任何处理，即终端填写什么CTP就返回什么。可以用来给多账户系统做标记用。
 
-◇ 3. 返回
+<a id="e193f748-7429-4262-8fba-f0e4580f42ca"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -79,7 +97,10 @@ OrderMemo：该字段CTP不做任何处理，即终端填写什么CTP就返回�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="681b8259-0e6d-41d9-b4aa-45eefb3686e2"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 //第一种方法，使用OrderSysID撤单（**推荐使用**）
 
@@ -113,9 +134,22 @@ m_pUserApi->ReqOrderAction(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="8717e8bf-f13d-4cd5-803d-d0a606ab30c5"></a><a id="title5"></a>
 
-ctp支持撤销未知单吗？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="anchor-id-01"></a>
+
+<a id="region_header_1"></a>
+
+ctp支持撤销未知单吗？<a id="region_panel_1"></a>
 
 | 目前665版本以上柜台不允许撤郑商所的未知单，其他交易所都是可以撤未知单的。 |
 |---|
+
+<a id="region_tail_1"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

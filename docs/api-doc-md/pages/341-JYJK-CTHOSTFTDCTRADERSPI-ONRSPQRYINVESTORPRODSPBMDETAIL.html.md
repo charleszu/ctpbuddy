@@ -1,14 +1,29 @@
 # OnRspQryInvestorProdSPBMDetail
 
-OnRspQryInvestorProdSPBMDetail
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求投资者产品SPBM明细查询响应，当执行[ReqQryInvestorProdSPBMDetail](../CTHOSTFTDCTRADERAPI/REQQRYINVESTORPRODSPBMDETAIL.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryInvestorProdSPBMDetail<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求投资者产品SPBM明细查询响应，当执行[ReqQryInvestorProdSPBMDetail](pages/170-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODSPBMDETAIL.html.md)后，该方法被调用。
+<a id="a90dcd76-3e40-45fe-b897-0245c39fdb61"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryInvestorProdSPBMDetail(CThostFtdcInvestorProdSPBMDetailField *pInvestorProdSPBMDetail, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="27019ad3-8049-48a5-8ba4-06ea5a819fd7"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInvestorProdSPBMDetail：投资者产品SPBM明细
 
@@ -78,10 +93,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="272cebd3-de74-4661-bf1f-424890be5fc3"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="68a315a9-c830-468e-a000-75bba175952a"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

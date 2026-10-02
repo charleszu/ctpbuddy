@@ -1,14 +1,29 @@
 # OnErrRtnQuoteInsert
 
-OnErrRtnQuoteInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报价录入错误回报，当执行[ReqQuoteInsert](../CTHOSTFTDCTRADERAPI/REQQUOTEINSERT.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnQuoteInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报价录入错误回报，当执行[ReqQuoteInsert](pages/143-JYJK-CTHOSTFTDCTRADERAPI-REQQUOTEINSERT.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="afb40cf9-1296-4ea5-87fb-7b27d5b7b503"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnQuoteInsert(CThostFtdcInputQuoteField *pInputQuote, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="3ed70efb-b5fa-475c-943f-ac5fbba76b4c"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputQuote：输入的报价
 
@@ -92,10 +107,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="eaf93de0-3ec0-4fb9-a3e2-94d68ac32e61"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="36d6520e-fd3e-493c-947f-ebcc09a85849"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

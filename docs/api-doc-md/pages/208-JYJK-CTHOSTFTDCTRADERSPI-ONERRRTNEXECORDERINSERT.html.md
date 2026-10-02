@@ -1,14 +1,29 @@
 # OnErrRtnExecOrderInsert
 
-OnErrRtnExecOrderInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-执行宣告录入错误回报，当执行[ReqExecOrderInsert](../CTHOSTFTDCTRADERAPI/REQEXECORDERINSERT.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnExecOrderInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+执行宣告录入错误回报，当执行[ReqExecOrderInsert](pages/077-JYJK-CTHOSTFTDCTRADERAPI-REQEXECORDERINSERT.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="c601df62-ea79-44af-90be-10c8a5840f0b"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnExecOrderInsert(CThostFtdcInputExecOrderField *pInputExecOrder, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="4dd39bd2-9dcb-4195-94a6-d51fd128f249"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputExecOrder：输入的执行宣告
 
@@ -78,10 +93,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="26f72e3d-43bd-4c3b-a2f4-74832a00e3a6"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="a84be5f3-daeb-4e50-ab85-78be55fa484a"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

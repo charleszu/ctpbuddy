@@ -1,8 +1,19 @@
 # 条件单规则
 
-条件单规则
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-◇ 1. 简介
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+条件单规则<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **<a id="c003aaa8-8520-46cd-be47-f585310bce39"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 简介
+<a id="panel1"></a>
 
 条件单是一个带有触发条件的指令。该触发条件可以以市场上的最新行情为基准，也可以以指定价格为基准。比如：一个投资者有1手IF1910的空头持仓，并希望在市场价低于2200时买入平仓，他就可以使用条件单。这样当行情波动到满足该条件时，该报单就会被自动触发报出，而不需要他本人时刻盯着电脑屏幕去监视市场行情。
 
@@ -12,9 +23,12 @@
 
 CTP条件单为CTP后台系统自带指令，并非交易所官方支持指令。
 
-◇ 2. 指令介绍
+<a id="7950cf1f-27a5-477b-a88f-a96a4747fe66"></a><a id="title2"></a>
 
-报入条件单指令使用[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)函数
+<a id="header_span2"></a>◇ 2. 指令介绍
+<a id="panel2"></a>
+
+报入条件单指令使用[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)函数
 
 其中的核心数据结构是CThostFtdcInputOrderField
 
@@ -60,13 +74,16 @@ CTP条件单为CTP后台系统自带指令，并非交易所官方支持指令�
 
 条件价对应的字段为StopPrice
 
-◇ 3. 条件单回调规则
+<a id="02b18024-12dd-4146-beaf-47f455632292"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 条件单回调规则
+<a id="panel3"></a>
 
 - 测试场景一
 
 报入一笔中金所条件单，触发后类型为限价单，报入后未成交。
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -112,7 +129,7 @@ OnRtnOrder（OrderStatus [3]  未成交还在队列中） |  |
 
 报入一笔中金所条件单，触发后类型为限价单，报入并触发后被CTP拒绝。
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -153,13 +170,13 @@ OnRtnOrder（OrderStatus [c]  已触发）
 OnRtnErrorConditionalOrder（ErrorMsg [CTP:资金不足]） |  |
 |---|---|---|
 
-注意：[OnRtnErrorConditionalOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNERRORCONDITIONALORDER.html)为私有流回报，可用私有流重传模式RESTART重新收取该回报。
+注意：[OnRtnErrorConditionalOrder](pages/307-JYJK-CTHOSTFTDCTRADERSPI-ONRTNERRORCONDITIONALORDER.html.md)为私有流回报，可用私有流重传模式RESTART重新收取该回报。
 
 - 测试场景三
 
 报入一笔中金所条件单，触发后类型为限价单，报入并触发后被交易所拒绝。
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -205,7 +222,7 @@ OnRtnOrder（OrderStatus [5] 已撤单报单被拒绝CFFEX:超出当时价格保
 
 报入一笔中金所条件单，触发后类型为FOK，报入后未成交自动被撤销。
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -251,7 +268,7 @@ OnRtnOrder（OrderStatus [5] 已撤单报单已提交） |  |
 
 报入一笔中金所条件单，触发后类型为FAK，报入后部成部撤。
 
-调用接口：[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)
+调用接口：[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)
 
 CombOffsetFlag [0]    组合开平标注：开仓
 
@@ -296,3 +313,7 @@ OnRtnOrder（OrderStatus [5] 已撤单报单已提交）
 OnRtnOrder（OrderStatus [5] 已撤单报单已提交）
 OnRtnTrade |  |
 |---|---|---|
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

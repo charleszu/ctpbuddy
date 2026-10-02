@@ -1,14 +1,29 @@
 # OnErrRtnSpdApply
 
-OnErrRtnSpdApply
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-套利申请录入错误回报，当执行[ReqSpdApply](../CTHOSTFTDCTRADERAPI/REQSPDAPPLY.html)报错时返回此接口
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnSpdApply<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+套利申请录入错误回报，当执行[ReqSpdApply](pages/197-JYJK-CTHOSTFTDCTRADERAPI-REQSPDAPPLY.html.md)报错时返回此接口
+<a id="a8fc3228-cca6-4df4-ac48-8cbdb304e877"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnSpdApply(CThostFtdcInputSpdApplyField *pInputSpdApply, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="a8293c57-288c-4cd6-a553-38cb130d8a16"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputSpdApply：套利确认输入基本信息
 
@@ -62,8 +77,18 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="1480a7b2-df10-43fe-85b6-d4938ad18f56"></a><a id="title3"></a>
 
-◇ 4. FAQ
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
+
+<a id="5d9ed376-21b3-4153-a13c-831a141e784f"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

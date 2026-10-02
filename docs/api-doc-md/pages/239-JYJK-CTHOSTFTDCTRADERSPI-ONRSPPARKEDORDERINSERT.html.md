@@ -1,14 +1,29 @@
 # OnRspParkedOrderInsert
 
-OnRspParkedOrderInsert
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-预埋单录入请求响应，当执行[ReqParkedOrderInsert](../CTHOSTFTDCTRADERAPI/REQPARKEDORDERINSERT.html)后，该方法被调用
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspParkedOrderInsert<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+预埋单录入请求响应，当执行[ReqParkedOrderInsert](pages/088-JYJK-CTHOSTFTDCTRADERAPI-REQPARKEDORDERINSERT.html.md)后，该方法被调用
+<a id="020b9b1a-38dc-4488-985b-0722c5bd3e0f"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspParkedOrderInsert(CThostFtdcParkedOrderField *pParkedOrder, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="fb98e1a3-fe02-42bd-a9ef-28c15b9f8727"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pParkedOrder：预埋单
 
@@ -114,10 +129,20 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="41bce5f7-e70d-4ef2-889e-ffa77e0e0dad"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="1dbe1325-bfcc-4d1d-9d91-9dae5de96d96"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

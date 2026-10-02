@@ -1,14 +1,29 @@
 # OnRtnSpdApply
 
-OnRtnSpdApply
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-套利确认通知,当执行[ReqSpdApply](../CTHOSTFTDCTRADERAPI/REQSPDAPPLY.html)后，返回Rtn通知
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRtnSpdApply<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+套利确认通知,当执行[ReqSpdApply](pages/197-JYJK-CTHOSTFTDCTRADERAPI-REQSPDAPPLY.html.md)后，返回Rtn通知
+<a id="be1b389f-4eb6-4f70-add1-1c3fc832ddc6"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnSpdApply(CThostFtdcSpdApplyField *pSpdApply) {};
 
-◇ 2. 参数
+<a id="818765d2-aa2a-4d3d-8992-34c839114c93"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pSpdApply：套利申请回报
 
@@ -104,8 +119,18 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="acb3e37f-ff1e-4193-ba5f-bb8a9a73f65b"></a><a id="title3"></a>
 
-◇ 4. FAQ
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
+
+<a id="d4799854-bb2f-46d6-bf75-adfd0ca4d0ad"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,6 +1,12 @@
 # 常见FAQ
 
-常见FAQ
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+常见FAQ<a id="content"></a>
 
 看穿式监管API相关FAQ
 
@@ -24,7 +30,7 @@ A： 断线重连需要重新认证、信息上报、登录。
 
 -
 
-Q：看穿式监管API登录请求接口中是否可以不再传IP、端口、登录备注等[RegisterUserSystemInfo](../JYJK/CTHOSTFTDCTRADERAPI/REGISTERUSERSYSTEMINFO.html)接口已经传过的入参数据？
+Q：看穿式监管API登录请求接口中是否可以不再传IP、端口、登录备注等[RegisterUserSystemInfo](pages/071-JYJK-CTHOSTFTDCTRADERAPI-REGISTERUSERSYSTEMINFO.html.md)接口已经传过的入参数据？
 
 A:登录里的ip和mac无需填写，并且手填无效。
 
@@ -36,7 +42,7 @@ A: 中继多对多模式下，要为每个客户端建立一个会话；一对�
 
 -
 
-Q: 测试发现终端信息为空的话，调用[RegisterUserSystemInfo](../JYJK/CTHOSTFTDCTRADERAPI/REGISTERUSERSYSTEMINFO.html)会返回-1，这种情况，CTP是收到了空的终端信息，还是根本就不会生成任何记录？
+Q: 测试发现终端信息为空的话，调用[RegisterUserSystemInfo](pages/071-JYJK-CTHOSTFTDCTRADERAPI-REGISTERUSERSYSTEMINFO.html.md)会返回-1，这种情况，CTP是收到了空的终端信息，还是根本就不会生成任何记录？
 
 A：收到了空的终端信息，监控中心不允许上报空信息。
 
@@ -66,7 +72,7 @@ A：直连的模式traderapi已经集成采集功能，在登录的时候自动�
 
 -
 
-Q: 调用中继代理看穿式监管接口[RegisterUserSystemInfo](../JYJK/CTHOSTFTDCTRADERAPI/REGISTERUSERSYSTEMINFO.html)时，一直提示“[RegisterUserSystemInfo](../JYJK/CTHOSTFTDCTRADERAPI/REGISTERUSERSYSTEMINFO.html) not permittedt”是什么原因啊？
+Q: 调用中继代理看穿式监管接口[RegisterUserSystemInfo](pages/071-JYJK-CTHOSTFTDCTRADERAPI-REGISTERUSERSYSTEMINFO.html.md)时，一直提示“[RegisterUserSystemInfo](pages/071-JYJK-CTHOSTFTDCTRADERAPI-REGISTERUSERSYSTEMINFO.html.md) not permittedt”是什么原因啊？
 
 A: 如果提示operation not permitted，可能是AppID类型错误。例如，直连模式的AppID，却错误调用了SubmitUserSystemInfo。此错误不会通过特定接口返回，只在标准输出中提示，例如直接在屏幕上打印出来。
 
@@ -172,12 +178,16 @@ A: 目前API都支持上期所询价的改动，T6版本报盘已经支持该功
 
 -
 
-Q: [OnRspError](../HQJK/CTHOSTFTDCMDSPI/ONRSPERROR.html)报错“CTP:API Front shake hand err : version err”是什么意思
+Q: [OnRspError](pages/049-HQJK-CTHOSTFTDCMDSPI-ONRSPERROR.html.md)报错“CTP:API Front shake hand err : version err”是什么意思
 
 A：6.3.20以上版本，对api版本错误报错有改动，原先报错Decrypt handshake data failed现在有核心通过OnRspError返回报错。
 
 -
 
-      Q: [OnRspError](../HQJK/CTHOSTFTDCMDSPI/ONRSPERROR.html)报错“CTP:API Front shake hand err : decode err”是什么意思
+<a id="anchor-id-05"></a>      Q: [OnRspError](pages/049-HQJK-CTHOSTFTDCMDSPI-ONRSPERROR.html.md)报错“CTP:API Front shake hand err : decode err”是什么意思
 
 A：同27问。
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

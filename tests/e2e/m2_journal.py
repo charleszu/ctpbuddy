@@ -42,8 +42,9 @@ from ctpbuddy.cli import main as cli_main  # noqa: E402
 from ctpbuddy.journal import count_types, fmt_vt, hash_stream, load_events  # noqa: E402
 from ctpbuddy.replay import ReplayError, format_result, replay_journal  # noqa: E402
 from ctpbuddy.scenario import compile_scenario, load_scenario_spec  # noqa: E402
-from ctpbuddy.sdk import Admin, Client, CTPError  # noqa: E402
-from ctpbuddy.wire import RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE  # noqa: E402
+from ctpbuddy.sdk import Admin, Client  # noqa: E402
+from ctpbuddy.sdk.client import rsp_info_of  # noqa: E402
+from ctpbuddy.wire import ERR_RTN_ORDER_INSERT, RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
 RB = "rb2610"  # SHFE: mult 10, tick 1, margin 0.10, limits 3150..3850
@@ -242,13 +243,18 @@ def record_run(core: str, scenario: str, rundir: str) -> tuple[str, int]:
             ev2 = drain(clients[D2])
             assert st(ev2, "D2A") == ["a", "3"], ev2
             assert tr(ev2, "D2A") == [], ev2
-            # a rejected order: 9999 is beyond the 3850 upper limit
-            try:
-                clients[D1].order_insert(RB, direction="0", offset="0", volume=1,
-                                         limit_price=9999.0, exchange="SHFE", order_ref="D1R")
-                raise AssertionError("9999 buy must be rejected by the price-limit check")
-            except CTPError as e:
-                d1r_error = e.error_id
+            # a rejected order: 9999 is beyond the 3850 upper limit. At the
+            # 涨跌停板 check the front office has already accepted (DESIGN
+            # §8.12): ReqOrderInsert answers OnRspOrderInsert{0} and the
+            # exchange half lands later on OnErrRtnOrderInsert -- a client that
+            # only挂 the request surface never sees it.
+            clients[D1].order_insert(RB, direction="0", offset="0", volume=1,
+                                     limit_price=9999.0, exchange="SHFE", order_ref="D1R")
+            late = clients[D1].wait_late(ERR_RTN_ORDER_INSERT)
+            assert late is not None, "涨跌停拒绝必须经 OnErrRtnOrderInsert 回报"
+            d1r_error = rsp_info_of(late.payload)["ErrorID"]
+            assert d1r_error == 163, late  # PRICE_OVER_LIMIT
+            assert "涨跌停" in rsp_info_of(late.payload)["ErrorMsg"], late
             drain(clients[D1])
 
             # 09:32:00 was frozen away -> the 5th delivered tick is 09:32:30

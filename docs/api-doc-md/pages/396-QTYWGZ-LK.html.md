@@ -1,18 +1,33 @@
 # 报单流控、查询流控和会话数控制
 
-报单流控、查询流控和会话数控制
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+报单流控、查询流控和会话数控制<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 CTP交易系统基于安全和性能考虑，在诸多地方有流量控制，其中流量控制又分FTD报文流量控制、报单流量控制、查询流量控制等。而这些流量控制分布在各个不同的地方。此处将会给大家详细介绍。
+<a id="cc8215eb-83f1-4a5f-8f56-d00aeda4174c"></a><a id="title1"></a>
 
-◇ 1. 报单流控
+<a id="header_span1"></a>◇ 1. 报单流控
+<a id="panel1"></a>
 
-报单流控是指用户在本交易系统报单（[ReqOrderInsert](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERINSERT.html)）、撤单（[ReqOrderAction](../JYJK/CTHOSTFTDCTRADERAPI/REQORDERACTION.html))时每秒内允许的最大笔数。
+报单流控是指用户在本交易系统报单（[ReqOrderInsert](pages/086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html.md)）、撤单（[ReqOrderAction](pages/085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html.md))时每秒内允许的最大笔数。
 
 报单流控限制配置在CTP柜台端【程序化交易频繁报撤单管理】菜单。
 
-如果超过这个限制API会通过[OnRspOrderAction](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPORDERACTION.html)提示：“CTP:下单频率限制”。
+如果超过这个限制API会通过[OnRspOrderAction](pages/236-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERACTION.html.md)提示：“CTP:下单频率限制”。
 
-◇ 2. 查询流控
+<a id="0e547936-a025-4682-b9aa-19af56f8c1ff"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 查询流控
+<a id="panel2"></a>
 
 查询流控是指用户当前Session在做查询的时候每秒内允许的最大请求笔数。投资者受流控限制，操作员不受流控限制。
 
@@ -24,13 +39,16 @@ CTP交易系统基于安全和性能考虑，在诸多地方有流量控制，�
 
 在过去，查询流控是内置在API里，1笔每秒，在途1笔。
 
-如果超过交易前置配置的查询流控，则会触发[OnRspError](../HQJK/CTHOSTFTDCMDSPI/ONRSPERROR.html)，并提示：“CTP：查询未就绪，请稍后重试”
+如果超过交易前置配置的查询流控，则会触发[OnRspError](pages/049-HQJK-CTHOSTFTDCMDSPI-ONRSPERROR.html.md)，并提示：“CTP：查询未就绪，请稍后重试”
 
 如果超过API内置的在途流控，则查询请求的返回值为-2，表示未处理请求超过许可数。
 
 所有ReqQuery开头查询函数不受流控限制，原因是此类函数都是通过交易核心处理的，不通过查询核心。
 
-◇ 3. FTD报文流控
+<a id="55308bf7-a8dd-41b9-ad71-fb33f52ce3d7"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. FTD报文流控
+<a id="panel3"></a>
 
 FTD报文流控是指用户当前Session在提交API指令的时候每秒内允许的最大请求笔数。
 
@@ -44,21 +62,27 @@ FTD报文流控是一种综合性的流控手段，API的所有接口在跟前�
 
 注意，FTD报文流控不会有错误信息或错误返回。
 
-◇ 4. 前置连接数流控
+<a id="8d00f550-1643-4cb0-8493-35d817627c0f"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 前置连接数流控
+<a id="panel4"></a>
 
 前置连接数流控是指在本交易前置对同一IP每秒允许的最大API连接请求数。
 
 前置连接数流控配置在交易前置组件上，配置项为【ConnectFreq】。如果不设置就表示不限制流控。
 
-需要注意的是，API连接请求指的是API从init到[OnFrontConnected](../JYJK/CTHOSTFTDCTRADERSPI/ONFRONTCONNECTED.html)的过程，跟登录无关。可以简单理解为一次init就是一个连接请求。
+需要注意的是，API连接请求指的是API从init到[OnFrontConnected](pages/220-JYJK-CTHOSTFTDCTRADERSPI-ONFRONTCONNECTED.html.md)的过程，跟登录无关。可以简单理解为一次init就是一个连接请求。
 
 例如如果配置为20，则一秒内最多有20个session建立跟前置的连接。
 
-如果超过前置连接数流控则会被主动断开连接，触发[OnFrontDisconnected](../HQJK/CTHOSTFTDCMDSPI/ONFRONTDISCONNECTED.html)。因此用户如果发现自己的程序一连接前置就被断开，则除了版本问题外，有可能是遇到了连接数流控。
+如果超过前置连接数流控则会被主动断开连接，触发[OnFrontDisconnected](pages/047-HQJK-CTHOSTFTDCMDSPI-ONFRONTDISCONNECTED.html.md)。因此用户如果发现自己的程序一连接前置就被断开，则除了版本问题外，有可能是遇到了连接数流控。
 
 想要指定ip不受流控限制的话，可以通过在front_se的bin目录下面新建一个文件名为whiteiplist的文件，每个ip单独一行。
 
-◇ 5. 同一用户最大允许在线会话数
+<a id="fbd899ac-137c-4c23-9b72-e23026d86263"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. 同一用户最大允许在线会话数
+<a id="panel5"></a>
 
 同一用户最大允许在线会话数是指同一个用户（UserID）在本交易系统中同时登录在线的最大允许会话数。
 
@@ -66,14 +90,23 @@ FTD报文流控是一种综合性的流控手段，API的所有接口在跟前�
 
 注意，这个会话数针对的是本交易系统，而非单一前置。
 
-如果超过同一用户最大允许在线会话，则会通过[OnRspUserLogin](../JYJK/CTHOSTFTDCTRADERSPI/ONRSPUSERLOGIN.html)返回“CTP:用户在线会话超出上限”的错误。
+如果超过同一用户最大允许在线会话，则会通过[OnRspUserLogin](pages/299-JYJK-CTHOSTFTDCTRADERSPI-ONRSPUSERLOGIN.html.md)返回“CTP:用户在线会话超出上限”的错误。
+
+<a id="anchor-id-01"></a>
 
 后台交易系统版本为6.6.3及以上，新增分用户会话数设置，支持按照用户维度设置最大会话数功能。
 
-◇ 6. 交易所API流控
+<a id="d598d51d-9c58-468a-9eca-469df0b57a5b"></a><a id="title6"></a>
+
+<a id="header_span6"></a>◇ 6. 交易所API流控
+<a id="panel6"></a>
 
 交易所API流控指通过交易所API发送报单等请求的每秒最大允许数。
 
 交易所API流控的阈值设置在交易所端，由交易所API查询获取，该流控实际控制在交易所API端。
 
-受到交易所流控后会触发[OnRtnOrder](../JYJK/CTHOSTFTDCTRADERSPI/ONRTNORDER.html)，报“CTP：交易所每秒发送请求数超过许可数”或者“CTP:交易所未处理请求超过许可数”。
+受到交易所流控后会触发[OnRtnOrder](pages/317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html.md)，报“CTP：交易所每秒发送请求数超过许可数”或者“CTP:交易所未处理请求超过许可数”。
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

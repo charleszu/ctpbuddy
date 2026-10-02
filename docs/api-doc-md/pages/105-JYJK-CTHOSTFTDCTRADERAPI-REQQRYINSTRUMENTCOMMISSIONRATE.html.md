@@ -1,16 +1,32 @@
 # ReqQryInstrumentCommissionRate
 
-ReqQryInstrumentCommissionRate
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询合约手续费率，对应响应[OnRspQryInstrumentCommissionRate](../CTHOSTFTDCTRADERSPI/ONRSPQRYINSTRUMENTCOMMISSIONRATE.html)。如果InstrumentID填空，则返回持仓对应的合约手续费率。
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQryInstrumentCommissionRate<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询合约手续费率，对应响应[OnRspQryInstrumentCommissionRate](pages/256-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINSTRUMENTCOMMISSIONRATE.html.md)。如果InstrumentID填空，则返回持仓对应的合约手续费率。
 
 目前无法通过一次查询得到所有合约手续费率，如果要查询所有，则需要通过多次查询得到。
 
-◇ 1. 函数原型
+<a id="98a73fe7-5300-4504-b4a6-2720f22fc1be"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQryInstrumentCommissionRate(CThostFtdcQryInstrumentCommissionRateField *pQryInstrumentCommissionRate, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="d5752b96-aa9a-4325-8fb5-60246dbd6846"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQryInstrumentCommissionRate：查询手续费率
 
@@ -29,7 +45,10 @@ InstrumentID：返回手续费率对应的合约。
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="859b1f5e-2747-4222-a2fa-0dd7d7cce01d"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -39,7 +58,10 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="5197d5cb-8a60-46dc-be46-1c79a7a0e0db"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 ```
 CThostFtdcQryInstrumentCommissionRateField a = { 0 };
@@ -50,9 +72,22 @@ m_pUserApi->ReqQryInstrumentCommissionRate(&a, nRequestID++);
 
 ```
 
-◇ 5. FAQ
+<a id="b21c2b35-76b4-430d-8751-d61238d0b35e"></a><a id="title5"></a>
 
-查询返回结果是交易所手续费率还是投资者手续费率？
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
+
+<a id="anchor-id-01"></a>
+
+<a id="region_header_1"></a>
+
+查询返回结果是交易所手续费率还是投资者手续费率？<a id="region_panel_1"></a>
 
 | 返回的是投资者手续费率。 |
 |---|
+
+<a id="region_tail_1"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

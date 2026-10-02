@@ -29,6 +29,7 @@ pub const INITIAL_FUNDS: f64 = 2_000_000.0;
 pub const ERR_FUNDS: i32 = 31; //          INSUFFICIENT_MONEY       CTP:资金不足
 pub const ERR_POSITION: i32 = 30; //       OVER_CLOSE_POSITION      CTP:平仓量超过持仓量
 pub const ERR_NO_CLOSE_TODAY_LEDGER: i32 = 50; // OVER_CLOSETODAY_POSITION CTP:平今仓位不足
+pub const ERR_NO_CLOSE_YD_LEDGER: i32 = 51; // OVER_CLOSEYESTERDAY_POSITION CTP:平昨仓位不足
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AccountKey {
@@ -435,12 +436,12 @@ impl Ledger {
                 }
                 (volume, 0)
             }
-            OffsetFlag::CloseYesterday => {
-                if avail_yd < volume {
-                    return Err(ERR_POSITION);
-                }
-                (0, volume)
+        OffsetFlag::CloseYesterday => {
+            if avail_yd < volume {
+                return Err(ERR_NO_CLOSE_YD_LEDGER);
             }
+            (0, volume)
+        }
             _ => {
                 let t = volume.min(avail_today);
                 let rest = volume - t;

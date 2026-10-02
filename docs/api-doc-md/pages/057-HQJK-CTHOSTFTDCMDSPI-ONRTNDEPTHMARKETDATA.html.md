@@ -1,14 +1,29 @@
 # OnRtnDepthMarketData
 
-OnRtnDepthMarketData
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-深度行情通知，当[SubscribeMarketData](../CTHOSTFTDCMDAPI/SUBSCRIBEMARKETDATA.html)订阅行情后，行情通知由此推送。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRtnDepthMarketData<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+深度行情通知，当[SubscribeMarketData](pages/042-HQJK-CTHOSTFTDCMDAPI-SUBSCRIBEMARKETDATA.html.md)订阅行情后，行情通知由此推送。
+<a id="40a80d8d-5862-4f9d-aab6-19c63e65226d"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnDepthMarketData(CThostFtdcDepthMarketDataField *pDepthMarketData) {};
 
-◇ 2. 参数
+<a id="bcc89eb4-c587-4ba5-a644-b0aaa1d0b557"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pDepthMarketData：深度行情
 
@@ -117,44 +132,84 @@ turnover:
 
 其他交易所算法：成交金额=成交均价*成交数量*合约乘数
 
-◇ 3. 返回
+<a id="1160020e-a93c-4cf0-b52e-9626f8ed7bf3"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 无
 
-◇ 4. FAQ
+<a id="b7c5526f-590a-43c5-8113-3a554900b52f"></a><a id="title4"></a>
 
-行情中有些字段出现极大值，为什么？
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
+
+<a id="region_header_1"></a>
+
+行情中有些字段出现极大值，为什么？<a id="region_panel_1"></a>
 
 | 行情通知中，例如结算价、收盘价、买卖价出现double极大值，则表示该字段没有值。例如涨停板的时候，因为没有卖价，会给出一个double极大值，同时卖量为0。 |
 |---|
 
-郑商所的结算价在盘中也会送出，但数值在盘中不会变化，这和盘后推送的结算价怎么区分？
+<a id="region_tail_1"></a>
+
+<a id="region_header_2"></a>
+
+郑商所的结算价在盘中也会送出，但数值在盘中不会变化，这和盘后推送的结算价怎么区分？<a id="region_panel_2"></a>
 
 | 郑商所夜盘收盘后会推送结算价，这也就是早上行情中有可能会收到结算价的原因，盘中行情中推送的结算价数值不会发生变化。无夜盘的合约，盘中不会收到结算价。白盘收盘后郑商所也会推送所有合约最新的结算价，CTP对交易所推送的结算价不做处理，直接转发。 |
 |---|
 
-郑商所的UDP行情里，Tradingday和AveragePrice字段都是空的，但是TCP行情里有，这是为什么？
+<a id="region_tail_2"></a>
+
+<a id="region_header_3"></a>
+
+郑商所的UDP行情里，Tradingday和AveragePrice字段都是空的，但是TCP行情里有，这是为什么？<a id="region_panel_3"></a>
 
 | UDP行情不推送AveragePrice字段；TCP行情里的Tradingday和AveragePrice是CTP给的。 |
 |---|
 
-行情中哪些字段是CTP自己计算发出的？
+<a id="region_tail_3"></a>
+
+<a id="region_header_4"></a>
+
+行情中哪些字段是CTP自己计算发出的？<a id="region_panel_4"></a>
 
 | 郑商所的套利合约的涨跌停板价由CTP计算，交易所不发
 成交总额郑商所不推送由CTP计算，另外cffex,dce,shfe,ine这几家的成交均价不推送，由ctp计算。 |
 |---|
 
-发现连上前置后，为什么收到的行情涨跌停价是0？
+<a id="region_tail_4"></a>
+
+<a id="region_header_5"></a>
+
+发现连上前置后，为什么收到的行情涨跌停价是0？<a id="region_panel_5"></a>
 
 | 连上的如果是mdfront的话可能mdfront是级联的，也就是说上一级还是mdfront这两个mdfront如果版本不对，也同样会导致这个问题 |
 |---|
 
-订阅后大商所组合合约行情不跳动，其他交易终端（闪电王、快期等）的组合合约都有行情且在跳跃，为什么？
+<a id="region_tail_5"></a>
+
+<a id="region_header_6"></a>
+
+订阅后大商所组合合约行情不跳动，其他交易终端（闪电王、快期等）的组合合约都有行情且在跳跃，为什么？<a id="region_panel_6"></a>
 
 | 大商所只会推送单腿合约的行情，组合合约的行情需要下端自行计算。其他终端则是实时计算两条腿的价差，故行情看上去一直跳跃。 |
 |---|
 
-行情中为什么T日的OpenInterest和T+1日的PreOpenInterest手数不一致？
+<a id="region_tail_6"></a>
+
+<a id="anchor-id-01"></a>
+
+<a id="region_header_7"></a>
+
+行情中为什么T日的OpenInterest和T+1日的PreOpenInterest手数不一致？<a id="region_panel_7"></a>
 
 | 交易所有大笔报单产生，大笔报单不是通过交易方式报出的。不在盘中行情中体现，盘中交易所会公示出来，盘后才汇总到行情中。 |
 |---|
+
+<a id="region_tail_7"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,14 +1,29 @@
 # OnErrRtnOrderAction
 
-OnErrRtnOrderAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-报单操作错误回报，当执行[ReqOrderAction](../CTHOSTFTDCTRADERAPI/REQORDERACTION.html)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnErrRtnOrderAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+报单操作错误回报，当执行[ReqOrderAction](pages/085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html.md)后有字段填写不对之类的CTP报错则通过此接口返回
+<a id="b72f6878-c2b1-411f-ac36-181f91fa74a3"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnErrRtnOrderAction(CThostFtdcOrderActionField *pOrderAction, CThostFtdcRspInfoField *pRspInfo) {};
 
-◇ 2. 参数
+<a id="d08a0d5b-50eb-4d02-93fe-b673b680bb87"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pOrderAction：报单操作
 
@@ -102,10 +117,20 @@ struct CThostFtdcRspInfoField
 
 ```
 
-◇ 3. 返回
+<a id="524fff90-ed31-462e-adb3-b04614274722"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="158c005c-8bcd-4964-8c0e-d5aabeda9a60"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

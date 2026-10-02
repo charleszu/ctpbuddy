@@ -1,14 +1,29 @@
 # OnRtnCancelAccountByBank
 
-OnRtnCancelAccountByBank
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+OnRtnCancelAccountByBank<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 银行发起银期销户通知，无Req私有流回报
+<a id="0f3ba2e1-a89c-4116-845c-a99fcf59eb7f"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRtnCancelAccountByBank(CThostFtdcCancelAccountField *pCancelAccount) {};
 
-◇ 2. 参数
+<a id="db63694d-5073-40d0-b4a1-0bd5ba1ad87d"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pCancelAccount：银期销户信息
 
@@ -123,10 +138,20 @@ Password：为密文，显示“*”
 
 InstallID：CTP内部使用
 
-◇ 3. 返回
+<a id="1decddd3-5d8b-4459-845f-a89ea82198c2"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="d59b8ca8-bb7f-4435-a95e-4ed753318f35"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

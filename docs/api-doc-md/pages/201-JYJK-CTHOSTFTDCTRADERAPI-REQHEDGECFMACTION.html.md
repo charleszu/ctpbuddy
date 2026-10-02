@@ -1,20 +1,35 @@
 # ReqHedgeCfmAction
 
-ReqHedgeCfmAction
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqHedgeCfmAction<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 套保确认撤销请求
 
-若CTP校验通过后返回[OnRtnHedgeCfm](../CTHOSTFTDCTRADERSPI/ONRTNHEDGECFM.html)撤单状态通知
+若CTP校验通过后返回[OnRtnHedgeCfm](pages/379-JYJK-CTHOSTFTDCTRADERSPI-ONRTNHEDGECFM.html.md)撤单状态通知
 
-如果CTP校验未通过返回[OnRspHedgeCfmAction](../CTHOSTFTDCTRADERSPI/ONRSPHEDGECFMACTION.html)响应和[OnErrRtnHedgeCfmAction](../CTHOSTFTDCTRADERSPI/ONERRRTNHEDGECFMACTION.html)错误回报
+如果CTP校验未通过返回[OnRspHedgeCfmAction](pages/377-JYJK-CTHOSTFTDCTRADERSPI-ONRSPHEDGECFMACTION.html.md)响应和[OnErrRtnHedgeCfmAction](pages/381-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNHEDGECFMACTION.html.md)错误回报
 
-从交易所回来收到回报后给[OnRtnHedgeCfm](../CTHOSTFTDCTRADERSPI/ONRTNHEDGECFM.html)撤单状态通知（若交易所校验未通过会有[OnErrRtnHedgeCfmAction](../CTHOSTFTDCTRADERSPI/ONERRRTNHEDGECFMACTION.html)的）。
+从交易所回来收到回报后给[OnRtnHedgeCfm](pages/379-JYJK-CTHOSTFTDCTRADERSPI-ONRTNHEDGECFM.html.md)撤单状态通知（若交易所校验未通过会有[OnErrRtnHedgeCfmAction](pages/381-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNHEDGECFMACTION.html.md)的）。
+<a id="8e021fcf-17ac-488d-9a81-dedd39835975"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqHedgeCfmAction(CThostFtdcInputHedgeCfmActionField *pInputHedgeCfmAction, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="0f3efbc9-c5d7-4f69-ab59-62d60a51210a"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pInputHedgeCfmAction：套保申请撤销
 
@@ -36,7 +51,10 @@ pInputHedgeCfmAction：套保申请撤销
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="b591fa86-a2aa-4420-b447-6678ea493543"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -46,10 +64,20 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="aa415654-57c2-4082-82a0-a6e870b5e11d"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="0a15e253-e331-4f8c-8818-07b82c8d5a2f"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,14 +1,29 @@
 # OnRspQryTradingAccount
 
-OnRspQryTradingAccount
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
 
-请求查询资金账户响应，当执行[ReqQryTradingAccount](../CTHOSTFTDCTRADERAPI/REQQRYTRADINGACCOUNT.html)后，该方法被调用。
+<a id="printArea"></a>
 
-◇ 1. 函数原型
+<a id="file_header"></a>
+
+OnRspQryTradingAccount<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
+
+请求查询资金账户响应，当执行[ReqQryTradingAccount](pages/134-JYJK-CTHOSTFTDCTRADERAPI-REQQRYTRADINGACCOUNT.html.md)后，该方法被调用。
+<a id="0e358b54-3463-46da-a629-28b5ab35c92a"></a><a id="title1"></a>
+
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual void OnRspQryTradingAccount(CThostFtdcTradingAccountField *pTradingAccount, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};
 
-◇ 2. 参数
+<a id="983017d4-0d39-46c1-bb22-7889c629f475"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pTradingAccount：资金账户
 
@@ -119,6 +134,8 @@ struct CThostFtdcTradingAccountField
 
 ```
 
+<a id="anchor-id-01"></a>
+
 ReserveBalance：最低权益标准，对应柜台菜单“投资者最低权益设置”
 
 Reserve：基础保证金，对应柜台菜单“投资者基础保证金设置”
@@ -156,25 +173,41 @@ nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时�
 
 bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 
-◇ 3. 返回
+<a id="61194f3b-9e9e-48eb-8537-b72a7d55049f"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 当查询无记录时，指针返回为null
 
-◇ 4. FAQ
+<a id="96d43ddd-dd9c-4aed-bf34-ad7fe3a668e3"></a><a id="title4"></a>
 
-期货品种的套保仓、投机仓、套利仓的单向大边是单独计算，还是一起计算的？对于能源中心INE目前的交易细则是不是也有单向大边的规则？
+<a id="header_span4"></a>◇ 4. FAQ
+<a id="panel4"></a>
+
+<a id="region_header_1"></a>
+
+期货品种的套保仓、投机仓、套利仓的单向大边是单独计算，还是一起计算的？对于能源中心INE目前的交易细则是不是也有单向大边的规则？<a id="region_panel_1"></a>
 
 | 单向大边目前只有上期所和中金所有此项业务。对于上期所，同品种的买卖双边分别计算，取买卖双边中保证金金额较大的一边单向实时收取。
 对于中金所，套利、套保和投机的交易编码不同，计算的时候首先是区分交易编码的，每个交易编码下同品种的买卖双边再分别计算取大边。
 对于能源中心，sc目前是单向大边的规则。 |
 |---|
 
-关于冻结手续费计算的问题：比如我有大商所的持仓 i1709 10手昨仓，这个时候我平仓2手挂单了，请问此时的平仓手续费率是采用平昨手续费还是平今手续费，还是这两个费率取较大的？
+<a id="region_tail_1"></a>
+
+<a id="region_header_2"></a>
+
+关于冻结手续费计算的问题：比如我有大商所的持仓 i1709 10手昨仓，这个时候我平仓2手挂单了，请问此时的平仓手续费率是采用平昨手续费还是平今手续费，还是这两个费率取较大的？<a id="region_panel_2"></a>
 
 | 短线开平仓合约的平仓（不管平仓还是平今）在成交的时候是按平今手续费收取的，在冻结的时候是按平仓手续费收取。 |
 |---|
 
-如何理解大商所短线开平仓，手续费的收取规则如何？
+<a id="region_tail_2"></a>
+
+<a id="region_header_3"></a>
+
+如何理解大商所短线开平仓，手续费的收取规则如何？<a id="region_panel_3"></a>
 
 -
 
@@ -191,3 +224,9 @@ bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。
 场景二：历史仓3手，开仓1手，平仓3手，平仓时收1手平今，2手平仓手续费。
 4.根据第3点，目前中金所的平今手续费高（15倍于平仓），而平仓手续费低，盘中开仓后平仓的手续费就会高收，这部分在结算时恢复正常。 |
 |---|
+
+<a id="region_tail_3"></a>
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>

@@ -1,16 +1,31 @@
 # ReqQrySecAgentCheckMode
 
-ReqQrySecAgentCheckMode
+<a id="__TOP_4E4ABC53-B143-46FF-93CF-F9381EAD8E14__"></a>
+
+<a id="printArea"></a>
+
+<a id="file_header"></a>
+
+ReqQrySecAgentCheckMode<a id="content"></a>
+
+<a id="left_menu"></a>
+
+  ** **
 
 请求查询二级代理商资金校验模式
 
-响应: [OnRspQrySecAgentCheckMode](../CTHOSTFTDCTRADERSPI/ONRSPQRYSECAGENTCHECKMODE.html)
+响应: [OnRspQrySecAgentCheckMode](pages/279-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYSECAGENTCHECKMODE.html.md)
+<a id="c25a40e6-7ac6-4759-be7f-748b267976c9"></a><a id="title1"></a>
 
-◇ 1. 函数原型
+<a id="header_span1"></a>◇ 1. 函数原型
+<a id="panel1"></a>
 
 virtual int ReqQrySecAgentCheckMode(CThostFtdcQrySecAgentCheckModeField *pQrySecAgentCheckMode, int nRequestID) = 0;
 
-◇ 2. 参数
+<a id="787abdcc-8ec0-431b-b0b8-feb334432699"></a><a id="title2"></a>
+
+<a id="header_span2"></a>◇ 2. 参数
+<a id="panel2"></a>
 
 pQrySecAgentCheckMode：查询二级代理商资金校验模式
 
@@ -23,7 +38,10 @@ pQrySecAgentCheckMode：查询二级代理商资金校验模式
 
 nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。
 
-◇ 3. 返回
+<a id="a6f6fea3-6af6-4139-9117-40196815abcd"></a><a id="title3"></a>
+
+<a id="header_span3"></a>◇ 3. 返回
+<a id="panel3"></a>
 
 0，代表成功。
 
@@ -33,10 +51,20 @@ nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用�
 
 -3，表示每秒发送请求数超过许可数。
 
-◇ 4. 调用示例
+<a id="1ef9514e-2c9c-497d-9442-673e8d06bc01"></a><a id="title4"></a>
+
+<a id="header_span4"></a>◇ 4. 调用示例
+<a id="panel4"></a>
 
 无
 
-◇ 5. FAQ
+<a id="0d61e352-4083-4511-9abe-2ac67ca593f1"></a><a id="title5"></a>
+
+<a id="header_span5"></a>◇ 5. FAQ
+<a id="panel5"></a>
 
 无
+
+<a id="author"></a>
+
+<a id="theme_switcher"></a>
