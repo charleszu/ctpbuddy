@@ -266,7 +266,9 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
                          exchange="SHFE", order_ref="900")
         parked = None
         for kind, field in cli.events(timeout=5.0):
-            if kind == RTN_ORDER and field["OrderRef"] == "900":
+            # §8.9: the first push is the unknown ('a') order; the queueing
+            # confirmation ('3') follows — filter by status, not by arrival
+            if kind == RTN_ORDER and field["OrderRef"] == "900" and field["OrderStatus"] == ord("3"):
                 parked = field
                 break
         assert parked is not None and parked["OrderStatus"] == ord("3"), parked
@@ -293,7 +295,8 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
         cli.order_insert(INSTRUMENT, direction="0", offset="0", volume=1, limit_price=REST_PRICE, exchange="SHFE", order_ref="777")
         final = None
         for kind, field in cli.events(timeout=5.0):
-            if kind == RTN_ORDER:
+            # §8.9: unknown ('a') first, then the queueing confirmation ('3')
+            if kind == RTN_ORDER and field["OrderRef"] == "777" and field["OrderStatus"] == ord("3"):
                 final = field
                 break
         assert final is not None and final["OrderStatus"] == ord("3"), final  # parked in book

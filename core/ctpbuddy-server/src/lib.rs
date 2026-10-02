@@ -353,6 +353,19 @@ impl World {
     fn dispatch_event(&mut self, ev: EngineEvent) {
         match ev {
             EngineEvent::Order(field) => {
+                // A terminal '5' (client cancel or IOC/FOK/FAK auto-cancel)
+                // releases whatever is still frozen for the order — §8.3:
+                // 撤单按 VolumeTotal（未成交量）解冻. `unfreeze_order` is a
+                // no-op when the freeze was already fully released by fills.
+                if field.OrderStatus == b'5' {
+                    let key = format!(
+                        "{}/{}/{}",
+                        field.FrontID,
+                        field.SessionID,
+                        cstr(&field.OrderRef)
+                    );
+                    self.ledger.unfreeze_order(&key);
+                }
                 self.orders_today.push(field.clone());
                 let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
                 let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));

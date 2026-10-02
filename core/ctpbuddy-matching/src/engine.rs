@@ -1,18 +1,32 @@
-//! Immediate-fill matching engine (DESIGN.md §8.4 mode 1).
+//! Limit-order-book matching engine (DESIGN.md §8.4 mode 2).
 //!
-//! Scope of M1:
-//! - 市价 / FAK / FOK: fill against the current counterpart price from the
-//!   latest tick (SimNow / LocalCTP semantics);
-//! - 限价 GFD: cross the book at arrival, otherwise rest and are re-evaluated
-//!   on every subsequent tick of the same instrument;
-//! - order-vs-order matching (price/time priority queue estimation) is
-//!   deliberately **not** implemented yet — it lands with the limit-order book
-//!   in M2 (DESIGN.md §8.4 mode 2). Resting orders in M1 fill against market
-//!   ticks only.
+//! M2 scope:
+//! - per-instrument book: bids (price DESC + arrival ASC) / asks (price ASC +
+//!   arrival ASC); `books` is a `BTreeMap` keyed by instrument so QryOrder
+//!   output order is deterministic;
+//! - order-vs-order matching at arrival (price priority, then time
+//!   priority): the fill price is the resting (maker) order's limit price;
+//! - the incoming order compares the best resting price against the current
+//!   tick's five-level depth and takes the better side; tick depth is an
+//!   immutable snapshot, so consumption is tracked per matching pass with
+//!   `used: [i32; DEPTH]`;
+//! - FAK/FOK exact semantics with the official CTP encodings
+//!   (`ThostFtdcUserApiDataType.h`): FOK = TC_IOC('1')+VC_CV('3'),
+//!   FAK = TC_IOC+VC_AV('1') or TC_IOC+VC_MV('2') with MinVolume; GFD('3')
+//!   leftovers rest, IOC leftovers are cancelled;
+//! - self-trade prevention: resting orders of the same (broker, investor)
+//!   are skipped (switchable);
+//! - callback sequence per DESIGN §8.9 / docs/notes/01: initial unknown
+//!   ('a') push, rest confirmation as a single '3' push, every fill/cancel as
+//!   前态+新态 with OnRtnTrade after the new-state OnRtnOrder.
+//!
+//! Matching happens at two moments only: order arrival and tick arrival.
+//! Resting orders never match each other directly (a tick is the external
+//! counterparty), which keeps the engine deterministic.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use ctpbuddy_market::{format_hhmmss, Tick};
+use ctpbuddy_market::{format_hhmmss, Tick, DEPTH};
 use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcOrderField, CThostFtdcTradeField,
 };
@@ -73,9 +87,14 @@ pub struct OrderRecord {
     pub front_id: i32,
     pub session_id: i32,
     pub insert_ms: f64,
-    /// CTP `THOST_FTDC_OST_*`: '3' queued, '1' partial, '0' all traded, '5' canceled.
+    /// CTP `THOST_FTDC_OST_*`: 'a' unknown, '3' queued, '1' partial,
+    /// '0' all traded, '5' canceled.
     pub status: u8,
     pub notify_seq: i32,
+    /// Monotonic arrival sequence (per engine): the time-priority tiebreaker.
+    /// Assigned once at accept and never changes, so remove+reinsert keeps a
+    /// same-price order's queue position.
+    pub arrival_seq: u64,
 }
 
 /// What the engine emits. The server turns these into wire frames; the ledger
@@ -105,27 +124,56 @@ pub enum SubmitOutcome {
     Rejected { error_id: i32, msg: String },
 }
 
+/// One side of an instrument's book, kept in price priority:
+/// bids DESC (best bid first), asks ASC (best ask first); ties broken by
+/// `arrival_seq` ASC (first in, first filled).
+#[derive(Clone, Debug, Default)]
+pub struct Book {
+    pub bids: Vec<OrderRecord>,
+    pub asks: Vec<OrderRecord>,
+}
+
+impl Book {
+    fn is_empty(&self) -> bool {
+        self.bids.is_empty() && self.asks.is_empty()
+    }
+}
+
+/// The chosen liquidity source for one fill step.
+enum Counterpart {
+    /// Resting order at `idx` of the counterpart side of the taker's book.
+    Book { idx: usize, price: f64, avail: i32 },
+    /// Tick depth level (`None` = the depth-less last-price fallback).
+    Market { level: Option<usize>, price: f64, avail: i32 },
+}
+
 pub struct MatchingEngine {
     catalog: Catalog,
-    books: HashMap<String, Vec<OrderRecord>>,
+    books: BTreeMap<String, Book>,
     last_md: HashMap<String, Tick>,
     /// (front_id, session_id, order_ref) of orders still on the book.
     active_refs: HashSet<(i32, i32, [u8; 13])>,
     next_sys: u64,
     next_trade: u64,
     next_notify: i32,
+    next_arrival: u64,
+    /// Self-trade prevention (DESIGN §8.3): resting orders of the same
+    /// (broker, investor) are never matched against each other.
+    self_trade_prevention: bool,
 }
 
 impl MatchingEngine {
     pub fn new(catalog: Catalog) -> Self {
         MatchingEngine {
             catalog,
-            books: HashMap::new(),
+            books: BTreeMap::new(),
             last_md: HashMap::new(),
             active_refs: HashSet::new(),
             next_sys: 1,
             next_trade: 1,
             next_notify: 1,
+            next_arrival: 1,
+            self_trade_prevention: true,
         }
     }
 
@@ -146,7 +194,7 @@ impl MatchingEngine {
     }
 
     pub fn open_order_count(&self) -> usize {
-        self.books.values().map(|b| b.len()).sum()
+        self.books.values().map(|b| b.bids.len() + b.asks.len()).sum()
     }
 
     /// Static validation (contract, price, volume). Fund/position sufficiency
@@ -198,9 +246,9 @@ impl MatchingEngine {
         Ok(())
     }
 
-    /// Accept an order. Immediate fills happen against the latest tick;
-    /// leftovers rest (GFD) or die (IOC/FAK, FOK) — never queue for future
-    /// order-vs-order matching in M1.
+    /// Accept an order: match it against the book (order-vs-order) and the
+    /// current tick depth, then rest (GFD) or cancel (IOC/FAK/FOK) the
+    /// remainder. The emitted event sequence follows DESIGN §8.9.
     pub fn submit(&mut self, intent: &OrderIntent, ctx: &ClockCtx) -> SubmitOutcome {
         if let Err(e) = self.check(intent) {
             return SubmitOutcome::Rejected { error_id: e.0, msg: e.1 };
@@ -258,135 +306,192 @@ impl MatchingEngine {
             front_id: intent.front_id,
             session_id: intent.session_id,
             insert_ms: ctx.now_ms,
-            status: b'3',
+            status: b'a',
             notify_seq: 0,
+            arrival_seq: {
+                let s = self.next_arrival;
+                self.next_arrival += 1;
+                s
+            },
         };
 
-        let md = self.last_md.get(&intent.instrument_id).cloned();
-        let cp = md.as_ref().and_then(|t| {
-            counterpart_price(intent.direction, intent.price_type, intent.limit_price, t)
-        });
-        let is_ioc = intent.time_condition == b'3';
-        let is_fok = is_ioc && intent.volume_condition == b'2';
+        // Official CTP encodings (ThostFtdcUserApiDataType.h): TC_IOC='1',
+        // TC_GFD='3'; VC_AV='1', VC_MV='2', VC_CV='3'. AnyPrice is IOC by
+        // definition (normalized at the server; defended here too).
+        let is_ioc = intent.price_type == b'1' || intent.time_condition == b'1';
+        let is_fok = is_ioc && intent.volume_condition == b'3';
+        let is_mv = is_ioc && intent.volume_condition == b'2';
 
         let mut events = Vec::new();
-        match cp {
-            None => {
-                // nothing to trade against right now
-                if is_ioc {
-                    rec.status = b'5';
-                    self.active_refs.remove(&key);
-                    let seq = self.next_notify_seq();
-                    events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
-                } else {
-                    self.books.entry(rec.instrument_id.clone()).or_default().push(rec.clone());
-                    let seq = self.next_notify_seq();
-                    events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
-                }
+        // 1) initial unknown-order push (notes/01: every scenario starts here)
+        let seq = self.next_notify_seq();
+        rec.notify_seq = seq;
+        events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
+
+        let md = self.last_md.get(&intent.instrument_id).cloned();
+
+        // 2) FOK / FAK-with-min-volume lookahead: decide the whole order's
+        //    fate from the immediately tradable depth before filling anything
+        //    (docs/notes/01 D2: below MinVolume the entire order is cancelled).
+        if is_fok || is_mv {
+            let avail = self.available_depth(intent, md.as_ref());
+            let threshold = if is_fok { intent.volume } else { intent.min_volume.max(1) };
+            if avail < threshold {
+                self.push_transition(&mut rec, b'5', &mut events, ctx);
+                self.active_refs.remove(&key);
+                return SubmitOutcome::Accepted { events };
             }
-            Some((price, avail)) => {
-                if is_fok && avail < intent.volume {
-                    rec.status = b'5';
-                    self.active_refs.remove(&key);
-                    let seq = self.next_notify_seq();
-                    events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
-                } else {
-                    let vol = avail.min(intent.volume);
-                    let ev = self.do_fill(&mut rec, price, vol, ctx);
-                    events.push(ev);
-                    if rec.volume_total == 0 {
-                        rec.status = b'0';
-                        self.active_refs.remove(&key);
-                        let seq = self.next_notify_seq();
-                        events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
-                    } else if is_ioc {
-                        rec.status = b'5';
-                        self.active_refs.remove(&key);
-                        let seq = self.next_notify_seq();
-                        events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
+        }
+
+        // 3) matching loop: book counterpart vs tick counterpart, better price
+        //    wins (ties to the resting order: it arrived before the snapshot)
+        let mut used = [0i32; DEPTH];
+        let mut remaining = intent.volume;
+        while remaining > 0 {
+            let cp = self.best_counterpart(intent, md.as_ref(), &used);
+            match cp {
+                None => break,
+                Some(Counterpart::Book { idx, price, avail }) => {
+                    let take = avail.min(remaining);
+                    // one exchange trade, two reports: maker and taker share
+                    // the TradeID (each keeps its own order key / direction /
+                    // offset). take the maker out of the book; reinsert keeps
+                    // its queue position via the stable arrival_seq
+                    let mut maker = {
+                        let book = self.books.get_mut(&rec.instrument_id).expect("book exists");
+                        counterpart_side_mut(book, intent.direction).remove(idx)
+                    };
+                    let trade_id = self.next_trade_id();
+                    self.emit_fill(&mut maker, price, take, &trade_id, &mut events, ctx);
+                    self.emit_fill(&mut rec, price, take, &trade_id, &mut events, ctx);
+                    if maker.volume_total > 0 {
+                        let book = self.books.entry(rec.instrument_id.clone()).or_default();
+                        insert_resting(book, maker);
                     } else {
-                        rec.status = b'1';
-                        self.books.entry(rec.instrument_id.clone()).or_default().push(rec.clone());
-                        let seq = self.next_notify_seq();
-                        events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
+                        self.active_refs
+                            .remove(&(maker.front_id, maker.session_id, maker.order_ref));
                     }
+                    remaining -= take;
+                }
+                Some(Counterpart::Market { level, price, avail }) => {
+                    let take = avail.min(remaining);
+                    if let Some(l) = level {
+                        used[l] += take;
+                    }
+                    // a market fill has only the taker side to report
+                    let trade_id = self.next_trade_id();
+                    self.emit_fill(&mut rec, price, take, &trade_id, &mut events, ctx);
+                    remaining -= take;
                 }
             }
+        }
+
+        // 4) leftover: rest (GFD) or cancel (IOC/FAK/FOK)
+        if remaining > 0 {
+            if is_ioc {
+                self.push_transition(&mut rec, b'5', &mut events, ctx);
+                self.active_refs.remove(&key);
+            } else {
+                if rec.volume_traded == 0 {
+                    // exchange 报单确认: a single '3' push, no 前态 duplicate
+                    // (notes/01 scenarios 1/3/4)
+                    self.push_status(&mut rec, b'3', &mut events, ctx);
+                }
+                let book = self.books.entry(rec.instrument_id.clone()).or_default();
+                insert_resting(book, rec);
+            }
+        } else {
+            self.active_refs.remove(&key);
         }
         SubmitOutcome::Accepted { events }
     }
 
-    /// Cancel an active order. Returns the final ('5') order record.
-    pub fn cancel(&mut self, q: &CancelQuery, ctx: &ClockCtx) -> Result<CThostFtdcOrderField, (i32, String)> {
-        for book in self.books.values_mut() {
-            if let Some(pos) = book.iter().position(|r| {
-                if !q.order_sys_id.is_empty() {
-                    cstr(&r.order_sys_id) == q.order_sys_id
-                } else if q.front_id != 0 {
-                    r.front_id == q.front_id
-                        && r.session_id == q.session_id
-                        && cstr(&r.order_ref) == q.order_ref
-                } else {
-                    // ref-only fallback, restricted to the caller's investor
-                    cstr(&r.order_ref) == q.order_ref
-                        && cstr(&r.investor_id) == q.investor_id
-                }
-            }) {
-                let mut rec = book.remove(pos);
-                rec.status = b'5';
-                self.active_refs.remove(&(rec.front_id, rec.session_id, rec.order_ref));
-                let seq = self.next_notify_seq();
-                return Ok(build_order_field(&rec, ctx, seq));
+    /// Cancel an active order. Returns the §8.9 event pair (前态 + '5').
+    pub fn cancel(
+        &mut self,
+        q: &CancelQuery,
+        ctx: &ClockCtx,
+    ) -> Result<Vec<EngineEvent>, (i32, String)> {
+        // locate first (instrument, side, position) — immutable pass so the
+        // event-emitting mutable pass cannot conflict with the search borrow
+        let mut found: Option<(String, bool, usize)> = None;
+        'search: for (instr, book) in &self.books {
+            if let Some(pos) = book.bids.iter().position(|r| matches_cancel(r, q)) {
+                found = Some((instr.clone(), true, pos));
+                break 'search;
+            }
+            if let Some(pos) = book.asks.iter().position(|r| matches_cancel(r, q)) {
+                found = Some((instr.clone(), false, pos));
+                break 'search;
             }
         }
-        Err((ERR_ORDER_NOT_FOUND, "未找到活动报单或报单状态不允许撤单".into()))
+        let (instr, is_bid, pos) = match found {
+            Some(v) => v,
+            None => {
+                return Err((ERR_ORDER_NOT_FOUND, "未找到活动报单或报单状态不允许撤单".into()))
+            }
+        };
+        let book = self.books.get_mut(&instr).expect("book exists");
+        let side = if is_bid { &mut book.bids } else { &mut book.asks };
+        let mut rec = side.remove(pos);
+        self.active_refs.remove(&(rec.front_id, rec.session_id, rec.order_ref));
+        let mut events = Vec::new();
+        self.push_transition(&mut rec, b'5', &mut events, ctx);
+        Ok(events)
     }
 
     /// Feed a market tick: update the book, fill any crossing resting orders.
-    /// Deterministic: resting orders are processed in arrival order.
+    /// Deterministic: resting orders are processed in book order (price
+    /// priority, then arrival), bids before asks; tick depth consumption is
+    /// tracked per tick (`used` resets on every new snapshot).
     pub fn on_tick(&mut self, tick: &Tick) -> Vec<EngineEvent> {
         let mut events = Vec::new();
+        self.last_md.insert(tick.instrument_id.clone(), tick.clone());
         let book = match self.books.remove(&tick.instrument_id) {
             Some(b) => b,
-            None => {
-                self.last_md.insert(tick.instrument_id.clone(), tick.clone());
-                return events;
-            }
+            None => return events,
         };
         let ctx = ClockCtx {
             trading_day: &tick.trading_day,
             now_ms: tick.virtual_ms(),
         };
-        let mut leftovers = Vec::new();
-        for mut rec in book {
-            match counterpart_price(rec.direction, rec.price_type, rec.limit_price, tick) {
-                Some((price, avail)) => {
-                    let vol = avail.min(rec.volume_total);
-                    let ev = self.do_fill(&mut rec, price, vol, &ctx);
-                    events.push(ev);
-                    if rec.volume_total == 0 {
-                        rec.status = b'0';
-                        self.active_refs.remove(&(rec.front_id, rec.session_id, rec.order_ref));
-                        let seq = self.next_notify_seq();
-                        events.push(EngineEvent::Order(build_order_field(&rec, &ctx, seq)));
-                    } else {
-                        rec.status = b'1';
-                        let seq = self.next_notify_seq();
-                        events.push(EngineEvent::Order(build_order_field(&rec, &ctx, seq)));
-                        leftovers.push(rec);
+        let mut used = [0i32; DEPTH];
+        let Book { bids, asks } = book;
+        let mut leftover = Book::default();
+        for mut rec in bids.into_iter().chain(asks.into_iter()) {
+            let mut remaining = rec.volume_total;
+            while remaining > 0 {
+                match market_counterpart(tick, rec.direction, rec.price_type, rec.limit_price, &used) {
+                    Some(m) => {
+                        let take = m.avail.min(remaining);
+                        if let Some(l) = m.level {
+                            used[l] += take;
+                        }
+                        // the tick is the counterparty: one report, the taker's
+                        let trade_id = self.next_trade_id();
+                        self.emit_fill(&mut rec, m.price, take, &trade_id, &mut events, &ctx);
+                        remaining -= take;
                     }
+                    None => break,
                 }
-                None => leftovers.push(rec),
+            }
+            if rec.volume_total > 0 {
+                match rec.direction {
+                    Direction::Buy => leftover.bids.push(rec),
+                    Direction::Sell => leftover.asks.push(rec),
+                }
+            } else {
+                self.active_refs.remove(&(rec.front_id, rec.session_id, rec.order_ref));
             }
         }
-        if !leftovers.is_empty() {
-            self.books.insert(tick.instrument_id.clone(), leftovers);
+        if !leftover.is_empty() {
+            self.books.insert(tick.instrument_id.clone(), leftover);
         }
-        self.last_md.insert(tick.instrument_id.clone(), tick.clone());
         events
     }
 
-    /// All resting orders as `OrderField`s (QryOrder support).
+    /// All resting orders as `OrderField`s (QryOrder support). Iteration is
+    /// instrument-sorted (BTreeMap), then book order.
     pub fn active_order_fields(&self, trading_day: &str) -> Vec<CThostFtdcOrderField> {
         let ctx = ClockCtx {
             trading_day,
@@ -394,7 +499,7 @@ impl MatchingEngine {
         };
         let mut out: Vec<CThostFtdcOrderField> = Vec::new();
         for book in self.books.values() {
-            for rec in book {
+            for rec in book.bids.iter().chain(book.asks.iter()) {
                 let seq = self.next_notify;
                 out.push(build_order_field(rec, &ctx, seq));
             }
@@ -406,20 +511,114 @@ impl MatchingEngine {
         self.last_md.values().map(|t| t.virtual_ms()).fold(0.0, f64::max)
     }
 
-    /// Apply one fill to `rec` and build the corresponding events.
-    fn do_fill(
+    /// Total immediately tradable volume for `intent` (book + tick depth),
+    /// used for the FOK / FAK-min-volume lookahead.
+    fn available_depth(&self, intent: &OrderIntent, md: Option<&Tick>) -> i32 {
+        let mut total: i32 = 0;
+        if let Some(book) = self.books.get(&intent.instrument_id) {
+            let side = counterpart_side(book, intent.direction);
+            for o in side {
+                if self.self_trade_prevention && same_account(o, intent) {
+                    continue;
+                }
+                if !crosses_at(intent.direction, intent.price_type, intent.limit_price, o.limit_price) {
+                    break; // side is price-sorted: nothing deeper qualifies
+                }
+                total = total.saturating_add(o.volume_total);
+            }
+        }
+        if let Some(tick) = md {
+            let mut used = [0i32; DEPTH];
+            loop {
+                match market_counterpart(tick, intent.direction, intent.price_type, intent.limit_price, &used) {
+                    Some(m) => {
+                        total = total.saturating_add(m.avail);
+                        match m.level {
+                            Some(l) => used[l] += m.avail,
+                            None => break, // unbounded last-price fallback
+                        }
+                    }
+                    None => break,
+                }
+            }
+        }
+        total
+    }
+
+    /// Best immediately tradable counterpart: the better price of the best
+    /// resting order and the best tick depth level; ties go to the resting
+    /// order (it arrived before the current snapshot).
+    fn best_counterpart(
+        &self,
+        intent: &OrderIntent,
+        md: Option<&Tick>,
+        used: &[i32; DEPTH],
+    ) -> Option<Counterpart> {
+        let book_cp = self.books.get(&intent.instrument_id).and_then(|book| {
+            let side = counterpart_side(book, intent.direction);
+            side.iter()
+                .position(|o| {
+                    (!self.self_trade_prevention || !same_account(o, intent))
+                        && crosses_at(intent.direction, intent.price_type, intent.limit_price, o.limit_price)
+                })
+                .map(|idx| {
+                    let o = &side[idx];
+                    Counterpart::Book { idx, price: o.limit_price, avail: o.volume_total }
+                })
+        });
+        let mkt_cp = md
+            .and_then(|t| market_counterpart(t, intent.direction, intent.price_type, intent.limit_price, used))
+            .map(|m| Counterpart::Market { level: m.level, price: m.price, avail: m.avail });
+        match (book_cp, mkt_cp) {
+            (Some(b), Some(m)) => {
+                let (bp, mp) = match (&b, &m) {
+                    (Counterpart::Book { price: bp, .. }, Counterpart::Market { price: mp, .. }) => (*bp, *mp),
+                    _ => unreachable!(),
+                };
+                let book_better = match intent.direction {
+                    Direction::Buy => bp < mp - EPS,  // lower ask wins
+                    Direction::Sell => bp > mp + EPS, // higher bid wins
+                };
+                Some(if book_better { b } else { m })
+            }
+            (Some(b), None) => Some(b),
+            (None, Some(m)) => Some(m),
+            (None, None) => None,
+        }
+    }
+
+    /// Apply one fill and emit the full §8.9 event trio for this order:
+    /// 前态 OnRtnOrder → 新态 OnRtnOrder → OnRtnTrade.
+    ///
+    /// `trade_id` is allocated by the caller: a book match passes the same id
+    /// to both sides (one exchange trade, two reports), a market fill mints
+    /// its own for the single taker report.
+    ///
+    /// TODO(M2-4): 大商所特例 — on full fill DCE returns only the trade and
+    /// CTP self-completes the all-traded order report without repeating the
+    /// previous state (notes/01 B3). All exchanges use the general sequence
+    /// until the per-exchange rule table lands.
+    fn emit_fill(
         &mut self,
         rec: &mut OrderRecord,
         price: f64,
         volume: i32,
+        trade_id: &str,
+        events: &mut Vec<EngineEvent>,
         ctx: &ClockCtx,
-    ) -> EngineEvent {
-        let trade_id = format!("{:010}", self.next_trade);
-        self.next_trade += 1;
+    ) {
+        // 前态 (the state this order was last reported in)
+        let mut prev = rec.clone();
+        let seq_prev = self.next_notify_seq();
+        prev.notify_seq = seq_prev;
+        events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+        // 新态
         rec.volume_traded += volume;
         rec.volume_total -= volume;
-        let seq = self.next_notify_seq();
-        rec.notify_seq = seq;
+        rec.status = if rec.volume_total == 0 { b'0' } else { b'1' };
+        let seq_new = self.next_notify_seq();
+        rec.notify_seq = seq_new;
+        events.push(EngineEvent::Order(build_order_field(rec, ctx, seq_new)));
 
         let mut tf = CThostFtdcTradeField::zeroed();
         set_cstr(&mut tf.BrokerID, &cstr(&rec.broker_id));
@@ -430,12 +629,15 @@ impl MatchingEngine {
         set_cstr(&mut tf.OrderSysID, &cstr(&rec.order_sys_id));
         set_cstr(&mut tf.InstrumentID, &rec.instrument_id);
         set_cstr(&mut tf.ExchangeID, &rec.exchange_id);
-        set_cstr(&mut tf.TradeID, &trade_id);
+        set_cstr(&mut tf.TradeID, trade_id);
         set_cstr(&mut tf.TradingDay, ctx.trading_day);
         set_cstr(&mut tf.TradeDate, ctx.trading_day);
         set_cstr(&mut tf.TradeTime, &format_hhmmss(ctx.now_ms));
         tf.Direction = rec.direction.as_ctp();
-        tf.OffsetFlag = rec.offset.as_ctp();
+        // 成交开平归一化 (§8.9): only SHFE/INE distinguish 平今/平昨 on the
+        // trade report; every other exchange reports Close. The ledger sees
+        // the true offset through `Fill.offset`.
+        tf.OffsetFlag = trade_offset(rec).as_ctp();
         tf.HedgeFlag = rec.hedge_flag;
         tf.Price = price;
         tf.Volume = volume;
@@ -444,8 +646,8 @@ impl MatchingEngine {
         tf.PriceSource = b'0';
         tf.TradeSource = b'0';
         tf.SettlementID = 1;
-        tf.BrokerOrderSeq = seq;
-        tf.SequenceNo = seq;
+        tf.BrokerOrderSeq = seq_new;
+        tf.SequenceNo = seq_new;
 
         let fill = Fill {
             broker_id: rec.broker_id,
@@ -461,7 +663,7 @@ impl MatchingEngine {
             volume_total_original: rec.volume_total_original,
             order_sys_id: rec.order_sys_id,
             order_ref: rec.order_ref,
-            trade_id: to_fixed(&trade_id),
+            trade_id: to_fixed(trade_id),
             order_key: format!(
                 "{}/{}/{}",
                 rec.front_id,
@@ -469,7 +671,36 @@ impl MatchingEngine {
                 cstr(&rec.order_ref)
             ),
         };
-        EngineEvent::Trade { field: tf, fill }
+        events.push(EngineEvent::Trade { field: tf, fill });
+    }
+
+    /// Push a single order notification with a new status (no 前态 duplicate).
+    fn push_status(
+        &mut self,
+        rec: &mut OrderRecord,
+        status: u8,
+        events: &mut Vec<EngineEvent>,
+        ctx: &ClockCtx,
+    ) {
+        rec.status = status;
+        let seq = self.next_notify_seq();
+        rec.notify_seq = seq;
+        events.push(EngineEvent::Order(build_order_field(rec, ctx, seq)));
+    }
+
+    /// Push a state transition per §8.9: 前态 then 新态.
+    fn push_transition(
+        &mut self,
+        rec: &mut OrderRecord,
+        status: u8,
+        events: &mut Vec<EngineEvent>,
+        ctx: &ClockCtx,
+    ) {
+        let mut prev = rec.clone();
+        let seq_prev = self.next_notify_seq();
+        prev.notify_seq = seq_prev;
+        events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+        self.push_status(rec, status, events, ctx);
     }
 
     fn next_notify_seq(&mut self) -> i32 {
@@ -477,44 +708,143 @@ impl MatchingEngine {
         self.next_notify += 1;
         s
     }
+
+    /// Mint the next exchange trade id. One id per exchange trade: the caller
+    /// hands the same id to both sides of a book match.
+    fn next_trade_id(&mut self) -> String {
+        let s = format!("{:010}", self.next_trade);
+        self.next_trade += 1;
+        s
+    }
 }
 
-/// Counterpart (price, available volume) for an order against a tick.
-/// `None` means "not tradable right now" (no crossing / no depth).
-fn counterpart_price(
+/// The side of `book` an incoming `direction` trades against.
+fn counterpart_side(book: &Book, direction: Direction) -> &Vec<OrderRecord> {
+    match direction {
+        Direction::Buy => &book.asks,
+        Direction::Sell => &book.bids,
+    }
+}
+
+fn counterpart_side_mut(book: &mut Book, direction: Direction) -> &mut Vec<OrderRecord> {
+    match direction {
+        Direction::Buy => &mut book.asks,
+        Direction::Sell => &mut book.bids,
+    }
+}
+
+/// Insert a resting order keeping price priority + arrival order.
+fn insert_resting(book: &mut Book, rec: OrderRecord) {
+    match rec.direction {
+        Direction::Buy => {
+            let pos = book
+                .bids
+                .iter()
+                .position(|o| {
+                    o.limit_price < rec.limit_price - EPS
+                        || ((o.limit_price - rec.limit_price).abs() <= EPS
+                            && o.arrival_seq > rec.arrival_seq)
+                })
+                .unwrap_or(book.bids.len());
+            book.bids.insert(pos, rec);
+        }
+        Direction::Sell => {
+            let pos = book
+                .asks
+                .iter()
+                .position(|o| {
+                    o.limit_price > rec.limit_price + EPS
+                        || ((o.limit_price - rec.limit_price).abs() <= EPS
+                            && o.arrival_seq > rec.arrival_seq)
+                })
+                .unwrap_or(book.asks.len());
+            book.asks.insert(pos, rec);
+        }
+    }
+}
+
+/// Would an order with these terms trade at `price`? AnyPrice crosses at any
+/// price; a limit order crosses at-or-through its limit on its own side.
+fn crosses_at(direction: Direction, price_type: u8, limit_price: f64, price: f64) -> bool {
+    if price_type == b'1' {
+        return true;
+    }
+    match direction {
+        Direction::Buy => limit_price + EPS >= price,
+        Direction::Sell => limit_price <= price + EPS,
+    }
+}
+
+fn same_account(o: &OrderRecord, intent: &OrderIntent) -> bool {
+    cstr(&o.broker_id) == cstr(&intent.broker_id) && cstr(&o.investor_id) == cstr(&intent.investor_id)
+}
+
+/// One tradable slice of tick depth. `level` is `None` for the depth-less
+/// last-price fallback (mode-1 degradation, unbounded volume).
+struct MktCp {
+    level: Option<usize>,
+    price: f64,
+    avail: i32,
+}
+
+/// Best immediately tradable tick-depth counterpart for an order. `used`
+/// tracks consumption within the current matching pass (a tick is an
+/// immutable snapshot; several fills eat through it).
+fn market_counterpart(
+    tick: &Tick,
     direction: Direction,
     price_type: u8,
     limit_price: f64,
-    tick: &Tick,
-) -> Option<(f64, i32)> {
-    match direction {
-        Direction::Buy => {
-            let (ask, avail) = if tick.ask_prices[0] > 0.0 {
-                (tick.ask_prices[0], tick.ask_volumes[0])
-            } else if price_type != b'2' && tick.last_price > 0.0 {
-                // immediate mode fallback without depth: last price, unbounded
-                (tick.last_price, i32::MAX / 2)
-            } else {
-                return None;
-            };
-            if price_type == b'2' && limit_price + EPS < ask {
-                return None;
-            }
-            Some((ask, avail))
+    used: &[i32; DEPTH],
+) -> Option<MktCp> {
+    let (prices, volumes) = match direction {
+        Direction::Buy => (&tick.ask_prices, &tick.ask_volumes),
+        Direction::Sell => (&tick.bid_prices, &tick.bid_volumes),
+    };
+    if prices[0] <= 0.0 {
+        // no depth data at all: degrade to mode 1 (last price, unbounded)
+        if price_type != b'2' && tick.last_price > 0.0 {
+            return Some(MktCp { level: None, price: tick.last_price, avail: i32::MAX / 2 });
         }
-        Direction::Sell => {
-            let (bid, avail) = if tick.bid_prices[0] > 0.0 {
-                (tick.bid_prices[0], tick.bid_volumes[0])
-            } else if price_type != b'2' && tick.last_price > 0.0 {
-                (tick.last_price, i32::MAX / 2)
-            } else {
-                return None;
-            };
-            if price_type == b'2' && limit_price > bid + EPS {
-                return None;
-            }
-            Some((bid, avail))
+        return None;
+    }
+    for i in 0..DEPTH {
+        let p = prices[i];
+        if p <= 0.0 {
+            break; // an empty level terminates the book
         }
+        let avail = volumes[i] - used[i];
+        if avail <= 0 {
+            continue;
+        }
+        if !crosses_at(direction, price_type, limit_price, p) {
+            break; // levels are price-sorted: nothing deeper qualifies
+        }
+        return Some(MktCp { level: Some(i), price: p, avail });
+    }
+    None
+}
+
+/// 成交开平归一化 (DESIGN §8.9): only SHFE/INE distinguish CloseToday/
+/// CloseYesterday on the trade report; every other exchange reports Close.
+fn trade_offset(rec: &OrderRecord) -> OffsetFlag {
+    if rec.offset.is_close() && !matches!(rec.exchange_id.as_str(), "SHFE" | "INE") {
+        OffsetFlag::Close
+    } else {
+        rec.offset
+    }
+}
+
+fn matches_cancel(r: &OrderRecord, q: &CancelQuery) -> bool {
+    if !q.order_sys_id.is_empty() {
+        cstr(&r.order_sys_id) == q.order_sys_id
+    } else if q.front_id != 0 {
+        r.front_id == q.front_id
+            && r.session_id == q.session_id
+            && cstr(&r.order_ref) == q.order_ref
+    } else {
+        // ref-only fallback, restricted to the caller's investor
+        cstr(&r.order_ref) == q.order_ref && cstr(&r.investor_id) == q.investor_id
     }
 }
 

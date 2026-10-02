@@ -409,7 +409,7 @@ CThostFtdcInputOrderField make_input(const char* broker, const char* investor, c
     f.CombHedgeFlag[0] = '1';      // speculation
     f.LimitPrice = price;
     f.VolumeTotalOriginal = volume;
-    f.TimeCondition = '1';       // GFD
+    f.TimeCondition = '3';       // GFD (TC_GFD; '1' = IOC)
     f.VolumeCondition = '1';     // any volume
     f.ContingentCondition = '1'; // immediate
     f.MinVolume = 1;
@@ -640,16 +640,19 @@ void run(const char* front, const char* broker, const char* investor) {
     }
 
     // -- resting GFD order + cancel -------------------------------------------
-    size_t orders_before;
-    {
-        std::lock_guard<std::mutex> g(td_spi.sync.mu);
-        orders_before = td_spi.orders.size();
-    }
     {
         auto f = make_input(broker, investor, "777", '0', '0', REST_PRICE, LOTS);
         td->ReqOrderInsert(&f, ++g_req_seq);
     }
-    td_spi.sync.wait([&] { return td_spi.orders.size() > orders_before; }, "RTN_ORDER for the resting order");
+    // §8.9: a resting order reports 'a' (unknown) and then '3' (queued) as
+    // two back-to-back pushes -- wait for the STATUS, never for "one more
+    // order arrived", or the check races between the two pushes.
+    td_spi.sync.wait([&] {
+        for (const auto& o : td_spi.orders) {
+            if (std::string(o.OrderRef) == "777" && o.OrderStatus == '3') return true;
+        }
+        return false;
+    }, "RTN_ORDER '3' for the resting order");
     require_no_step_error(td_spi);
     {
         std::lock_guard<std::mutex> g(td_spi.sync.mu);
@@ -670,7 +673,13 @@ void run(const char* front, const char* broker, const char* investor) {
         a.ActionFlag = '0';  // delete
         td->ReqOrderAction(&a, ++g_req_seq);
     }
-    td_spi.sync.wait([&] { return td_spi.orders.size() > orders_before + 1; }, "RTN_ORDER for the cancel");
+    // the cancel pushes 前态('3') + 新态('5'): wait for the terminal status
+    td_spi.sync.wait([&] {
+        for (const auto& o : td_spi.orders) {
+            if (std::string(o.OrderRef) == "777" && o.OrderStatus == '5') return true;
+        }
+        return false;
+    }, "RTN_ORDER '5' for the cancel");
     require_no_step_error(td_spi);
     {
         std::lock_guard<std::mutex> g(td_spi.sync.mu);

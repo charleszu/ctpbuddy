@@ -269,13 +269,17 @@ impl Position {
     }
 }
 
-/// Frozen funds estimate attached to one order, released pro-rata on fills and
-/// released in full on cancel.
+/// Frozen funds estimate attached to one order. `margin` / `commission` keep
+/// the **original** estimate; each fill releases `original * filled_fraction`
+/// and the released part is tracked, so a fully-filled order (no terminal
+/// '5', hence no `unfreeze_order`) still ends at exactly zero frozen.
 #[derive(Clone, Debug)]
 struct FrozenEst {
     key: AccountKey,
     margin: f64,
     commission: f64,
+    released_margin: f64,
+    released_commission: f64,
 }
 
 /// Position volume reserved by an outstanding close order (today/yd split),
@@ -384,6 +388,8 @@ impl Ledger {
                 key: AccountKey::new(broker_id, investor_id),
                 margin: est_margin,
                 commission: est_commission,
+                released_margin: 0.0,
+                released_commission: 0.0,
             },
         );
         Ok(())
@@ -445,13 +451,15 @@ impl Ledger {
         Ok(())
     }
 
-    /// Release whatever remains frozen for an order (cancel path): funds
-    /// estimate + position reservation.
+    /// Release whatever remains frozen for an order (cancel path): the
+    /// unreleased part of the funds estimate + the position reservation.
     pub fn unfreeze_order(&mut self, order_key: &str) {
         if let Some(est) = self.frozen.remove(order_key) {
+            let rem_margin = (est.margin - est.released_margin).max(0.0);
+            let rem_commission = (est.commission - est.released_commission).max(0.0);
             if let Some(a) = self.accounts.get_mut(&est.key) {
-                a.frozen_margin = (a.frozen_margin - est.margin).max(0.0);
-                a.frozen_commission = (a.frozen_commission - est.commission).max(0.0);
+                a.frozen_margin = (a.frozen_margin - rem_margin).max(0.0);
+                a.frozen_commission = (a.frozen_commission - rem_commission).max(0.0);
             }
         }
         if let Some(res) = self.frozen_pos.remove(order_key) {
@@ -478,6 +486,9 @@ impl Ledger {
         };
 
         // ---- release pro-rata frozen estimate for this order ----
+        // The fraction is of the ORIGINAL estimate (not of what is left), so
+        // a multi-tranche fill that ends up fully filled releases exactly
+        // 100%: 2/3 + 1/3 of the original, not of the shrinking remainder.
         let (rel_margin, rel_comm) = {
             let est = self.frozen.get_mut(&fill.order_key);
             match est {
@@ -486,8 +497,8 @@ impl Ledger {
                     let frac = (fill.volume as f64 / total).clamp(0.0, 1.0);
                     let rm = est.margin * frac;
                     let rc = est.commission * frac;
-                    est.margin -= rm;
-                    est.commission -= rc;
+                    est.released_margin += rm;
+                    est.released_commission += rc;
                     (rm, rc)
                 }
                 None => (0.0, 0.0),

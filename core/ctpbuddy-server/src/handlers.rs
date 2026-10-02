@@ -461,11 +461,16 @@ impl World {
                             }
                         }
                         ctpbuddy_matching::EngineEvent::Trade { fill, .. } => {
-                            fills.push(json::obj_sorted(vec![
-                                ("trade_id".into(), json::s(&cstr(&fill.trade_id))),
-                                ("price".into(), json::n(fill.price)),
-                                ("volume".into(), json::n(fill.volume as f64)),
-                            ]));
+                            // only the submitter's own fills: a book match
+                            // also emits the resting counterparty's fill, which
+                            // dispatch_event journals under its own account
+                            if fill.order_key == order_key {
+                                fills.push(json::obj_sorted(vec![
+                                    ("trade_id".into(), json::s(&cstr(&fill.trade_id))),
+                                    ("price".into(), json::n(fill.price)),
+                                    ("volume".into(), json::n(fill.volume as f64)),
+                                ]));
+                            }
                         }
                     }
                     self.dispatch_event(ev);
@@ -547,35 +552,34 @@ impl World {
             now_ms: now,
         };
         match self.engine.cancel(&q, &ctx) {
-            Ok(field) => {
-                let key = format!(
-                    "{}/{}/{}",
-                    field.FrontID,
-                    field.SessionID,
-                    cstr(&field.OrderRef)
-                );
-                self.ledger.unfreeze_order(&key);
-                self.orders_today.push(field.clone());
+            Ok(events) => {
+                // OnRspOrderAction (success) fires before the Rtn callbacks
                 self.send_frame(
                     conn_id,
                     Frame::new(msgs::RSP_ORDER_ACTION, frame.req_id, Vec::new()),
                 );
-                let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));
-                let f = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
-                for id in targets {
-                    self.send_frame(id, f.clone());
+                // §8.9: 前态 + 新态('5'). dispatch_event fans out, journals and
+                // releases the order's remaining freeze on the terminal '5'.
+                let mut final_field = None;
+                for ev in events {
+                    if let ctpbuddy_matching::EngineEvent::Order(ref f) = ev {
+                        final_field = Some(f.clone());
+                    }
+                    self.dispatch_event(ev);
                 }
-                self.journal_record_json(
-                    "order_cancel",
-                    &broker,
-                    &investor,
-                    json::obj_sorted(vec![
-                        ("order_ref".into(), json::s(&cstr(&field.OrderRef))),
-                        ("order_sys_id".into(), json::s(&cstr(&field.OrderSysID))),
-                        ("instrument".into(), json::s(&cstr(&field.InstrumentID))),
-                        ("cancel_time".into(), json::s(&cstr(&field.CancelTime))),
-                    ]),
-                );
+                if let Some(field) = final_field {
+                    self.journal_record_json(
+                        "order_cancel",
+                        &broker,
+                        &investor,
+                        json::obj_sorted(vec![
+                            ("order_ref".into(), json::s(&cstr(&field.OrderRef))),
+                            ("order_sys_id".into(), json::s(&cstr(&field.OrderSysID))),
+                            ("instrument".into(), json::s(&cstr(&field.InstrumentID))),
+                            ("cancel_time".into(), json::s(&cstr(&field.CancelTime))),
+                        ]),
+                    );
+                }
             }
             Err((code, msg)) => self.send_error(conn_id, frame.req_id, code, &msg),
         }
@@ -834,8 +838,13 @@ impl World {
     }
 }
 
-/// Normalize CTP order conditions to the M1 matrix (DESIGN §8.2):
-/// GFD ('1') / IOC ('3'); market orders (AnyPrice) are forced to IOC.
+/// Normalize CTP order conditions to the engine matrix (DESIGN §8.2/§8.4),
+/// using the **official** encodings from `ThostFtdcUserApiDataType.h`:
+/// TC_IOC='1', TC_GFS='2', TC_GFD='3', TC_GTD='4', TC_GTC='5';
+/// VC_AV='1', VC_MV='2', VC_CV='3'.
+///
+/// FAK/FOK are TC+VC combinations, not separate fields (docs/notes/01 A3):
+/// FAK = IOC+AV or IOC+MV(MinVolume), FOK = IOC+CV.
 fn normalize_conditions(
     price_type: u8,
     time_condition: u8,
@@ -843,8 +852,9 @@ fn normalize_conditions(
     contingent_condition: u8,
 ) -> Result<(u8, u8), (i32, String)> {
     let vc = match volume_condition {
-        b'1' => b'1',
-        b'2' => b'2',
+        b'1' => b'1', // any volume
+        b'2' => b'2', // minimum volume (FAK 指定成交数量)
+        b'3' => b'3', // all volume (FOK)
         _ => return Err((41, format!("不支持的 VolumeCondition '{}'", volume_condition as char))),
     };
     if contingent_condition != b'1' {
@@ -854,12 +864,15 @@ fn normalize_conditions(
         ));
     }
     let tc = match time_condition {
-        b'1' | b'2' => b'1', // GFD / GTC
-        b'3' => b'3',        // IOC
+        b'1' => b'1', // IOC
+        b'2' => b'3', // GFS → GFD (section 概念不建模，退化为当日有效)
+        b'3' => b'3', // GFD
+        b'4' => return Err((41, "GTD（指定有效期）暂不支持".to_string())),
+        b'5' => return Err((41, "GTC（撤销前有效）暂不支持".to_string())),
         _ => return Err((41, format!("不支持的 TimeCondition '{}'", time_condition as char))),
     };
     // AnyPrice market orders are immediate-or-cancel by definition.
-    let tc = if price_type == b'1' { b'3' } else { tc };
+    let tc = if price_type == b'1' { b'1' } else { tc };
     Ok((tc, vc))
 }
 

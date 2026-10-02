@@ -248,8 +248,9 @@ class Client:
         exchange: str = "",
         order_ref: str = "",
         price_type: str = "2",  # '2' = limit; '1' = any price (market)
-        time_condition: str = "1",  # GFD
-        volume_condition: str = "1",  # any volume
+        time_condition: str = "3",  # '3' = GFD (official TC_GFD; '1' = IOC)
+        volume_condition: str = "1",  # any volume ('2' = min volume, '3' = all)
+        min_volume: int = 1,  # only meaningful with VolumeCondition '2' (FAK with MinVolume)
         **extra: Any,
     ) -> Frame:
         """Send an order; returns the RSP_ORDER_INSERT frame (accepted at front).
@@ -273,7 +274,7 @@ class Client:
             VolumeTotalOriginal=volume,
             TimeCondition=ord(time_condition),
             VolumeCondition=ord(volume_condition),
-            MinVolume=1,
+            MinVolume=min_volume,
             ContingentCondition=ord("1"),
             StopPrice=0.0,
             ForceCloseReason=ord("0"),

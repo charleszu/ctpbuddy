@@ -387,6 +387,8 @@ assertions:             # 可选：场景内断言（CI 用）
 
 按所差异：大商所市价单内部转涨跌停限价撮合，**成交价可能不等于对手价**（其余所按最优对手价）——规则表按交易所配置；撮合结果以成交回报为准（见 §8.9）。
 
+模式 2 已由 M2-1 落地（簿结构 / FAK-FOK / 自成交预防 / 双份 Trade / 冻结闭环），完整口径见 §8.10。
+
 ### 8.5 并行策略（可选，默认关闭）
 
 - 单线程全品种为默认；
@@ -480,6 +482,21 @@ assertions:             # 可选：场景内断言（CI 用）
 - **成交判断必须以 `OnRtnTrade` 为准**（核心收到成交回报才更新报单状态）——以 OnRtnOrder 判成交并立即平仓，极小概率平仓指令到达时报单状态未更新导致平仓失败；
 - 撤单来源：`OrderSysID` 非空 = 进过交易所撮合队列的自撤；空 = 被拒/未进交易所；或看 `ActiveUserID`（自撤=本账户名）、`OrderSubmitStatus`（自撤='3' Accepted）；
 - **成交回报的开平方向 ≠ 报单开平方向**：大商所/郑商所/中金所平仓一律回 Close('1')，只有上期所/能源中心区分平今/平昨（SimNow 走上期所规则，仿真与实盘不一致的坑）。
+
+### 8.10 限价簿撮合引擎（M2-1 落地口径，2026-10-02）
+
+`core/ctpbuddy-matching/src/engine.rs` 已落地 §8.4 模式 2，实测口径（`tests/e2e/m2_book.py`，6 投资者 × 8 tick，16 项断言 + journal 96 事件 / 11 fills / 2 cancels / 5 个终态 '5' 核对）：
+
+- **簿结构**：每合约 `Book{bids, asks}`——bids 价格降序、asks 价格升序，同价按 `arrival_seq`（到达序，accept 时分配且永不变化）升序；`books: BTreeMap<instrument, Book>` 保证 QryOrder 输出序确定。撮合中 remove+reinsert 依赖稳定 arrival_seq 保住同价单队列位置；
+- **撮合时刻仅两处**：「报单到达」与「tick 到达」；resting 单之间不直接撮合（tick 即外部对手方）——这是引擎确定性的根；
+- **成交价**：簿内成交价 = maker 限价；tick 深度成交价 = 档位价。报单到达时同时考察「簿内最优对手」与「当前 tick 五档」，取更优价，**平手簿内优先**（resting 单先于快照到达）；
+- **五档消耗跟踪**：tick 深度是不可变快照，单次撮合过程用 `used: [i32; DEPTH]` 记录各档消耗，每个新 tick 重置；无深度数据时降级为模式 1（最新价、不限量，仅非限价单）；
+- **FAK/FOK 精确语义**（官方编码 `ThostFtdcUserApiDataType.h`：TC_IOC='1'、TC_GFD='3'、VC_AV='1'、VC_MV='2'、VC_CV='3'）：FOK=IOC+CV，lookahead 可成交量 < 报单量则整笔撤；FAK=IOC+AV 部分成交剩余撤，或 IOC+MV 可成交量 < MinVolume 整笔撤；GFD 余量挂簿；AnyPrice 市价单按定义走 IOC（服务端归一化，引擎内双保险）；
+- **自成交预防**：同 (broker, investor) 的 resting 单在 `best_counterpart` / `available_depth` 一律跳过（可开关）；
+- **成交双份语义**：一笔簿内成交产生 maker + taker 两份 Trade 回报，**共用同一 TradeID**（各自 order_key / 方向 / 开平不同）——与真实 CTP「一笔成交双方同 TradeID」一致；tick 深度成交只有 taker 一份、自带 TradeID；
+- **冻结释放闭环**：`freeze` 记**原始估算额**；每次成交按「原始估算额 × 本次量/原申报量」释放并累计 `released_*`；终态 '5'（客户撤单或 IOC/FOK/FAK 自动撤）由 `dispatch_event` 统一 `unfreeze_order` 释放未释放余量（幂等）——全成订单没有 '5'，pro-rata 也必须精确归零（M2-1 修复了按剩余额释放导致多段成交残留 2/9 冻结的缺陷）；
+- **成交开平归一化**：`TradeField.OffsetFlag` 仅 SHFE/INE 保留平今/平昨，其余交易所平仓一律回 Close('1')；`Order.CombOffsetFlag` 保留请求值；`Fill.offset` 保留真值供 ledger 先开先平；
+- **待办锚点**：大商所「全部成交只回成交、CTP 自补报单回报」特例（engine.rs `emit_fill` 处 `TODO(M2-4)`）、报单流控规则表（§8.8）、OrderSubmitStatus 七态细化归 M2-4。
 
 ---
 
@@ -737,6 +754,15 @@ CREATE TABLE audit_log (
 | M3 账户 | 保证金/手续费/平今平昨/结算 + SQLite 投影（§11.3）+ Web 后台 + install-shim | 结算单字段与 CTP 语义逐项对账 |
 | M4 交付 | 断言 DSL + e2e CI + 三渠道发布 + 文档站 | 全新 venv pip 安装 → demo 策略 CI 全绿 |
 
+**M2 子项进度**（2026-10-02 起跟踪）：
+
+| 子项 | 状态 | 交付物 / 出口标准 |
+|---|---|---|
+| M2-1 限价簿撮合引擎（价格/时间优先 + 单 vs 单） | ✅ 2026-10-02 | engine.rs 簿结构 + FAK/FOK + 自成交预防 + 双份 Trade + 冻结闭环；口径入 §8.10；`m2_book.py` 16 断言全绿 + M1 双套件回归 |
+| M2-2 场景 DSL 管道与播放控制 | 待启 | scenario.yaml（source→transforms freeze/gap/liquidity→clock→accounts→assertions）；seek/loop；ADMIN+CLI |
+| M2-3 journal 录制/重放与确定性 hash 校验 | 待启 | 同场景两次输出 hash 一致 |
+| M2-4 报单流控规则表 + 订单状态机与回报时序 | 待启 | §8.3 规则表落地；大商所自补全部成交特例（engine.rs TODO 锚点）；OrderSubmitStatus 七态细化 |
+
 ### 12.3 后续
 
 期权（数据结构已预留）→ 组合保证金/套利组合 → Mini API 并行 → FTDC 双模 DLL（Shim 同时可连真 CTP 前置机，配置切换——openctp CTPAPICompat 的路线，v1 明确不做）。
@@ -842,6 +868,9 @@ ctpbuddy/
 | 8 | §8.9（新增） | 回报时序与订单状态机整节：六回调分流表、前态+新态两笔去重、Trade 后置、大商所自补全部成交特例、OrderStatus 九态 / OrderSubmitStatus 七态、终态四个、IsAutoSuspend 恒 0、成交以 Trade 为准、撤单来源、成交开平≠报单开平 | 知识库 §5，notes/01 |
 | 9 | §6.4 | 删重复的 OnRtnDepthMarketData 行；补 M1 传输层落地状态（plain TCP 承载相同帧，ZMQ 为传输适配层替换） | M1 代码现状 |
 | 10 | §12.2 | M2 出口标准内容扩充：报单流控规则表、订单状态机与回报时序、FAK/FOK 精确语义、结算确认前置 | 知识库 §10.2 |
+| 11 | §8.10（新增） | M2-1 限价簿撮合落地口径整节：簿结构与到达序、两时刻撮合、成交价=maker 限价、五档 `used` 消耗、FAK/FOK 官方编码精确语义、自成交预防、簿内成交双份 Trade 共享 TradeID、冻结按原始额 pro-rata + 终态解冻闭环、成交开平归一化（仅 SHFE/INE 留平今/平昨） | M2-1 代码 + m2_book.py 实测 |
+| 12 | §8.2 / §8.10 | **TC/VC 字符编码纠正**：官方 `ThostFtdcUserApiDataType.h` 为 TC_IOC='1'、TC_GFS='2'、TC_GFD='3'、TC_GTD='4'、TC_GTC='5'、VC_AV='1'、VC_MV='2'、VC_CV='3'；M1 实现曾按「'1'=GFD、'3'=IOC、'2'=all」编码（与官方相反），M2-1 已改官方值：GFS→GFD 归一，GTD/GTC 显式拒绝（不静默丢弃），AnyPrice 强制 IOC，SDK `order_insert` 默认 `time_condition='3'` 并开放 `min_volume` | 官方头文件 + notes/01 A3 |
+| 13 | §12.2 | M2 里程碑拆为 M2-1~M2-4 四个子项并建进度表（M2-1 ✅） | 任务分解 |
 
 ---
 

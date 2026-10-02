@@ -127,9 +127,12 @@ pub struct OrderIntent {
     pub price_type: u8,
     pub limit_price: f64,
     pub volume: i32,
-    /// `TimeCondition`: '1' GFD, '3' IOC (FAK / FOK by VolumeCondition).
+    /// `TimeCondition` (official CTP values, `ThostFtdcUserApiDataType.h`):
+    /// '1' IOC, '3' GFD; GFS '2' is normalized to GFD, GTC '5' / GTD '4' are
+    /// rejected at the server.
     pub time_condition: u8,
-    /// `VolumeCondition`: '1' any, '2' all.
+    /// `VolumeCondition` (official CTP values): '1' any volume (FAK / IOC),
+    /// '2' minimum volume (FAK with `MinVolume`), '3' all volume (FOK).
     pub volume_condition: u8,
     pub min_volume: i32,
     pub contingent_condition: u8,
