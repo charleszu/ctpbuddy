@@ -22,6 +22,9 @@ shim/lib/
 logs/
 *.jsonl
 
+# PDF 逐页图像抽取的临时产物（阅读图像型 PDF 用，非交付物）
+.tmp_pdfimg/
+
 # 但随包参考数据（refdata/）是源码，必须入库：
 # Catalog::bundled() 与 e2e 都直接读它，clone 不到 = 起步就没有合约。
 !refdata/*.jsonl

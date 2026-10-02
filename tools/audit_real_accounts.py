@@ -49,11 +49,23 @@ What is checked
    the intraday `Deposit − Withdraw`; dropping it misses 100000 on days with a
    银期转账.
 7. **结算单可用资金 = 客户权益 − 保证金占用**, verified exactly.
+8. **保证金优惠 (large-side, notes/04 C4)**: for a hedged instrument the
+   statement charges `max(多头保证金, 空头保证金)`, not the sum — 56 of 64
+   real futures rows are hedged, and all 56 hit that identity exactly. The
+   ledger does **not** implement this yet (it sums per-lot margin), so on a 1:1
+   lock CTPBuddy reports twice the counter's `CurrMargin`. This assertion is
+   the yardstick for closing that gap, and it is why "no failures" below must
+   not be read as "the margin model matches the counter".
 
 The export is not part of the repository (it is broker data, tens of MB and
 somebody else's), so this script is opt-in: point `CTPBUDDY_EXPORT_DIR` /
 `CTPBUDDY_SETTLEMENT_DIR` at the two directories. Without them it exits 0 with
 a note, so a fresh clone's regression run is unaffected.
+
+Note: `settlement_dir` is walked **recursively** — it also holds a `2024/`
+subdirectory with 210 further statements (61 carrying positions) that a
+flat `os.listdir` never saw. Walking them took the statement identity from 770
+to 976 rows.
 
 Run:  python tools/audit_real_accounts.py
 """
@@ -73,6 +85,29 @@ SETTLEMENT_DIR = os.environ.get("CTPBUDDY_SETTLEMENT_DIR", r"C:\workspace\src\CT
 # in CNY, not in float epsilon: 0.01 is a cent, and the statements carry
 # fractional cents from exchange rounding.
 CENT = 0.01
+
+
+def settlement_files(settlement_dir):
+    """Every `*.json` statement under `settlement_dir`, **recursively**.
+
+    The directory is not flat: besides the 773 top-level statements it holds a
+    `2024/` subdirectory with 210 more whose filenames do not collide with the
+    top-level ones (2024-08-30 … 2024-12-30, 61 of them carrying positions).
+    `os.listdir` silently saw none of them, which is the kind of quiet
+    narrowing that makes an audit look stronger than it is. Returned as paths
+    relative to `settlement_dir` so error messages stay short.
+    """
+    out = []
+    for root, _dirs, names in os.walk(settlement_dir):
+        for name in names:
+            if name.endswith(".json"):
+                out.append(os.path.relpath(os.path.join(root, name), settlement_dir))
+    return sorted(out)
+
+
+def load_statement(settlement_dir, rel):
+    with open(os.path.join(settlement_dir, rel), encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 def read_table(path):
@@ -151,6 +186,86 @@ def audit_accounts(export_dir):
     return checks, failures
 
 
+def audit_hedged_margin(settlement_dir):
+    """Check the 保证金优惠 (large-side) rule on real statements.
+
+    notes/04 C4 says 上期所 collects 同一品种多空只收大的一边. This is the
+    only place that rule can be confirmed against production, because a
+    statement prints both the per-lot 保证金 and the instrument's 保证金占用
+    side by side.
+
+    It matters more than it looks: in the real data **56 of 64** futures
+    position rows are **hedged** (both 买持 and 卖持 non-zero) — these accounts
+    sit on locked books permanently. A ledger that sums per-lot margin
+    therefore reports **twice** the counter's margin on a 1:1 lock. This check
+    is what keeps that gap honest instead of hypothetical; it is also why
+    `audit_detail_pnl` skips mixed rows (its column is a single blended
+    number there) while this one can still speak.
+
+    Grouping caveat, recorded from the data: only 同合约 rows are checked
+    here. The grouping key per P5 is 品种 (all contracts of one product), but
+    62 of the 63 statements hold a single product, so 品种-level grouping has
+    no counterexample in this dataset. 20241206 holds IF2412 and IM2412
+    together: they are 中金所 cross-product, which P5 says nets across
+    products — yet each contract's 保证金占用 is its own max, and the two sum
+    to the account's 保证金占用, i.e. **no cross-product offset happened**.
+    So 品种 grouping is untested here and must not be assumed either way.
+    """
+    if not os.path.isdir(settlement_dir):
+        return None
+    files = settlement_files(settlement_dir)
+    if not files:
+        return None
+
+    checked = 0
+    single = 0
+    failures = []
+    for name in files:
+        try:
+            doc = load_statement(settlement_dir, name)
+        except (ValueError, OSError):
+            continue
+        details = doc.get("positions_detail") or []
+        summary = doc.get("positions_summary") or []
+        if not details or not summary:
+            continue
+        for row in summary:
+            if "期权" in str(row.get("品种", "")):
+                continue
+            inst = row.get("合约")
+            lots = [
+                x
+                for x in details
+                if x.get("合约") == inst and "期权" not in str(x.get("品种", ""))
+            ]
+            if not lots:
+                continue
+            long_margin = sum(
+                float(x.get("保证金") or 0.0)
+                for x in lots
+                if str(x.get("买卖", "")).strip() == "买"
+            )
+            short_margin = sum(
+                float(x.get("保证金") or 0.0)
+                for x in lots
+                if str(x.get("买卖", "")).strip() == "卖"
+            )
+            want = float(row.get("保证金占用") or 0.0)
+            if long_margin > 0.0 and short_margin > 0.0:
+                # Hedged: the counter charges the larger side only.
+                got = max(long_margin, short_margin)
+                label = "hedged"
+            else:
+                # Single-sided: plain sum, which is what the ledger does.
+                got = long_margin + short_margin
+                label = "single"
+                single += 1
+            if abs(got - want) > CENT:
+                failures.append((name, inst, label, want, got))
+            checked += 1
+    return checked, failures, single
+
+
 def audit_detail_pnl(settlement_dir):
     """Check 持仓盯市盈亏 = Σ 明细盯市盈亏 on real statements.
 
@@ -160,7 +275,7 @@ def audit_detail_pnl(settlement_dir):
     """
     if not os.path.isdir(settlement_dir):
         return None
-    files = sorted(f for f in os.listdir(settlement_dir) if f.endswith(".json"))
+    files = settlement_files(settlement_dir)
     if not files:
         return None
 
@@ -169,7 +284,7 @@ def audit_detail_pnl(settlement_dir):
     failures = []
     for name in files:
         try:
-            doc = json.load(open(os.path.join(settlement_dir, name), encoding="utf-8"))
+            doc = load_statement(settlement_dir, name)
         except (ValueError, OSError):
             continue
         details = doc.get("positions_detail") or []
@@ -211,7 +326,7 @@ def audit_statements(settlement_dir):
     """
     if not os.path.isdir(settlement_dir):
         return None
-    files = sorted(f for f in os.listdir(settlement_dir) if f.endswith(".json"))
+    files = settlement_files(settlement_dir)
     if not files:
         return None
 
@@ -220,7 +335,7 @@ def audit_statements(settlement_dir):
     failures = []
     for name in files:
         try:
-            doc = json.load(open(os.path.join(settlement_dir, name), encoding="utf-8"))
+            doc = load_statement(settlement_dir, name)
         except (ValueError, OSError):
             continue
         a = doc.get("account_summary")
@@ -274,6 +389,7 @@ def main():
     export = audit_accounts(EXPORT_DIR)
     detail = audit_detail_pnl(SETTLEMENT_DIR)
     settled = audit_statements(SETTLEMENT_DIR)
+    hedged = audit_hedged_margin(SETTLEMENT_DIR)
 
     if export is None:
         print("[skip] %s not found — set CTPBUDDY_EXPORT_DIR" % EXPORT_DIR)
@@ -287,11 +403,15 @@ def main():
         ("funds identity", export),
         ("detail-MTM sum", detail),
         ("statement identity", settled),
+        ("margin 优惠 (large-side)", hedged),
     ):
         if result is None:
             continue
         checks, failures, *rest = result
-        extra = " (%d skipped: 期权行权/交割 out of v1 scope)" % rest[0] if rest else ""
+        if label.startswith("margin"):
+            extra = " (%d single-sided, %d hedged)" % (rest[0], checks - rest[0])
+        else:
+            extra = " (%d skipped: 期权行权/交割 out of v1 scope)" % rest[0] if rest else ""
         print("[ok] %s on %d real rows%s" % (label, checks, extra))
         if failures:
             failed = True

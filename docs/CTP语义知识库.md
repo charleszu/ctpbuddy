@@ -1,9 +1,13 @@
 # CTP 语义知识库（项目存档）
 
 > 本文件是 CTPBuddy 项目的 CTP 语义权威存档，供后续 Agent 与开发者查阅。
-> 内容来自 `C:\workspace\src\CTP\docs`（30+ 份官方 SDK 文档/教材/坑指）、SDK 自带 CHM《6.7.13_API接口说明》与参考实现 `LocalCTP` 的系统化通读，逐条注明出处；**冲突处以官方 CHM/API 说明为准**。
-> 深度细节（含原文引用、算例、代码行号）在 `docs/notes/` 下七份分册；本文件是索引与结论层。
+> 内容来自 `C:\workspace\src\CTP\docs`（40+ 份官方 SDK 文档/教材/坑指/入门系列）、SDK 自带 CHM《6.7.13_API接口说明》与参考实现 `LocalCTP` 的系统化通读，逐条注明出处；**冲突处以官方 CHM/API 说明为准**。
+> 深度细节（含原文引用、算例、代码行号）在 `docs/notes/` 下分册；本文件是索引与结论层。
 > 官方资料可读版：SDK《6.7.13_API接口说明》CHM 已转为干净 HTML（405 页）在 [`docs/api-doc-html/`](api-doc-html/)，SDK 错误码全集（error.xml 299 条）可读表在 [`docs/错误码全集.md`](错误码全集.md)。
+>
+> **两类资料的地位不同，必须区分**（这是本库的一条组织原则）：
+> - **官方文档类**（SDK CHM、API 特别说明、报单回调规则、爬坑指北、期货公司投教 PDF）——**口径以此为准**。
+> - **客户端实操类**（`docs/程序化交易入门/` 全套 17 份、《之十一/十四》费率与保证金）——提供**第一手客户端视角的流程、字段坑与算例**，与官方文档冲突时以官方为准，但**官方未言明的细节（字段级坑、返回码含义、盘中无效值）往往只有这里有**，且已被真实数据验证过的部分（如昨仓盈亏口径）可作为官方背书引用。分册 [`notes/11`](notes/11-入门系列-连接认证与穿透式监管.md)~[`notes/14`](notes/14-入门系列-查询流控与持仓查询更新.md) 属此类。
 
 ---
 
@@ -25,7 +29,8 @@
 | CTP账户持仓和资金的维护.pdf（2023，开心秋水） | 逐日盯市资金/持仓维护口径 | 已通读 |
 | 组合合约持仓计算规则.pdf | 组合持仓 3 记录、打散规则 | 已通读 |
 | ctp期权保证金手续费算法说明.pdf（6.3.0，上期技术） | 期权保证金/手续费 | 已通读 |
-| CTP程序化交易入门系列之十一/十四 | 费率查询、保证金计算与优惠 | 已通读 |
+| CTP程序化交易入门系列之十一/十四 | 费率查询、保证金计算与优惠 | 已通读（原始位置 `docs/程序化交易入门/`） |
+| **CTP程序化交易入门系列 之一~十五（全套 17 份，`docs/程序化交易入门/`）** | **连接/认证/穿透式监管、API 架构与初始化、行情切片与 K 线合成、现手增仓开平对手盘、报单字段与回报、撤单、查询流控、成交回报、持仓与持仓明细查询更新、4097 断连原因码** | **已通读**（图像型 PDF，逐页视觉阅读）。分册：[`notes/11`](notes/11-入门系列-连接认证与穿透式监管.md) 连接认证穿透式 / [`notes/12`](notes/12-入门系列-行情现手与开平判定.md) 行情现手开平 / [`notes/13`](notes/13-入门系列-报撤单与成交回报.md) 报撤单成交回报 / [`notes/14`](notes/14-入门系列-查询流控与持仓查询更新.md) 查询流控与持仓查询；实现影响清单见各册末节与 §10.4 |
 | CTP行情订阅常见问题解答.pdf | 订阅语义、TradingDay、字段坑 | 已通读 |
 | LocalCTP（C:\workspace\src\CTP\LocalCTP） | 进程内仿 CTP 交易柜台参考实现 | 已通读（结构/流程/对账点） |
 | 未读（低优先级，FIX/银期/培训类）：CTP FIX接口使用规范说明.docx、CTP FIX网关说明.docx、CTP新版银期转帐TradeApi使用说明.pdf、综合交易平台交易银期功能特别说明.doc、api培训-二期.pptx、20150422_上期技术_API培训-改.pptx、CTP API终端开发交流讨论会 pdf、CTP国际版开发指南.pdf、CTP_API开发文档资料/、综合交易平台简介.pdf | FIX 网关、银期、培训 | **未通读**，需要时再补（见 §12 待办） |
@@ -51,8 +56,26 @@
 - **投资者受限、操作员不受限**（查询流控）。
 - **所有 `ReqQuery*` 开头的函数不受查询流控限制**——走交易核心不经查询核心。
 - 报单流控归柜台（用户判断正确）：实现在 Core 侧 M2 风控规则表；客户端侧表现只有「排队不报错」（见 §3.5）。
+- **在途超限（-2）用 sleep 治不好，超频（-3/90）用 sleep 才有效**（notes/14 §A.2）。机理：CTP 的 API 是**异步单底线程**架构——请求从缓存读出、经 socket 发出，**socket 读写与 spi 回调由底层同一线程负责**；因此在 spi 回调里 `sleep` 会阻塞读写，查询最终仍由 socket 同时发出。正确解法是**一个 spi 回调只放一个查询并串行等待响应**（或事件队列/独立线程）。**这正是本项目 SDK `_query_stream` 透明重试（串行化 + 90→1.1s 退避）之所以有效的根本原因**，也是「在途闸门」必须复刻而非视作人为限制的依据。返回 `-3`（每秒超限）是**旧穿透式版本**行为，新版本改为后台配置、经登录回报传给动态库（notes/14 §A.2）。
+- **⚠️ 报撤单流控的官方口径是「分开计算」**（notes/13/14 §A.3）：`ReqOrderInsert` 与 `ReqOrderAction` **各自**有每秒最大笔数、**分开计算**。本项目 M2-4 的 `order_gate` 实现为**共享预算**（DESIGN §8.11），与此不符，列入 §10.4 待修正项。
+- **前置连接数流控与自动重连会互相放大**（notes/14 §A.3-04）：超限时前置**主动断开**并回调 `OnFrontDisconnected`；若原因是连接数超限，立刻重连会**再被立刻踢**，形成循环。诊断时应先排除该情形（按 IP 分别配置，simnow 有多套地址可切换），退避不能只按"网络抖动"处理。
 
 历史口径（2009 FAQ 时代）：查询每秒 1 次 + 在途 1 个，交易指令默认每会话 6 笔/秒、同账户最多 6 会话，超限**排队不报错**（【技术指南】Q19、客户端指南 4.14）。注意这是「无错误」与「90/-2」两种形态的区别：查询超限有明确拒绝，交易指令超限只排队。
+
+### 1.0.1 断连原因码 `nReason`（notes/11 §E.2，SDK 头文件口径）
+
+`OnFrontDisconnected` 的 `nReason` 取值——**诊断 4097 循环的第一依据**：
+
+| 十六进制 | 十进制 | 含义 |
+|---|---|---|
+| `0x1001` | **4097** | 网络读失败（最常见） |
+| `0x1002` | 4098 | 网络写失败 |
+| `0x2001` | **8193** | 接收心跳超时 |
+| `0x2002` | 8194 | 发送心跳失败 |
+| `0x2003` | 8195 | 收到错误报文 |
+
+**持续 4097 循环的首要成因是「版本不匹配」而非网络抖动**（notes/11 §E3）：CTP 要求 API 版本与后台版本一致，版本不对会**不停回调 `OnFrontDisconnected`**，或输出 `Decrypt handshake data failed`，或**毫无反应**；此时**重连无用**。检查 `GetApiVersion()`。已知期货公司生产与 simnow 为 **v6.3.15_20190220**。真实 CTP 上 4097 频繁出现的另一常见原因是 **simnow 用户多导致前置拥堵**，以及 **simnow 7×24 地址不稳定**。
+
 
 ### 1.1 自动重连（用户关注的「连接不上有没有重试」）
 
@@ -90,6 +113,12 @@
 登录链：`OnFrontConnected → ReqAuthenticate → ReqUserLogin → 每交易日首次交易前 ReqSettlementInfoConfirm`。连接建立只代表链路可达，**无身份验证**；后台开启强制认证时必须先过认证。
 
 释放顺序（【技术指南】Q22，防死锁）：`RegisterSpi(NULL) → Release() → 置空指针 → delete SPI`。**禁止在 SPI 回调线程内 Release**。创建与释放最好在同一线程。
+
+**客户端实操侧的两条补充（notes/11 §D3、§C3）**：
+- **认证必须在登录之前**："在 `ReqUserLogin` 之前需要先调用 `ReqAuthenticate`"，且**发起位置是 `OnFrontConnected` 回调内**，在 `OnRspAuthenticate` 中判 `ErrorID == 0` 后再 `ReqUserLogin()`，否则不发登录。
+- **认证字段是 `AppID` + `AuthCode`，`UserProductInfo` 已废弃**（原文明确"现在 `UserProductInfo` 废弃不用，改为 `AppID` 了"）。`AppID` 由客户自己命名、监控中心给规范（如 `client_abcdf_1.0.0` / `pobo_iee_1.4.0.0` / `poboAPP_ijsse_2.0.0.0`），`AuthCode` 由期货公司发给客户，**两者一一对应**。这是穿透式监管（notes/11 §D）的产物：监控中心采集所有入场客户的本地终端信息，用其下发的公钥在 API 底层加密，**只有监控中心持有私钥**，柜台/期货公司/交易所都看不到明文。
+- **异步单底线程架构**（notes/11 §C1）：请求读取（缓存）与 socket 读写由**同一底层线程**负责，这是一系列流控行为的根因（见 §1 关键语义）。
+- **注意 `Join()` 会阻塞主线程**：需要非阻塞行为（如 `sleep` 代替）时，调用方必须自行保证连接已建立前不推进业务。
 
 ### 2.2 三种通讯模式与流文件（【技术指南】Q10/Q11、客户端指南 1.2/4.13）
 
@@ -157,9 +186,26 @@ API 与 SPI 在不同线程；**API（Req*）可被多线程同时调用**（线
 
 `ReqOrderAction` 的 `ActionFlag` 只支持 `THOST_FTDC_AF_Delete`（**仅撤单**，挂起/激活/修改「无此功能」——即"CTP:无此功能"的一类真实原因）。GTC 过夜挂单**不支持**（国内交易所不支持的语义直接拒绝，不要静默丢弃）。
 
+**撤单的必填字段（notes/13 §D2，客户端实操口径）**：
+
+| 组 | 字段 | 注意 |
+|---|---|---|
+| 账号 | `BrokerID` + `InvestorID` | 必填 |
+| | `UserID` | **非必填**，但**不填会收不到 `OnErrRtnOrderAction` 回报** |
+| 定位 | `ExchangeID` + `OrderSysID` | **第 1 次报单回报中 `OrderSysID` 为空，此时只能改用下一组** |
+| 定位 | `FrontID` + `SessionID` + `OrderRef` | **用这组撤单时必须填 `InstrumentID`** ← 具体的字段校验规则 |
+
+`InvestUnitID` 虽在结构体中，但因子账号分组功能被判违规、已**废弃不用**（notes/13 §D2）。官方错误码 25（已全成交或已撤销）与 26（找不到相应报单）的区分源于**上期所「报单已经全部成交」**这一特殊情形：单子已在交易所撮合成交但 CTP 尚未收到成交通知，撤单过了 CTP 检查却被交易所拒绝（notes/13 §D4）——这正是 M2-4 需要 `terminal_refs` 终态记忆的成因。
+
+**批量撤单**：`ReqBatchOrderAction` 看似批量撤单，但**仅支持大商所且仅做市商客户可用**，故**当前没有批量撤单**，须客户端自行实现（notes/13 §D3）。此外**撤单数风控（单合约 500 笔）CTP 内并没有**，各交易所按异常交易管理规范，**需策略自行加入**；**FAK/FOK 的撤单不计入该数**，故可能大量撤单的策略建议用 FAK/FOK 报单。
+
 ### 4.5 报单流控
 
-柜台端【程序化交易频繁报撤单管理】配置每秒最大报撤笔数，超限 `OnRspOrderAction`「CTP:下单频率限制」（官方错误码 **116 ORDER_FREQ_LIMIT**，勿与 91 EXCHANGE_RTNERROR「CTP：交易所返回的错误」混用）。注意与 2009 FAQ「默认 6 笔/秒、超限排队不报错」的历史口径区分——现代柜台是显式拒绝。CTPBuddy 落点：Core M2 风控规则表 ✅（M2-4 落地，报撤共享预算，口径见 DESIGN §8.11）。
+柜台端【程序化交易频繁报撤单管理】配置每秒最大报撤笔数，超限 `OnRspOrderAction`「CTP:下单频率限制」（官方错误码 **116 ORDER_FREQ_LIMIT**，勿与 91 EXCHANGE_RTNERROR「CTP：交易所返回的错误」混用）。注意与 2009 FAQ「默认 6 笔/秒、超限排队不报错」的历史口径区分——现代柜台是显式拒绝。
+
+**⚠️ 报单与撤单分开计算**：官方口径为 `ReqOrderInsert` 与 `ReqOrderAction` **各自**有每秒最大笔数、**分开计算**（notes/13/14 §A.3）。CTPBuddy M2-4 的 `order_gate` 实现为**共享预算**（DESIGN §8.11），与此不符，列入 §10.4 待修正项——**混做报撤的客户端会被误限**。
+
+CTPBuddy 落点：Core M2 风控规则表 ✅（M2-4 落地，口径待按上述修正）。
 
 ---
 
@@ -242,7 +288,7 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
            − 手续费 + 权利金收入 − 权利金支出
 客户权益 = 期末结存；可用资金 = 客户权益 − 保证金占用；风险度 = 保证金占用 / 客户权益
 ```
-**770 份真实盯市单 100% 通过**（另 3 份含期权行权/交割，v1 不实现期权）。三处易错：
+**983 份真实盯市单 100% 通过**（另 7 份含期权行权/交割，v1 不实现期权）。注意 983 = 顶层 773 + `2024/` 子目录 210，后者此前被审计脚本的 `os.listdir` 漏掉（见 DESIGN §8.7.1）。三处易错：
 
 - **出入金必须从明细行求和，不能读结算单的汇总字段**。20250123/13200265 汇总「出入金 0.00、银期转账 0.00」，其自身明细却列着一笔 190000 银期转账出金；汇总字段不可信。
 - **申报费不是独立字段，而是「出入金」类型的一笔出金**（说明栏写「中金所申报费 出金」）。20260112/13200265 缺这一项时恒等式差**恰好 1.00**，补上分毫不差。§6.4「盘中实时资金不含申报费、只体现在结算单」的正确表述是：**结算时从权益里扣除**。
@@ -250,7 +296,11 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 
 ### 6.2 持仓明细与今昨仓
 
-- 持仓明细单条 = (OpenDate, TradeID, Direction, OpenPrice, Volume, Margin, ...)，按 (OpenDate, TradeID) 排序实现**先开先平**。
+- **持仓记录（汇总）的键是 7 字段**（notes/14 §B2）：`InstrumentID` + `ExchangeID` + `BrokerID` + `InvestorID` + `PosiDirection`（`'2'`多/`'3'`空，**同合约多空是不同记录**）+ `HedgeFlag` + **`PositionDate`**（`'1'`今仓/`'2'`昨仓）。**只有上期/能源的合约才可能有 `PositionDate='2'` 的记录**，因其区分今仓与昨仓记录。CTPBuddy 现有键为 (Investor, Instrument, Direction, HedgeFlag)，**缺 `PositionDate`**（列入 §10.4）。
+- **`YdPosition` 是「交易日起始的昨仓静态初值」**，不随平昨而减少；**当前真实昨仓 = `Position − TodayPosition`**。两者语义不同不可混用。**对非上期/能源，昨仓与今仓在同一条记录里；上期/能源分成两条记录**（notes/14 §B3）。
+- **持仓明细单条 = 每一笔开仓成交形成的一条记录**，官方键为 8 字段（含 `TradeType`），或简写为 **`OpenDate + TradeID`**（出现自成交时再加 `Direction`）——因为 **`TradeID` 每个交易日可能重复编号**。CTPBuddy 的 `PositionDetail` 采用 `(OpenDate, TradeID, Direction, ...)`，与官方简写口径一致 ✅。
+- `TradeType`：`'0'` 普通成交、`'4'` **组合单生成成交**（交易组合单或**大商所盘后自动组合**的持仓明细为 `'4'`）。v1 不做组合，暂不建模。
+- 持仓查询**无数据时回「`pInvestorPosition` 空指针 + `bIsLast=true`」**，而不是回一条全零记录（notes/14 §B4-5）——回全零记录会让客户端把 `Position=0` 的行当真实持仓。
 - **先开先平与今/昨是两个正交的轴**（M3 修正）：消耗明细**只按开仓时间排序**；`平今`/`平昨` 决定的是「可以动哪个年龄桶」，**不是**允许跳到最新那笔。把「平今」实现成「今仓取最新」会按错口径结盈亏。真实结算单可验：IH2501 买 1 手昨仓（开 2626.2、昨结 2607.2）平于 2616.4 → (2607.2−2616.4)×300 = **−2760.00**，与结算单一致；按开仓价算会得 −2940。
 - **盯市盈亏是逐笔之和，不是均价 × 手数**。真实结算单同页并列「持仓明细」逐行与「持仓汇总」总计：4 笔 IH2501 明细 2520+5700+5640+3300 = 17160.00 = 汇总行。均价法能过资金恒等式却过不了这条——这正是账本必须持明细的直接原因。
 - `YdPosition = Position − TodayPosition`（昨持仓不随当日平仓减少的字段口径）。
@@ -269,7 +319,7 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 - **实际计算用公司保证金率**（`ReqQryInstrumentMarginRate` 返回，即最终费率）；`ReqQryInstrument` 返回的是交易所率，**计算不用**；`ReqQryExchangeMarginRate/Adjust` 仅中间过程。同一资金在不同公司可开仓数不同。
 - **MarginPriceType**（`ReqQryBrokerTradingParams` 查）：昨仓恒用昨结算价；今仓按公司配置（昨结算'1'/最新'2'/成交均价'3'/开仓价'4'）。只有最新价/成交均价模式下今仓保证金随行情波动。市价单冻结按涨跌停价、占用按价格类型对应价。
 - 冻结保证金 = 昨结算价 × 乘数 × 保证金率 × 报单量 + 按手数保证金 × 报单量（公司算法不一，有按报价/昨结/最新价的）。
-- 优惠：上期所品种内大单边（`MaxMarginSideAlgorithm` 判断）、中金所跨品种大单边、大商/郑商套利合约取高；期权见 §6.5。
+- 优惠：上期所品种内大单边（`MaxMarginSideAlgorithm` 判断）、中金所跨品种大单边、大商/郑商套利合约取高；期权见 §6.5。**⚠️ 优惠尚未实现**：核心只把 `MaxMarginSideAlgorithm` 建模为合约字段并原样回 `ReqQryInstrument`，账本 `used_margin` 仍是逐笔明细保证金**直接相加**，没有"同品种多空取大"的抵消步骤；`ReqQryInvestorProductGroupMargin`（查当前大单边占用）也未接线。因此当前 `CurrMargin` 对真实上期所账户会**高于**柜台值——与真实数据对账时须先确认标的是否跨品种多空持仓（见 §10.2 第 11 条）。规则本身记于 notes/04 C4。
 - 期权保证金归纳式（交易所口径）：`每手卖方交易保证金 = MAX(权利金 + 交易所期权合约保证金不变部分, 交易所期权合约最小保证金)`（不变部分/最小保证金由 `ReqQryOptionInstrTradeCost` 查；除上期所外最小保证金为 0）；投资者口径同理换 `FixedMargin`/`MiniMargin`。权利金昨仓 = 结算价×乘数（上期所例外：max(昨收,昨结)×乘数）；委托冻结一律用昨结算价。各交易所分公式见 notes/04 C5。
 
 ### 6.4 手续费
@@ -287,7 +337,7 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 - 持仓盈亏（浮动）：多头 `(最新价−持仓均价)×乘数×手数`；持仓均价 = 持仓成本 ÷（持仓数量×乘数）。
 - 平仓盈亏 CloseProfit 按**明细**算，N=该明细被平数量：
   - 多头明细 `(成交价 − 持仓价格) × N × 乘数`；空头明细 `(持仓价格 − 成交价) × N × 乘数`；
-  - **昨仓明细持仓价 = 昨结算价；今仓明细持仓价 = 开仓价**——顺序错了盈亏就算错。
+  - **昨仓明细持仓价 = 昨结算价；今仓明细持仓价 = 开仓价**——顺序错了盈亏就算错。**官方背书**：`ReqQryInvestorPositionDetail` 的 `CloseProfitByDate` 字段说明写明公式为 `(closeprice − openprice **or** preSettlementPrice) × volume × RateMultiple`（notes/14 §D4），"or" 字即区分昨仓用昨结算价、今仓用开仓价。此前该结论仅来自 P1 与真实结算单，现有 SDK 字段说明作第一手依据。
 - 算例（c2101，昨结 3005，乘数 10）：2 手昨仓(开 3006) + 2 手今仓(开 3000)，卖平 3 手 @3004，先开先平平 2 昨 + 1 今：昨仓 `(3004−3005)×10×2=−20`、今仓 `(3004−3000)×10×1=+40`，合计 +20。完整算例与剩余持仓字段见 notes/04 E2。
 - 期权盈亏 = 期货式价差 + 权利金收支（CashIn 计入动态权益）。
 
@@ -306,6 +356,34 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 - `TradingDay`（交易日）vs `ActionDay`（实际日期）：夜盘设计上归属次一交易日（周五夜盘→周一），但各所实现混乱（上期/能源准确；大商所夜盘两日期都是 TradingDay；郑商所日夜盘均当天）——**不可假设统一**，取登录响应/`GetTradingDay()` 的 TradingDay。
 - **无历史行情、无回补**：断线/未登录期间丢失不回补；盘后（15:00~15:30）交易所结算完成会推含结算价的快照、郑商所盘后继续推——别当异常。日盘启动会重演夜盘流水可能重推夜盘行情。
 - 传输模式：TCP（缺省）/ UDP / 组播（快速行情），注册前置地址都写 `tcp://`（起始字符串固定）；UDP 不可靠——登录、订阅及第一次行情仍走 TCP。
+
+### 7.1 现手、增仓、开平、对手盘（全部客户端自算，notes/12 §D）
+
+行情结构体**没有**这些字段，客户端需用 `Volume`/`OpenInterest`/`LastPrice`/`AskPrice1`/`BidPrice1` **自行计算**：
+
+| 量 | 公式 |
+|---|---|
+| 现手 | 后一笔 `Volume` − 前一笔 `Volume`（≥0） |
+| 增仓 | 后一笔 `OpenInterest` − 前一笔 `OpenInterest`（**可正可负**） |
+| 开平（性质，不带方向） | 双开 `现手=增仓>0`；开仓 `现手>增仓>0`；平仓 `现手>−增仓>0`；换手 `现手=增仓=0`；双平 `现手>增仓=0`；未知 `现手=增仓=0`（异常，仅记录） |
+| 方向 | 向上 `后LastPrice ≥ 前AskPrice1`；向下 `后LastPrice ≤ 前BidPrice1`；向上 `后LastPrice > 后AskPrice1`；向下 `后LastPrice < 后BidPrice1`；其余不变 |
+
+性质(6) × 方向(3) = **18 种开平组合**（如 换手+向上=多换、换手+向下=空换、双开+向上=双开、平仓+向下=多平）。
+
+> ⚠️ 「换手」与「未知」两行字面条件相同（`现手=增仓=0`），须由前后笔方向区分，**不要机械照抄当函数真值**。
+
+**对手单（单边口径，2020-01-01 起交易所改为单边统计）**：设 S = 对手单中开平方向相同的操作，O = 方向相反的操作：
+
+```
+S = abs(增仓) / 2
+O = 现手 / 2 − S
+```
+
+> **CTPBuddy 落点**：CTPBuddy 不必实现这些派生量，但**下游客户端会在收到 CTPBuddy 行情后自己算**，其正确性依赖 CTPBuddy 提供的 tick 满足三个前提：同一合约、累计量、时间序单调不减。**场景 DSL 的 `ticks` 必须显式给出 `Volume`/`OpenInterest` 累计值**（notes 记忆里已踩过"ticks 是场景行数不是时点数"的坑）。
+
+### 7.2 K 线必须客户端自己合成
+
+**CTP 不推 K 线**。由 tick 的 `UpdateTime`/`LastPrice`/`Volume` 六要素算出：分钟切换以 `UpdateTime` 的**分钟数**判定；`Volume` 是累计量故**周期成交量 = 本帧 − 上一帧**（用 `max(差, 0)` 兜底防回退），新分钟时 OHLC 均置为 `LastPrice`、`volume` 归零。完整原文代码见 notes/12 §B2。
 
 ---
 
@@ -354,14 +432,43 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 8. **成交开平标志 ≠ 报单开平标志** ✅（M2-1 落地）：非上期所平仓回 '1'（§4.3）。
 9. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别 TODO（§8）。**`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁未做**（已登记为可落地缺口）。
 10. **错误码全集对账** ✅（#42 落地）：error.xml 299 条逐条标注 → **19 已实现**（推送面全部对齐）/ **51 可落地**（语义在范围内但无代码路径发出，缺口清单见 [`docs/错误码全集.md`](错误码全集.md)）/ **229 暂不可达**（业务域未实现）。状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成，改代码后重跑。
-11. **LEDGER 扩展**：MarginPriceType 配置、平今/平昨费率、FrozenCommission TODO；期权权利金（§6）。
+11. **LEDGER 扩展**：MarginPriceType 配置 ✅、平今/平昨费率 ✅、FrozenCommission 报单估算+释放 ✅（M3-2/M3-3 已补齐，2026-10-03 复核）；**保证金优惠 ❌ 未实现**——`used_margin` 为逐笔明细相加，无同品种多空取大、无套利取高，`ReqQryInvestorProductGroupMargin` 未接线（§6.3 末条 ⚠️、notes/04 C4）；期权权利金（§6）。
 12. **费率查询接口** ✅（M3-3 落地，2026-10-03）：`ReqQryInstrumentMarginRate` / `ReqQryInstrumentCommissionRate` / `ReqQryInstrumentOrderCommRate` / `ReqQryBrokerTradingParams` 四张由 `unsupported` 转为实装，官方语义逐字复刻——**`InstrumentID` 留空 = 返回该投资者持仓对应合约的费率（不是全市场，「目前无法通过一次查询得到所有合约保证金率」）**，`BrokerID`/`InvestorID`（及 `CurrencyID`）必填、「不填则返回值为空」。定位上四张表与账本计算**共用同一份 `RefData`**，客户端交叉核对 `ReqQryInstrumentMarginRate` 与 `ReqQryTradingAccount.CurrMargin` 时数字必然一致（§9、DESIGN §6.4/§8.6.1）。
 13. **保证金/手续费公式落地** ✅（M3-2 落地，2026-10-03）：保证金 `(MarginRatioByVolume + MarginRatioByMoney × Price × VolumeMultiple) × Volume`，**用公司费率**（`ReqQryInstrumentMarginRate` 口径），`ReqQryInstrument` 的交易所费率仅展示；`MarginPriceType` 四值（'1' 昨结算/'2' 最新价/'3' 成交均价/'4' 开仓价），**昨仓恒用昨结算价**不受该设置影响、只有 '2'/'3' 下今仓保证金随行情波动；手续费 `数量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`（两项**相加**非取 max），开仓/平昨/平今各一套，一笔 `Close` 吃掉 2 手昨仓 + 1 手今仓时**按两腿分别计价**；冻结按昨结算价（与该挂单限价无关），平仓释放按**开仓价**算（§9、DESIGN §8.6）。
-12. LocalCTP 对账基准：OrderRef 生成规则、撮合规则、结算字段重置清单可直接抄（§9）。
+14. **LocalCTP 对账基准**：OrderRef 生成规则、撮合规则、结算字段重置清单可直接抄（§9）。
 
 ### 10.3 其他 TODO
 
 FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、同用户最大在线会话数、交易所 API 流控（§1 #4-#7）；FIX 网关、银期转账（未通读资料，需要时先读 notes 未覆盖清单里的文档）。
+
+### 10.4 入门系列带来的待修正项与新增待办（notes/11~14，2026-10-03 登记）
+
+本批 17 份客户端实操资料（`docs/程序化交易入门/` 全套 + 4097 + 穿透式监管）通读后的净结论。完整逐条表（22 条新增待办 + 9 条已获官方背书）在 [`notes/14` §F](notes/14-入门系列-查询流控与持仓查询更新.md)，此处只登记**要动代码的**与分类索引。
+
+**A. 口径冲突（需修或需核）**
+
+| # | 事项 | 官方口径（出处） | CTPBuddy 现状 | 优先级 |
+|---|---|---|---|---|
+| 1 | **报撤单流控分开计算** | `ReqOrderInsert` 与 `ReqOrderAction` **各自**每秒最大笔数、**分开计算**（notes/13/14 §A.3） | `order_gate` 为报撤**共享**预算（M2-4，DESIGN §8.11） | **高**——混做报撤的客户端会被误限 |
+| 2 | **只有 `OnRtnTrade` 动持仓/资金** | "以成交回报为准"，否则可能平仓不成功（notes/13 §E） | 需核事件集合：M2-3 的"引擎事件先落账"是**顺序**口径，不等于"可改账本的事件集合" | **高** |
+| 3 | 撤单走 `FrontID+SessionID+OrderRef` 时**必须填 `InstrumentID`** | 必填（notes/13 §D2） | 未见该校验 | 中 |
+| 4 | `TradeID` 除郑商所外**同号双向**，去重须带 `Direction` | notes/13 §E | 引擎双方共享同一 TradeID（M2-1）——需核"同号双向"的配对语义是否成立 | 中 |
+| 5 | 持仓记录键含 **`PositionDate`**；上期/能源今昨**拆两条记录** | 7 字段键（notes/14 §B2） | 键为 (Investor, Instrument, Direction, HedgeFlag)，缺 `PositionDate` | 中 |
+| 6 | 查询无数据回**空指针 + `bIsLast=true`**，不回全零记录 | notes/14 §B4-5 | 待核 | 中 |
+| 7 | `YdPosition` 是静态昨仓初值，不随平昨减少 | notes/14 §B2 | 缺字段（现只有 `Position − TodayPosition` 推导） | 低 |
+| 8 | `TradeType` `'0'`/`'4'`（组合单生成成交） | notes/14 §B6 | 未建模（v1 不做组合；大商所盘后自动组合会产生 `'4'`） | 低 |
+| 9 | `OrderSysID` 第 1 次回报为空、第 2 次才有 | notes/13 §E | 需核（下游方案 01 依赖此形状） | 低 |
+
+**另有一项最大数值偏差**（同属本批《之十一/十四》复核暴露）：**保证金优惠未实现**——`used_margin` 逐笔相加，1:1 对锁时 `CurrMargin` 是柜台的 2 倍，真实数据 56/64 行为对锁持仓。见 §6.3 末条 ⚠️、§10.2 第 11 条、DESIGN §8.7.2、notes/04 C4，量尺断言 `tools/audit_real_accounts.py::audit_hedged_margin`（64/64）。补齐三件套：按**品种**分组多空取大 + 实装 `ReqQryInvestorProductGroupMargin` + 单边保持求和。
+
+**B. 新增待办（分类索引，逐条见 notes/14 §F 表 2）**
+
+- **连接/认证**（notes/11）：`ReqAuthenticate` 必须先于 `ReqUserLogin` 且发起在 `OnFrontConnected` 内；`AppID`+`AuthCode` 一一对应、`UserProductInfo` 已废弃；断连原因码 `0x1001`~`0x2003` 已收录 §1.0.1，**版本不匹配导致的 4097 循环重连无用**；前置连接数流控被踢后立刻重连会循环被踢，需退避。
+- **行情字段**（notes/12）：盘中 `SettlementPrice = DBL_MAX` 为无效值口径；`AveragePrice` 郑商所不除乘数、其余四所要除；订阅任何 id 都返回 No Error（只有对编码才有行情）；夜盘 `TradingDay` 各所对照已收录 §7；`Volume` 累计语义 → **场景 tick 必须给累计值且单调不减**（§7.1，下游现手/开平/对手盘全靠它自算）。
+- **报撤单**（notes/13）：`UserID` 不填会收不到 `OnErrRtnOrderAction`（不填不应报错）；`ReqBatchOrderAction` 仅大商所+做市商；撤单数风控（单合约 500 笔）**CTP 内没有**、FAK/FOK 不计入、需策略自加；`InvestUnitID` 已废弃。
+- **查询/持仓**（notes/14）：同用户在线会话数按 **`UserID`** 计（文案「CTP:用户在线会话超出上限」）；盘后交易所自动组合持仓产生 `TradeType='4'` 明细 + 只收大单边保证金。
+
+**C. 已获官方背书（无需改动，9 条）**：昨仓盈亏按昨结算/今仓按开仓价（`CloseProfitByDate` 字段说明直接背书）、买平冻结空头 `LongFrozen`、平今转换、TC/VC 组合、流控文案、成交价取对手方价、撤单 25/26 区分成因、报单被拒按量解冻、明细键 `OpenDate+TradeID`。见 notes/14 §F 表 3。
 
 ---
 
