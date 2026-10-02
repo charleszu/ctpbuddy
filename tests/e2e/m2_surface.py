@@ -35,6 +35,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -81,6 +82,12 @@ def no_late(cli: Client, msg_type: int, why: str) -> None:
     assert late is None, "%s: unexpected half-surface frame %r" % (why, late)
 
 
+def new_window() -> None:
+    """Let the front-office order gate roll over so the next section starts
+    with a full per-second budget (it is a wall-clock window, §8.3)."""
+    time.sleep(1.05)
+
+
 def main() -> int:
     core = find_core()
     tmp = tempfile.mkdtemp(prefix="ctpbuddy-m2surf-")
@@ -90,7 +97,10 @@ def main() -> int:
     data_dir = os.path.join(tmp, "data")
     td_port, admin_port = free_port(), free_port()
 
-    # default --order-freq (20/s): three back-to-back inserts already bust it
+    # --order-freq 2: the front-office per-second order budget is lowered so
+    # three back-to-back inserts bust it. Real CTP's ceiling is a per-second
+    # counter too (here quoted as 6/s on the legacy counter, 20/s default),
+    # so this only scales the window, it does not invent a new rejection.
     proc = subprocess.Popen(
         [
             core,
@@ -98,6 +108,7 @@ def main() -> int:
             "--admin", "127.0.0.1:%d" % admin_port,
             "--broker-id", BROKER,
             "--speed", "0",
+            "--order-freq", "2",
             "--initial-funds", str(INITIAL_FUNDS),
             "--data-dir", data_dir,
         ],
@@ -154,6 +165,7 @@ def run(td_port: int, admin_port: int, scenario: str) -> None:
         print("[ok] insert 116: front-office RSP_ERROR only, no 错单回报 half")
 
         # -- A2. funds refusal -> front-office half only ---------------------
+        new_window()
         cli.clear_late()
         cli.order_insert(RB, direction="0", offset="0", volume=300, limit_price=3502.0,
                          exchange="SHFE", order_ref="F1")
@@ -169,6 +181,7 @@ def run(td_port: int, admin_port: int, scenario: str) -> None:
         print("[ok] insert 31 (funds): front-office RSP_ERROR only, no 错单回报 half")
 
         # -- A3. unknown contract -> front-office half only ------------------
+        new_window()
         cli.clear_late()
         try:
             cli.order_insert("NOPE9999", direction="0", offset="0", volume=1,
@@ -181,6 +194,7 @@ def run(td_port: int, admin_port: int, scenario: str) -> None:
         print("[ok] insert 16 (unknown contract): front-office RSP_ERROR only")
 
         # -- B. exchange refuse (非最小变动价位): success Rsp THEN rtn --------
+        new_window()
         cli.clear_late()
         off_tick = 3497.5  # rb2610 tick = 1: 3497.5 is not a tick multiple
         f = cli.order_insert(RB, direction="0", offset="0", volume=1, limit_price=off_tick,
@@ -198,6 +212,7 @@ def run(td_port: int, admin_port: int, scenario: str) -> None:
               "(echoes OrderRef X1)")
 
         # -- C. cancel refuse: BOTH halves, response first -------------------
+        new_window()
         cli.clear_late()
         try:
             cli.order_action(RB, order_ref="NOPE7777")

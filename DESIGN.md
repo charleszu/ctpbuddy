@@ -526,7 +526,28 @@ assertions:             # 可选：场景内断言（CI 用）
 - **大商所特例三处**（notes/01 B3，全部对齐官方）：① 每个进簿报单先返未成交 '3'（即使立即成交，IOC 类从不入簿、无此 '3'）；② 全部成交时 CTP 自补全部成交回报且**不重复前态**（部分成交仍守「前态+新态」一般规则）；③ ExchangeID 留空的报单从合约目录回填后才能命中上述按所规则（回填在前、特例判定在后，客户端留空 ExchangeID 不丧失大商所语义）。
 - **官方错误码全集对账**（error.xml 299 条，可读表见 [`docs/错误码全集.md`](docs/错误码全集.md)；官方 API 接口说明全量 HTML 版见 [`docs/api-doc-html/`](docs/api-doc-html/)）：核心 12 常量按官方逐条重写（11/12 原值错误，freq 91→116、资金 50→31、未知合约 22→16、涨跌停 33→163、非最小变动价位 34→165、数量不规范 48→164、重复报单 22 保留、平今不足 50、平仓超量 30、找不到报单 25、状态不当 26、字段有误 40→15）；API 负数返回码（-1/-2/-3）error.xml 不含、照 API 文档录。**新增 148 `EXCHANGE_ID_IS_INVALID`**（合约与 ExchangeID 不符，原误用 22）。
 - **同价决胜**（doc/code 一致性校正）：报单到达时簿内最优与 tick 五档比价，**平手 tick 深度优先**——快照量先于刚挂入簿的订单进入队列（时间优先）。
-- **推送面现状**：insert 拒绝走 `ERR_RTN_ORDER_INSERT`（错单回报），cancel 拒绝走 `RSP_ERROR`→`OnRspOrderAction`；「错单响应」半面（insert RSP_ERROR-first / cancel 补 `ERR_RTN_ORDER_ACTION`）留待 error.xml 全集对账任务，e2e 断言只锁 ErrorID+ErrorMsg、不锁推送面。
+- **推送面现状**：insert 拒绝按层分流（CTP 层仅 `RSP_ERROR` / 交易所层成功响应 + `ERR_RTN_ORDER_INSERT`，见 §8.12）；cancel 拒绝**双面** `OnRspOrderAction` → `OnErrRtnOrderAction`。
+
+### 8.12 错单双推送面与错误码全集对账（#42 落地口径，2026-10-03）
+
+错误码对账见 [`docs/错误码全集.md`](docs/错误码全集.md)（error.xml 299 条，逐条标注「已实现 / 可落地 / 暂不可达」+ 推送面，状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成）；论证与逐条推导见 [`docs/notes/09-错单推送面与错误码对账.md`](docs/notes/09-错单推送面与错误码对账.md)。实测口径：`tests/e2e/m2_surface.py`（五段，客户端侧）+ `m2_journal.py`（163 变异，journal 侧）。
+
+**核心结论：拒绝推几个回调由「在哪一层被拒」决定，不由错误码决定。**
+
+| 层 | 拒绝内容 | 回调序列 | 线上帧 |
+|---|---|---|---|
+| 报盘机（CTP 层） | 会话(-3)、字段(15/23)、BrokerID(3/63)、未知合约(16)、不可交易(17)、重复报单(22)、ExchangeID(148)、流控(116)、资金(31)、持仓(30/50/51) | `OnRspOrderInsert(NULL, pRspInfo)` **仅此一个**，不跟 `OnRtnOrder` | `RSP_ERROR` only（shim 呈现 `pInputOrder == nullptr`） |
+| 交易所（撮合层） | 涨跌停(163)、数量规范(164)、最小变动价位(165) | `OnRspOrderInsert(pInputOrder, {0})` → `OnErrRtnOrderInsert(pInputOrder, pRspInfo)` | `RSP_ORDER_INSERT`（成功）紧接 `ERR_RTN_ORDER_INSERT` |
+| 撤单拒绝 | 找不到(25)、状态不当(26)、流控(116)、字段错(23) | **双面**：`OnRspOrderAction` → `OnErrRtnOrderAction`（官方场景 6/7） | `RSP_ERROR` 紧接 `ERR_RTN_ORDER_ACTION` |
+
+- **分流实现**（`handlers.rs::reject_insert`）：`15/16/17/22` 走 CTP 层 `send_error`；其余引擎检查码（163/164/165）先发成功响应帧再发 `ERR_RTN_ORDER_INSERT`。撤单的所有拒绝点（`on_order_action` 内流控闸门 + 引擎 `cancel` 失败）统一双面。
+- **composite 载荷**：`ERR_RTN_*` 的 payload = **客户端自己的 input struct ++ RspInfoField**（input 在前、RspInfo 在尾）。Rust 侧 `send_err_rtn` 负责拼接；shim codegen 以 `{"payload_input": True}` / `{"payload_input": True, "synth_action": True}` 标注，errrtn body 按 `SIZES[input]` 切分；py SDK `rsp_info_of()` 读尾部 n 字节（裸包则读整体），两种兼容。**顺序不可颠倒**——颠倒会让 ErrorID 读到垃圾值。
+- **py SDK late-frame 面**：`wait_late(msg_type)` / `clear_late()` 消费错单回报半面；`_request` 改为「`REJECTION_FRAMES` 内才算同步拒单，其余等 late」，`replay.py` 对 insert 拒绝改为 `clear_late()` + `wait_late()` 消费。
+- **一请求多帧的路由（`client.py::_Pending`）**：错单回报半面与响应半面**共用请求 req_id**。读循环不能无条件按 req_id 塞进 pending 队列——若两帧都在请求线程 `pop(_pending)` 前到达，第二帧会被静默丢弃（`m2_journal` 的 163 用例 4 次里 2 次间歇失败）。`_Pending` 记录 `multi`（streaming 查询）与 `answered`：unary 请求首帧应答、后续 rejection 帧转 late；`multi=True` 的 `ReqQry*` 保持收行到 `QRY_LAST`。
+- **为什么必须忠实复刻**（对齐项目最高原则）：只挂 `OnRspOrderInsert` 的客户端在真实 CTP 上会漏掉全部 163/164/165——交易所层拒单的 `OnRspOrderInsert` 带的是 `{0}`（成功），错误只在随后的 `OnErrRtnOrderInsert`。若 CTPBuddy 把 163 也做成 `RSP_ERROR`，这个静默漏单 bug 会被仿真掩盖、测试通过而生产炸。**推错推送面比推错错误码更隐蔽**。e2e A 段因此是**反向断言**（CTP 层拒绝必须**没有** late 面），B 段是正向断言（交易所层拒绝**必须有**）。
+- **新增错误码常量**：17 `INSTRUMENT_NOT_TRADING`（原名 `ERR_ORDER_STATUS` 系误名）、51 `OVER_CLOSEYESTERDAY_POSITION`（CloseYesterday 原本恒成功）、catalog 三码校正为 50/51/30。
+- **e2e 驱动注意**：`--order-freq 2`（默认 20/s 打不爆），段间需 `sleep(1.05)` 让墙钟 1s 窗口翻转——`order_gate` 是墙钟窗口不是计数桶（§8.11）。
+- **对账结果**：299 条中 **19 已实现**（推送面全部对齐）、**51 可落地**（语义在范围内但无代码路径发出，已登记为缺口）、**229 暂不可达**（银期转账 109 / 认证授权 31 / 期权执行 21 / 短信监控 10 / 条件单预埋 9 / 套利套保 9 / 报价询价 8 / 组合 8 / 其他 26）。**遗留**：`91 EXCHANGE_RTNERROR` 常量已留但交易所侧拒单转发未接线；`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁未做。
 
 ---
 
@@ -867,7 +888,10 @@ CREATE TABLE audit_log (
 
 ```
 ctpbuddy/
-├── docs/                  # 设计文档 + CTP 语义知识库 + 官网源码（ctpbuddy.opentrade.one）+ 官方资料可读版（api-doc-html/、错误码全集.md）
+├── docs/                  # 设计文档 + CTP 语义知识库 + 官网源码（ctpbuddy.opentrade.one）
+│   ├── notes/              #   深度原始笔记 01~05、09（09 = 错单推送面与错误码对账）
+│   ├── api-doc-html/       #   官方 API 接口说明可读版（405 页干净 HTML）
+│   └── 错误码全集.md        #   error.xml 299 条逐条状态标注（已实现/可落地/暂不可达）
 ├── shim/                  # C++ Shim（DLL/so）
 │   ├── src/               #   ABI 实现、帧收发、SPI 分发
 │   ├── codegen/           #   头文件 → 结构体注册表 + type id

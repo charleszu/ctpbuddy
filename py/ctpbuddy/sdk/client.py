@@ -110,13 +110,30 @@ class CTPError(Exception):
         return cls(info.get("ErrorID", -1), info.get("ErrorMsg", ""), kind=kind)
 
 
+class _Pending:
+    """One in-flight request: its frame queue plus how many frames it takes.
+
+    `multi` requests (ReqQry*, answered by a row stream terminated by
+    QRY_LAST) keep consuming frames; unary requests are completed by their
+    first response, and any further rejection frame on the same req_id is the
+    错单回报 half (DESIGN §8.12) which the reader diverts to the late queue.
+    """
+
+    __slots__ = ("q", "multi", "answered")
+
+    def __init__(self, multi: bool = False) -> None:
+        self.q: "queue.Queue[Frame]" = queue.Queue()
+        self.multi = multi
+        self.answered = False
+
+
 class Client:
     def __init__(self, addr: str = "127.0.0.1:5560", timeout: float = DEFAULT_TIMEOUT) -> None:
         host, _, port = addr.rpartition(":")
         self.sock = socket.create_connection((host, int(port)), timeout=timeout)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._req_seq = 0
-        self._pending: Dict[int, "queue.Queue[Frame]"] = {}
+        self._pending: Dict[int, _Pending] = {}
         self._pushes: "queue.Queue[Frame]" = queue.Queue()
         self._lock = threading.Lock()
         self._late: List[Frame] = []
@@ -197,19 +214,24 @@ class Client:
                 if f.req_id == 0:
                     self._pushes.put(f)
                     continue
-                q = self._pending.get(f.req_id)
-                if q is not None:
-                    q.put(f)
+                p = self._pending.get(f.req_id)
+                if p is not None and (p.multi or not p.answered):
+                    # first frame of a unary request completes it; a streaming
+                    # query keeps collecting until QRY_LAST
+                    p.answered = True
+                    p.q.put(f)
                 elif self._is_rejection(f):
-                    # the request already completed (its success/error Rsp came
-                    # first): this is the post-response 错单回报 half (#42)
+                    # a *second* frame on a completed unary request: this is the
+                    # post-response 错单回报 half (#42). Handing it to the
+                    # pending queue instead would drop it on the floor -- that
+                    # queue has already been read once and never again.
                     self._note_late(f)
         except (OSError, ValueError):
             pass
         finally:
             # wake up every waiter so they fail loudly instead of hanging
-            for q in list(self._pending.values()):
-                q.put(CLOSED)
+            for p in list(self._pending.values()):
+                p.q.put(CLOSED)
             self._pushes.put(CLOSED)
 
     @staticmethod
@@ -217,25 +239,26 @@ class Client:
         return f.msg_type in REJECTION_FRAMES
 
     def _wake_all(self) -> None:
-        for q in list(self._pending.values()):
-            q.put(CLOSED)
+        for p in list(self._pending.values()):
+            p.q.put(CLOSED)
         self._pushes.put(CLOSED)
 
     def _request(self, msg_type: int, payload: bytes = b"", expect: Optional[int] = None,
                  timeout: Optional[float] = None) -> Frame:
         req_id = self._next_req_id()
-        q: "queue.Queue" = queue.Queue()
-        self._pending[req_id] = q
+        p = _Pending()
+        self._pending[req_id] = p
         try:
             self.sock.sendall(Frame(msg_type, req_id, payload).encode())
-            f = q.get(timeout=timeout or DEFAULT_TIMEOUT)
+            f = p.q.get(timeout=timeout or DEFAULT_TIMEOUT)
         finally:
             self._pending.pop(req_id, None)
         if f is CLOSED or self._is_rejection(f):
             # keep the真实推送面 (DESIGN §8.12): the front-office half arrives
             # as RSP_ERROR (OnRspOrderInsert / OnRspOrderAction, input NULL);
-            # the exchange half arrives as ERR_RTN_* only when it beats the
-            # success Rsp home -- downstreams must hook both callbacks.
+            # the exchange half arrives as ERR_RTN_* only after the success
+            # Rsp -- downstreams must hook both callbacks. The reader routes
+            # that second frame to the late queue, never here.
             raise CTPError.from_frame(f)
         if expect is not None and f.msg_type != expect:
             raise CTPError(-2, "expected msg 0x%04x, got 0x%04x" % (expect, f.msg_type))
@@ -263,13 +286,13 @@ class Client:
     def _query_once(self, req_msg: int, rsp_msg: int, payload: bytes) -> "tuple[List[bytes], bool]":
         """One query attempt: `(rows, throttled)`; throttled -> re-issue."""
         req_id = self._next_req_id()
-        q: "queue.Queue" = queue.Queue()
-        self._pending[req_id] = q
+        p = _Pending(multi=True)
+        self._pending[req_id] = p
         out: List[bytes] = []
         try:
             self.sock.sendall(Frame(req_msg, req_id, payload).encode())
             while True:
-                f = q.get(timeout=DEFAULT_TIMEOUT)
+                f = p.q.get(timeout=DEFAULT_TIMEOUT)
                 if f is CLOSED:
                     raise CTPError(-1, "connection closed")
                 if f.msg_type == QRY_LAST:

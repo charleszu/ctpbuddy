@@ -2,7 +2,7 @@
 
 > 本文件是 CTPBuddy 项目的 CTP 语义权威存档，供后续 Agent 与开发者查阅。
 > 内容来自 `C:\workspace\src\CTP\docs`（30+ 份官方 SDK 文档/教材/坑指）、SDK 自带 CHM《6.7.13_API接口说明》与参考实现 `LocalCTP` 的系统化通读，逐条注明出处；**冲突处以官方 CHM/API 说明为准**。
-> 深度细节（含原文引用、算例、代码行号）在 `docs/notes/` 下五份分册；本文件是索引与结论层。
+> 深度细节（含原文引用、算例、代码行号）在 `docs/notes/` 下六份分册；本文件是索引与结论层。
 > 官方资料可读版：SDK《6.7.13_API接口说明》CHM 已转为干净 HTML（405 页）在 [`docs/api-doc-html/`](api-doc-html/)，SDK 错误码全集（error.xml 299 条）可读表在 [`docs/错误码全集.md`](错误码全集.md)。
 
 ---
@@ -167,14 +167,19 @@ API 与 SPI 在不同线程；**API（Req*）可被多线程同时调用**（线
 
 ### 5.1 回调分流表
 
-| 回调 | 触发场景 |
-|---|---|
-| `OnRspOrderInsert` | **CTP 层拒绝**报单（参数校验/风控失败），ErrorID+ErrorMsg |
-| `OnErrRtnOrderInsert` | 报单被 CTP 或交易所拒绝后的**错单回报**（与 OnRspOrderInsert 是两回事，都要挂；不填 UserID 时收不到它） |
-| `OnRtnOrder` | 报单状态回报（每笔交易所状态迁移推「前态+新态」两条） |
-| `OnRtnTrade` | 成交回报（每笔成交一次；无 FrontID/SessionID，用 OrderSysID 反查订单；`Volume` 只是本笔，总量看 `OnRtnOrder.VolumeTraded`） |
-| `OnRspOrderAction` | 撤单被 CTP 层拒绝 |
-| `OnErrRtnOrderAction` | 撤单被交易所拒绝（与 OnRspOrderAction **成对出现**，先响应后回报） |
+「CTP 层 / 交易所层」是官方 API 文档的分层口径（#42 落地，见 [DESIGN §8.12](../DESIGN.md)、
+[notes/09](notes/09-错单推送面与错误码对账.md)）：**报单被拒推几个回调，取决于在哪一层被拒**。
+
+| 回调 | 触发场景 | CTPBuddy 线上帧 |
+|---|---|---|
+| `OnRspOrderInsert` | ①**CTP 层拒绝**报单（会话/字段/风控/流控，`pInputOrder` 为 **NULL**）；②**交易所层拒绝**时的**成功响应**（`pInputOrder` 非 NULL、ErrorID=0）——错误在随后的 `OnErrRtnOrderInsert` 里 | ① `RSP_ERROR` only；② `RSP_ORDER_INSERT` 成功帧 |
+| `OnErrRtnOrderInsert` | **交易所层拒绝**后的错单回报（163/164/165）；载荷是 composite：客户端自己的 `InputOrderField` ++ `RspInfo`（不填 UserID 时收不到） | `ERR_RTN_ORDER_INSERT`（composite） |
+| `OnRtnOrder` | 报单状态回报（每笔交易所状态迁移推「前态+新态」两条） | `RTN_ORDER` |
+| `OnRtnTrade` | 成交回报（每笔成交一次；无 FrontID/SessionID，用 OrderSysID 反查订单；`Volume` 只是本笔，总量看 `OnRtnOrder.VolumeTraded`） | `RTN_TRADE` |
+| `OnRspOrderAction` | 撤单被拒（25/26/116/23）——**响应半面，先到**，`pInputOrderAction` 为 NULL | `RSP_ERROR` |
+| `OnErrRtnOrderAction` | 撤单被拒的**回报半面，紧跟响应**（官方场景 6/7，**成对出现**，缺一挂钩不全）；载荷 composite：`InputOrderActionField` ++ `RspInfo` | `ERR_RTN_ORDER_ACTION`（composite） |
+
+关键陷阱：**只挂 `OnRspOrderInsert` 的客户端会漏掉全部 163/164/165**（那半边是「成功」响应），静默漏单。仿真若把交易所层拒单也做成 `RSP_ERROR`，这个 bug 就会被掩盖。
 
 ### 5.2 固定回调顺序（【报单回调规则.pdf】CTP 6.7.2 内置文档，ag1207 场景照录于 notes/01）
 
@@ -325,14 +330,16 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 
 1. **报单流控** ✅（M2-4 落地）：Core `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq` 默认 20，墙钟 1s 窗口），超限 116「CTP:下单频率限制」（§1 #1、§4.5）；官方错误码全集（error.xml 299 条）对账表见 [`docs/错误码全集.md`](错误码全集.md)，核心常量已按官方逐条修正（详见 DESIGN §8.11）。
 2. **订单状态机** ✅（M2-4 落地）：OrderStatus 九态复刻 + OrderSubmitStatus 七态细化——初始 'a' 推送 OSS '0'、其后 '3'；指令级 '4'/'5' 由 journal `submit_status` 承载（accepted insert '0' / rejected '4' / accepted cancel '3' / rejected cancel '5'）。IsAutoSuspend 恒 0（§5.3-5.4）。
-3. **回报时序**（部分）：前态+新态两笔、Trade 后置、大商所自补全部成交特例（含「进簿必返 '3'」与 ExchangeID 回填保按所规则）✅ M2-4 落地；**FAK 按交易所分流未落地**（官方场景 8/9/10：上期所/能源/中金 FAK 部成部撤=['a','5','5']+Trade 无 '1' 行；大商所/郑商所/广期所 FAK=['a','3','3','1']——现引擎全所统一「每笔成交前态+新态」与官方不符，m2_book C3 断言需按所重核，列为独立 TODO）。双推送面（insert 的「错单响应」半面、cancel 的 `OnErrRtnOrderAction`）待 error.xml 全集对账任务补全（§5.1-5.2）。
-4. **撤单语义** ✅（M2-4 落地）：ActionFlag 仅 Delete；OrderSysID 空值不撤；撤单失败 25/26 区分（终态「已全成交或已撤销」vs「找不到相应报单」）已按官方场景 6/7 实现（`terminal_refs` 终态记忆）；双回调成对部分（`OnErrRtnOrderAction` 半面待补，同 3）（§4.4、§5.1）。
-5. **FAK/FOK** ✅（M2-1 落地）：TC+VC 组合语义、FOK=整单成交否则全撤、FAK 最小成交量整笔撤销规则；条件单触发转新报单未做（§4.1）。
-6. **交易所差异归一化** ✅（M2-1 落地）：平今转换（非上期所一律 Close）、市价单按所语义；郑商所 FAK-only 规则表待注入；TradingDay 各所混乱见 §7（§4.1-4.3、§7）。
-7. **成交开平标志 ≠ 报单开平标志** ✅（M2-1 落地）：非上期所平仓回 '1'（§4.3）。
-8. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别 TODO（§8）。
-9. **LEDGER 扩展**：MarginPriceType 配置、平今/平昨费率、FrozenCommission TODO；期权权利金（§6）。
-10. LocalCTP 对账基准：OrderRef 生成规则、撮合规则、结算字段重置清单可直接抄（§9）。
+3. **回报时序**（部分）：前态+新态两笔、Trade 后置、大商所自补全部成交特例（含「进簿必返 '3'」与 ExchangeID 回填保按所规则）✅ M2-4 落地；**FAK 按交易所分流未落地**（官方场景 8/9/10：上期所/能源/中金 FAK 部成部撤=['a','5','5']+Trade 无 '1' 行；大商所/郑商所/广期所 FAK=['a','3','3','1']——现引擎全所统一「每笔成交前态+新态」与官方不符，m2_book C3 断言需按所重核，列为独立 TODO）。
+4. **双推送面** ✅（#42 落地）：报单拒绝按层分流——CTP 层（会话/字段/风控/流控 116/31/16 等）**仅** `OnRspOrderInsert(NULL, pRspInfo)`；交易所层（163/164/165）先 `OnRspOrderInsert{0}` 成功响应再 `OnErrRtnOrderInsert`；撤单拒绝**双面** `OnRspOrderAction` → `OnErrRtnOrderAction`。`ERR_RTN_*` 载荷为 composite（客户端 input struct ++ RspInfo，input 在前）。e2e `m2_surface.py` 五段锁死（A 段反向断言「CTP 层拒绝无 late 面」，B/C 段正向断言双面与载荷回显）。遗留 `91 EXCHANGE_RTNERROR` 交易所侧拒单转发未接线（§5.1-5.2、DESIGN §8.12、notes/09）。
+5. **撤单语义** ✅（M2-4 落地）：ActionFlag 仅 Delete；OrderSysID 空值不撤；撤单失败 25/26 区分（终态「已全成交或已撤销」vs「找不到相应报单」）已按官方场景 6/7 实现（`terminal_refs` 终态记忆）；双回调成对见第 4 条（§4.4、§5.1）。
+6. **FAK/FOK** ✅（M2-1 落地）：TC+VC 组合语义、FOK=整单成交否则全撤、FAK 最小成交量整笔撤销规则；条件单触发转新报单未做（§4.1）。
+7. **交易所差异归一化** ✅（M2-1 落地）：平今转换（非上期所一律 Close）、市价单按所语义；郑商所 FAK-only 规则表待注入；TradingDay 各所混乱见 §7（§4.1-4.3、§7）。
+8. **成交开平标志 ≠ 报单开平标志** ✅（M2-1 落地）：非上期所平仓回 '1'（§4.3）。
+9. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别 TODO（§8）。**`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁未做**（已登记为可落地缺口）。
+10. **错误码全集对账** ✅（#42 落地）：error.xml 299 条逐条标注 → **19 已实现**（推送面全部对齐）/ **51 可落地**（语义在范围内但无代码路径发出，缺口清单见 [`docs/错误码全集.md`](错误码全集.md)）/ **229 暂不可达**（业务域未实现）。状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成，改代码后重跑。
+11. **LEDGER 扩展**：MarginPriceType 配置、平今/平昨费率、FrozenCommission TODO；期权权利金（§6）。
+12. LocalCTP 对账基准：OrderRef 生成规则、撮合规则、结算字段重置清单可直接抄（§9）。
 
 ### 10.3 其他 TODO
 
@@ -358,4 +365,4 @@ FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、同用�
 
 ---
 
-*分册索引：`docs/notes/01~05`；官方资料可读版：`docs/api-doc-html/`（API 接口说明 405 页）、`docs/错误码全集.md`（error.xml 299 条）。原始 PDF/CHM/LocalCTP 源码位置见 §0。本文件随项目演进更新；与官方文档冲突时以 SDK CHM 为准。*
+*分册索引：`docs/notes/01~05`、`09`；官方资料可读版：`docs/api-doc-html/`（API 接口说明 405 页）、`docs/错误码全集.md`（error.xml 299 条）。原始 PDF/CHM/LocalCTP 源码位置见 §0。本文件随项目演进更新；与官方文档冲突时以 SDK CHM 为准。*
