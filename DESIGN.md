@@ -515,7 +515,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - **成交双份语义**：一笔簿内成交产生 maker + taker 两份 Trade 回报，**共用同一 TradeID**（各自 order_key / 方向 / 开平不同）——与真实 CTP「一笔成交双方同 TradeID」一致；tick 深度成交只有 taker 一份、自带 TradeID；
 - **冻结释放闭环**：`freeze` 记**原始估算额**；每次成交按「原始估算额 × 本次量/原申报量」释放并累计 `released_*`；终态 '5'（客户撤单或 IOC/FOK/FAK 自动撤）由 `dispatch_event` 统一 `unfreeze_order` 释放未释放余量（幂等）——全成订单没有 '5'，pro-rata 也必须精确归零（M2-1 修复了按剩余额释放导致多段成交残留 2/9 冻结的缺陷）；
 - **成交开平归一化**：`TradeField.OffsetFlag` 仅 SHFE/INE 保留平今/平昨，其余交易所平仓一律回 Close('1')；`Order.CombOffsetFlag` 保留请求值；`Fill.offset` 保留真值供 ledger 先开先平；
-- **待办锚点**：~~大商所「全部成交只回成交、CTP 自补报单回报」特例（M2-4 已落地，见 §8.11）~~；~~报单流控规则表（M2-4 已落地，见 §8.11）~~；~~OrderSubmitStatus 七态细化（M2-4 已落地，见 §8.11）~~。FAK 回报按交易所分流（官方场景 8/9/10）留待单独任务。
+- **待办锚点**：~~大商所「全部成交只回成交、CTP 自补报单回报」特例（M2-4 已落地，见 §8.11）~~；~~报单流控规则表（M2-4 已落地，见 §8.11）~~；~~OrderSubmitStatus 七态细化（M2-4 已落地，见 §8.11）~~；~~FAK 回报按交易所分流（官方场景 8/9/10，#43 已落地，见 §8.13）~~。
 
 ### 8.11 报单流控与订单状态机（M2-4 落地口径，2026-10-03）
 
@@ -548,6 +548,26 @@ assertions:             # 可选：场景内断言（CI 用）
 - **新增错误码常量**：17 `INSTRUMENT_NOT_TRADING`（原名 `ERR_ORDER_STATUS` 系误名）、51 `OVER_CLOSEYESTERDAY_POSITION`（CloseYesterday 原本恒成功）、catalog 三码校正为 50/51/30。
 - **e2e 驱动注意**：`--order-freq 2`（默认 20/s 打不爆），段间需 `sleep(1.05)` 让墙钟 1s 窗口翻转——`order_gate` 是墙钟窗口不是计数桶（§8.11）。
 - **对账结果**：299 条中 **19 已实现**（推送面全部对齐）、**51 可落地**（语义在范围内但无代码路径发出，已登记为缺口）、**229 暂不可达**（银期转账 109 / 认证授权 31 / 期权执行 21 / 短信监控 10 / 条件单预埋 9 / 套利套保 9 / 报价询价 8 / 组合 8 / 其他 26）。**遗留**：`91 EXCHANGE_RTNERROR` 常量已留但交易所侧拒单转发未接线；`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁未做。
+
+### 8.13 FAK 回报按交易所分流（#43 落地口径，2026-10-03）
+
+官方《报单回调规则》测试场景 8/9/10（`docs/api-doc-html/pages/389-QTYWGZ-DBHB.html`）规定**同一笔「FAK 部分成交部分撤单」在三个所族给出三种不同的回调顺序**。这不是文档含糊，是交易所回报协议的客观差异；下游按「OnRtnOrder 条数」或「'1' 的条数」统计的代码，在三组上会得到三个不同答案。**必须复刻，不能统一**（对齐项目最高原则）。
+
+| 所族 | `IocLayout` | 回报顺序（省略开头的 `OnRtnOrder` 未知单） |
+| --- | --- | --- |
+| 上期所 / 能源中心 / 中金所 | `CancelFirst` | `5`（已撤单，**VolumeTraded 已有值**）→ 每笔成交 `5` + `OnRtnTrade` |
+| 大商所 / 广期所 | `TradeDriven` | `3`（未成交）→ 每笔成交**一行**合成的 `1` + `OnRtnTrade` → `5` |
+| 郑商所 | `StatusDriven` | `3`（未成交）→ 每笔成交**前态 + `1`** + `OnRtnTrade` → `5` |
+
+- **三条差异点**：① 只有后两个所族推 `3` 进簿确认（IOC 在上期所不进簿）；② 只有郑商所为每笔成交重复推前一状态（大商所只推一行合成 `1`）；③ 只有上期所把撤单行放在**所有成交回报之前**。
+- **`3` 进簿确认的适用范围从 DCE 扩到整个组**：M2-4 的规则是「大商所对每个进簿报单先返 `'3'`」。#43 按 `IocLayout` 判定后，`TradeDriven` / `StatusDriven` 两族的 GFD 单都拿这一行。依据是场景 9/10 都写了 CZCE/GFEX 报单在成交前先收到「未成交」回报，且场景 9 原话「**大商所不管会不会立即成交，只要委托进入报单簿后都会返回一笔未成交报单回报**」把规则表述为「进簿」的属性而非「是大商所」的属性——按所族读才是官方文本支持的口径。FOK 与市价单永不进簿、始终无此行。
+- **`ioc_layout(exchange_id)`**：`"DCE" | "GFEX" => TradeDriven`、`"CZCE" => StatusDriven`、其余（含 SHFE/INE/CFFEX）`=> CancelFirst`；未知交易所码落到上期所组（历史 CTP 默认）。`is_fak = is_ioc && !is_fok`（FAK = IOC 且非 FOK）。
+- **为什么必须缓冲成交**：报告形状取决于**是否还有 leftover**（官方三场景只规定「部成部撤」），而上期所的撤单行还要排在成交行**之前**——撮合循环跑完前无法确定任何一行。所以 taker 侧每笔成交先记 `(前态快照, 新态快照, price, volume, trade_id)` 进 `fak_fills`，循环结束后由 `emit_fak_reports` 一次性铺开（`FakFill`）。非 FAK 走 `record_taker_fill` 的即时分支，行为与改动前逐字节一致。
+- **终态行只推一行**：三所收尾的都是**交易所主动撤单**（FAK 剩余量被交易所撤掉，不是客户端 `ReqOrderAction`），所以不带前态重复——这与 §8.9 场景 3/5 客户端主动撤单的前态+新态形状**刻意不同**。FAK 一手未成时同样只有 `a` → `5` 两行。
+- **FAK 全成无官方形状**：三场景都只写部成部撤。全成时退回 §8.9 场景 2 的一般规则（`a` → `a` → `0` + `OnRtnTrade`），大商所沿用 §3「不重复推送前一状态」的例外。
+- **账本释放顺序无副作用**：上期所 `CancelFirst` 下终态 `5` 事件先于 Trade 到达，`dispatch_event` 先 `unfreeze_order`（移除 `frozen` 条目、全额释放剩余），随后每笔 `on_fill` 因 `frozen.get_mut()` 返回 `None` 而释放 0。净额仍正确（pro-rata 本就按**原始**估算额 × 本次量/原申报量计算，佣金/保证金/持仓移动都在 `on_fill` 独立进行）。
+- **catalog 补齐**：`builtin()` 增加 CZCE `TA609`（3 位 `YMM` 后缀，`parse_delivery_ym` 加了 decade 分支：`2020 + decade`）与 GFEX `si2610`，使三个所族都可交易——否则 e2e 无法驱动场景 8/9/10。合约数 5 → 7，`m1_smoke` / `m2_book` 的 `instruments` 断言同步。
+- **回归**：engine.rs 新增 7 项单元测试（三所形状各自锁定 + 「三组互不相同」+ GFEX 随 DCE + 撤单行不重复计成交量 + 全撤单行 + 全成回落）；新增 `tests/e2e/m2_ioc.py` 走完整线路（shim → 引擎 → ledger → 客户端）并排断言四所形状 `a55` / `a315` / `a3315` / `a315`。`m2_book` 的 C3 断言从 `a,a,1,1,1,1,5` 改为 `a,5,5,5`（场景 8 形状），账目/持仓/成交条数全部未变，仅终态 `5` 从 5 条变 7 条（C3 现在有 3 行）。
 
 ---
 
@@ -627,9 +647,10 @@ REST/JSON，经 ADMIN 通道转发核心：`/api/replay*`、`/api/accounts*`、`
   - `scenario_loaded`：**每个** journaled load 都在其记录位置重放（paused；录制无 load 的 startup-path 才在 walk 前 bootstrap）；speed 取日志值（paused 下不影响释放序列）；
   - `session_auth`：开真实客户机连接；服务端 status 暴露 `next_conn_id`（全局计数器、不复用、关闭留空洞），驱动用 dummy 连接把下一连接 id 对准录制的 `front_id`，使 `order_key = front/session/ref` 与录制一致（**注意**：`connections + 1` 不等于下一 id，有关闭连接时偏小）；
   - `session_login` / `session_logout` / `order_insert` / `order_cancel`：按 (broker, investor) 路由到对应客户机重放；撤单按 `order_sys_id` 匹配（对连接编号漂移免疫）；拒单用日志 `error_id` 与重放结果比对；
-  - `md_watermark`：`idx == cur+1` → plain step；否则（前跳/后跳/loop 重启）按信封 `vt_ms`（= 该水位刚释放的 tick 的 vt）先 `seek` 再 step（seek 定位首个 vt ≥ target 的 tick）；
+  - `md_watermark`：`idx <= cur+1` → plain step（`cur` 可能已因上一次 step 被世界循环消费而越过目标）；`idx > cur+1`（前跳/后跳/loop 重启）按信封 `vt_ms`（= 该水位刚释放的 tick 的 vt）先 `seek` 再 step（seek 定位首个 vt ≥ target 的 tick）；
   - `reset_account` 等 admin 输入按 admin 命令重放；`settle_confirm` / 连接关闭不 journal、不重放。
 - **系统侧确定性前提**（M2-3 实测修复）：① 世界循环的脉冲是**真定时器**（每 PULSE 到期必触发，不被请求流量饿死——否则高频 status 轮询会拖死 tick 释放与 md_watermark 落账）；② 场景时钟启动前 vt 归零（`server_start` 等前置事件不得带墙上时钟）。
+- **`step` 不是计数器（#43 顺带修复的既有缺陷）**：`Playback::step()` 只置 `step_once` **标志**，由下一个世界循环脉冲清除——不是计数。因此两条 `step` 命令若跨过脉冲边界会释放**两个** tick。`_step_until` 原先「轮询间隔 15ms > 脉冲 10ms，多发一条也无害」的假设只在两条命令落在同一脉冲窗口内成立；跨边界时第二条会被下一脉冲消费而**越过目标**（实测：请求 idx 3 落到 4）。更糟的是随后的水位事件因 `cur != target - 1` 被误判成「后跳 seek」，回退到同一 vt 再释放一次，产生**重复的 `md_watermark`**（`m2_journal` 间歇失败，core hash 一致但事件数多 1，比例约 1/4~1/8）。修法两处：`_step_until` 用 `last_seen` 记住已为哪个 idx 发出过命令，**只在 idx 真的前进后才发下一条**；`on_watermark` 的分支条件由 `target == cur + 1` 放宽为 `target <= cur + 1`（`cur == target` 是「已就位」，再 step 会越过、误判 seek 会重复释放）。修复后 20 次重放诊断 0 失配、`m2_journal` 连跑 6 次全绿。
 - **崩溃恢复**（M2+）：定期快照 + journal 增量重放；快照前的输入零丢失，因为 journal 才是权威，SQLite 随时可重建。
 
 ### 11.3 表结构（v1 定稿）
@@ -829,6 +850,8 @@ CREATE TABLE audit_log (
 | M2-2 场景 DSL 管道与播放控制 | ✅ 2026-10-02 | scenario.py（stdlib YAML 子集 + 归一化/校验 + compile 缓存）、transform.rs（freeze/gap/liquidity，4 测）、server scenario.rs（spec 解析 + one-shot 断言，5 测）、ADMIN seek/loop + start_scenario 内联 spec、CLI `replay`/`scenario compile|validate`、`scenarios/dsl_demo/`；`m2_scenario.py` e2e 全绿（transforms/accounts/断言/journal/seek/loop）+ M2-1 与 M1 三套件回归 |
 | M2-3 journal 录制/重放与确定性 hash 校验 | ✅ 2026-10-02 | journal.py（canonical/full+core hash/verify）、replay.py（trace-following 重放驱动，§11.2）、CLI `journal hash|show|verify|replay`、SDK `order_action` 按 sys_id 撤单、服务端 order_insert 载荷增补（TC/VC/MinVolume/exchange…）；三处确定性修复：启动 vt 归零（不取墙上时钟）、脉冲改真定时器（不被请求流量饿死）、status 暴露 `next_conn_id` + 驱动重试式连接（瞬态探测连接会使 front_id 漂移）；`m2_journal.py` e2e 全绿：双跑 full hash 一致、重放 core hash 三相相等、变异负对照（D1A 限价改至 ask 之下 → 行为分歧） |
 | M2-4 报单流控规则表 + 订单状态机与回报时序 | ✅ 2026-10-03 | `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq`，墙钟 1s 窗口，超限 116「CTP:下单频率限制」）；OSS 七态细化（journal submit_status '0'/'3'/'4'/'5' 指令级闭环）；大商所自补全部成交特例 + 进簿必返 '3' + ExchangeID 回填保按所规则；官方错误码全集对账（error.xml 299 条，核心 12 常量 11 个修正 + 新增 148）；`m2_flow.py` 双服务器 18 断言全绿 + 全量回归（cargo 9 测 + m1/m2 四套件）；口径入 §8.11 |
+| #42 错单双推送面与错误码全集对账 | ✅ 2026-10-03 | 报单拒绝按层分流（CTP 层仅 `OnRspOrderInsert(NULL)`；交易所层 163/164/165 先成功响应再 `OnErrRtnOrderInsert`；撤单拒绝双面）；composite 载荷（input ++ RspInfo）；py SDK `_Pending` 修一请求多帧竞态；error.xml 299 条逐条标注（已实现 19 / 可落地 51 / 暂不可达 229，状态列由 `tools/fill_errorcode_status.py` 幂等生成）；`m2_surface.py` 五段全绿；口径入 §8.12 + notes/09 |
+| #43 FAK 回报按交易所分流 | ✅ 2026-10-03 | 官方《报单回调规则》场景 8/9/10 三所形状（`CancelFirst` / `TradeDriven` / `StatusDriven`）；taker 成交按 `FakFill` 缓冲后由 `emit_fak_reports` 按 leftover 铺开；catalog 补 CZCE `TA609`（3 位 `YMM`）+ GFEX `si2610`（合约数 5→7）；engine 单测 7 项 + 新增 `m2_ioc.py` 四所并排全绿；`m2_book` C3 断言改 `a,5,5,5`；口径入 §8.13 + notes/10 |
 
 ### 12.3 后续
 
@@ -889,7 +912,7 @@ CREATE TABLE audit_log (
 ```
 ctpbuddy/
 ├── docs/                  # 设计文档 + CTP 语义知识库 + 官网源码（ctpbuddy.opentrade.one）
-│   ├── notes/              #   深度原始笔记 01~05、09（09 = 错单推送面与错误码对账）
+│   ├── notes/              #   深度原始笔记 01~05、09、10（09 = 错单推送面与错误码对账；10 = FAK 回报按交易所分流）
 │   ├── api-doc-html/       #   官方 API 接口说明可读版（405 页干净 HTML）
 │   └── 错误码全集.md        #   error.xml 299 条逐条状态标注（已实现/可落地/暂不可达）
 ├── shim/                  # C++ Shim（DLL/so）

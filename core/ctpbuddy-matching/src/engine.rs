@@ -138,6 +138,47 @@ pub enum EngineEvent {
     },
 }
 
+/// How a FAK (IOC that may fill partially) reports itself, per exchange.
+///
+/// The three shapes come verbatim from the official 《报单回调规则》 test
+/// scenarios 8/9/10 (docs/api-doc-html/pages/389-QTYWGZ-DBHB.html). They
+/// differ in **which** report the exchange sends first and whether CTP
+/// synthesizes an order row per trade — a downstream client that assumes one
+/// universal shape silently mis-counts rows on two of the three groups, so the
+/// split is reproduced rather than smoothed over.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IocLayout {
+    /// 上期所 / 能源中心 / 中金所 (场景 8): the exchange pushes the **cancel**
+    /// report first — its `VolumeTraded` already carries the filled volume —
+    /// and only then the trade reports, each a single '5' row (the order is
+    /// already terminal, so CTP does not repeat the previous state). No '3'
+    /// (an IOC never rests) and no '1' partial row.
+    CancelFirst,
+    /// 大商所 / 广期所 (场景 9): '3' 未成交 confirm, then per trade a single
+    /// synthesized 部分成交 row (**no** 前态 repeat — the exchange sent only
+    /// a trade report, CTP infers the status), then one '5' cancel row.
+    TradeDriven,
+    /// 郑商所 (场景 10): '3' confirm, then per trade 前态 + '1' + Trade (the
+    /// exchange sent a real 部分成交 status report), then one '5'.
+    StatusDriven,
+}
+
+/// Which layout `exchange_id` uses for FAK reporting. Unknown exchange codes
+/// fall back to the SHFE group (the historical CTP default).
+pub fn ioc_layout(exchange_id: &str) -> IocLayout {
+    match exchange_id {
+        "DCE" | "GFEX" => IocLayout::TradeDriven,
+        "CZCE" => IocLayout::StatusDriven,
+        _ => IocLayout::CancelFirst,
+    }
+}
+
+/// One buffered taker fill of a FAK order: the order state before and after
+/// folding it in, plus the trade terms. Buffered because the report layout is
+/// only known once the leftover is known (官方场景 8/9/10 只描述「部成部撤」),
+/// and because 场景 8 puts the cancel row *before* every trade row.
+type FakFill = (OrderRecord, OrderRecord, f64, i32, String);
+
 /// Cancel lookup key. Resolution order: `order_sys_id` when non-empty, else
 /// exact (front_id, session_id, order_ref), else order_ref alone within the
 /// investor's orders (clients that forget front/session routing).
@@ -361,6 +402,11 @@ impl MatchingEngine {
         let is_ioc = intent.price_type == b'1' || intent.time_condition == b'1';
         let is_fok = is_ioc && intent.volume_condition == b'3';
         let is_mv = is_ioc && intent.volume_condition == b'2';
+        // FAK = IOC that may fill partially (VC_AV or VC_MV above MinVolume).
+        // Its report shape is per-exchange (official 场景 8/9/10), so the
+        // fills are buffered and laid out after the leftover is known.
+        let is_fak = is_ioc && !is_fok;
+        let layout = ioc_layout(&rec.exchange_id);
 
         let mut events = Vec::new();
         // 1) initial unknown-order push (notes/01: every scenario starts here).
@@ -389,24 +435,40 @@ impl MatchingEngine {
             }
         }
 
-        // 2b) 大商所报单确认 (notes/01 B3): DCE returns the 未成交 ('3')
-        //     confirmation for EVERY order that enters its book — even one
-        //     that fills immediately — so the '3' cannot wait for the rest
-        //     branch: an immediate full fill must report 'a' → '3' → '0'.
-        //     IOC-class instructions (FAK/FOK/market) never rest and get no
-        //     such confirmation. `dce_confirmed` suppresses the duplicate
-        //     rest-time push below.
-        let dce_confirmed = if rec.exchange_id == "DCE" && !is_ioc {
-            self.push_status(&mut rec, b'3', &mut events, ctx);
-            true
-        } else {
-            false
+        // 2b) 进簿确认 (notes/01 B3 + 官方场景 9/10): DCE/GFEX/CZCE push the
+        //     未成交 ('3') confirmation for every order that reaches their
+        //     book — even one that fills immediately, and **even a FAK**
+        //     (an IOC does rest there long enough to be confirmed). SHFE /
+        //     INE / CFFEX give a FAK no such row (场景 8: 'a' → '5'
+        //     directly), so this is per-layout, not per IOC-ness.
+        //     `confirmed` suppresses the duplicate rest-time push below.
+        //
+        //     This widens M2-4's DCE-only rule to the whole TradeDriven /
+        //     StatusDriven group. 场景 9/10 both show the CZCE/GFEX order
+        //     receiving '3' before any trade, and 场景 9's own wording（「大商所
+        //     不管会不会立即成交，只要委托进入报单簿后都会返回一笔未成交报单
+        //     回报」）states the rule as a property of entering the book, not
+        //     of the exchange being DCE — so the group reading is the one the
+        //     official text supports. GFD (`!is_ioc`) keeps it; a FOK or a
+        //     market order never rests and never gets one.
+        let confirmed = match layout {
+            IocLayout::CancelFirst => false,
+            // a FAK rests at these exchanges, a FOK/market order never does
+            _ => !is_ioc || is_fak,
         };
+        if confirmed {
+            self.push_status(&mut rec, b'3', &mut events, ctx);
+        }
 
         // 3) matching loop: book counterpart vs tick counterpart, better price
         //    wins (ties to the resting order: it arrived before the snapshot)
         let mut used = [0i32; DEPTH];
         let mut remaining = intent.volume;
+        // FAK fills are buffered with their before/after snapshots: the report
+        // shape depends on whether a leftover remains (官方场景 8/9/10 只描述
+        // 「部分成交部分撤单」), and SHFE puts the cancel row *before* the
+        // trades, so nothing can be pushed while the loop still runs.
+        let mut fak_fills: Vec<FakFill> = Vec::new();
         while remaining > 0 {
             let cp = self.best_counterpart(intent, md.as_ref(), &used);
             match cp {
@@ -423,7 +485,10 @@ impl MatchingEngine {
                     };
                     let trade_id = self.next_trade_id();
                     self.emit_fill(&mut maker, price, take, &trade_id, &mut events, ctx);
-                    self.emit_fill(&mut rec, price, take, &trade_id, &mut events, ctx);
+                    self.record_taker_fill(
+                        &mut rec, price, take, &trade_id, is_fak, &mut fak_fills, &mut events,
+                        ctx,
+                    );
                     if maker.volume_total > 0 {
                         let book = self.books.entry(rec.instrument_id.clone()).or_default();
                         insert_resting(book, maker);
@@ -440,7 +505,10 @@ impl MatchingEngine {
                     }
                     // a market fill has only the taker side to report
                     let trade_id = self.next_trade_id();
-                    self.emit_fill(&mut rec, price, take, &trade_id, &mut events, ctx);
+                    self.record_taker_fill(
+                        &mut rec, price, take, &trade_id, is_fak, &mut fak_fills, &mut events,
+                        ctx,
+                    );
                     remaining -= take;
                 }
             }
@@ -448,11 +516,15 @@ impl MatchingEngine {
 
         // 4) leftover: rest (GFD) or cancel (IOC/FAK/FOK)
         if remaining > 0 {
-            if is_ioc {
+            if is_fak {
+                // 官方《报单回调规则》场景 8/9/10：FAK 部成部撤的回报按所分流
+                self.emit_fak_reports(&mut rec, &fak_fills, layout, &mut events, ctx);
+                self.retire(key, b'5');
+            } else if is_ioc {
                 self.push_transition(&mut rec, b'5', &mut events, ctx);
                 self.retire(key, b'5');
             } else {
-                if rec.volume_traded == 0 && !dce_confirmed {
+                if rec.volume_traded == 0 && !confirmed {
                     // exchange 报单确认: a single '3' push, no 前态 duplicate
                     // (notes/01 scenarios 1/3/4). DCE already pushed its '3'
                     // before matching (2b).
@@ -462,6 +534,11 @@ impl MatchingEngine {
                 insert_resting(book, rec);
             }
         } else {
+            if is_fak {
+                // FAK 全成：没有撤单回报，退回一般「前态+新态+Trade」规则
+                // (官方场景 8/9/10 只规定部成部撤的形状)。
+                self.emit_fak_full(&mut rec, &fak_fills, layout, &mut events, ctx);
+            }
             // fully filled at arrival: terminal '0'
             self.retire(key, b'0');
         }
@@ -666,6 +743,224 @@ impl MatchingEngine {
         }
     }
 
+    /// Fold one taker fill into `rec`. A FAK buffers the (before, after)
+    /// snapshots for the per-exchange report layout; anything else reports
+    /// immediately with the general 前态+新态+Trade trio.
+    #[allow(clippy::too_many_arguments)]
+    fn record_taker_fill(
+        &mut self,
+        rec: &mut OrderRecord,
+        price: f64,
+        volume: i32,
+        trade_id: &str,
+        is_fak: bool,
+        fak_fills: &mut Vec<FakFill>,
+        events: &mut Vec<EngineEvent>,
+        ctx: &ClockCtx,
+    ) {
+        if !is_fak {
+            // ordinary order: report straight away with the general
+            // 前态+新态+Trade trio (§8.9)
+            self.emit_fill(rec, price, volume, trade_id, events, ctx);
+            return;
+        }
+        let before = rec.clone();
+        rec.volume_traded += volume;
+        rec.volume_total -= volume;
+        rec.status = if rec.volume_total == 0 { b'0' } else { b'1' };
+        fak_fills.push((before, rec.clone(), price, volume, trade_id.to_string()));
+    }
+
+    /// 官方《报单回调规则》场景 8/9/10：FAK 部成部撤的三所回报形状。
+    ///
+    /// 场景 8（上期所 / 能源中心 / 中金所）——撤单状态回报**先于**成交回报：
+    /// ```text
+    /// ReqOrderInsert
+    ///   OnRtnOrder（未知单）
+    ///   [交易所撤单状态回报] OnRtnOrder（已撤单，VolumeTraded 此时已有值）
+    ///   [交易所成交回报]     OnRtnOrder（已撤单） → OnRtnTrade
+    /// ```
+    /// 没有 '3'（IOC 不进簿）、没有 '1'；每笔成交只推**一行**报单回报——此时
+    /// 状态已是终态 '5'，前一状态与新态相同，CTP 不重复推（大商所 §3「不重复
+    /// 推送前一状态」规则的一般化）。
+    ///
+    /// 场景 9（大商所 / 广期所）——进簿确认先到，每笔成交只推**一行**合成的
+    /// '1'（同样不重复前态），最后一行 '5'：
+    /// ```text
+    ///   OnRtnOrder（未知单） → OnRtnOrder（未成交）
+    ///   → [OnRtnOrder（部分成交） → OnRtnTrade] × N
+    ///   → OnRtnOrder（已撤单）
+    /// ```
+    ///
+    /// 场景 10（郑商所）——进簿确认先到，成交回报走**一般**的前态+新态：
+    /// ```text
+    ///   OnRtnOrder（未知单） → OnRtnOrder（未成交）
+    ///   → [OnRtnOrder（前态） → OnRtnOrder（部分成交） → OnRtnTrade] × N
+    ///   → OnRtnOrder（已撤单）
+    /// ```
+    ///
+    /// 三所收尾的都是**交易所主动撤单**（FAK 剩余量被交易所撤掉，不是客户端
+    /// ReqOrderAction），所以终态行只推一行、不带前态重复——这与 §2 场景 3/5
+    /// 客户端主动撤单的前态+新态形状刻意不同。
+    fn emit_fak_reports(
+        &mut self,
+        rec: &mut OrderRecord,
+        fills: &[FakFill],
+        layout: IocLayout,
+        events: &mut Vec<EngineEvent>,
+        ctx: &ClockCtx,
+    ) {
+        match layout {
+            IocLayout::CancelFirst => {
+                // 场景 8: cancel row first, and its VolumeTraded already
+                // carries everything that traded.
+                rec.status = b'5';
+                let seq = self.next_notify_seq();
+                rec.notify_seq = seq;
+                events.push(EngineEvent::Order(build_order_field(rec, ctx, seq)));
+                for (_, after, price, volume, trade_id) in fills {
+                    let mut row = after.clone();
+                    row.status = b'5';
+                    let seq = self.next_notify_seq();
+                    row.notify_seq = seq;
+                    events.push(EngineEvent::Order(build_order_field(&row, ctx, seq)));
+                    let trade = self.trade_event(&row, *price, *volume, trade_id, seq, ctx);
+                    events.push(trade);
+                }
+            }
+            IocLayout::TradeDriven | IocLayout::StatusDriven => {
+                // 场景 9 / 10: 进簿确认 '3' 已由 submit (2b) 推过，这里逐笔推
+                // 成交状态，最后一行 '5'。
+                for (before, after, price, volume, trade_id) in fills {
+                    let trade = if layout == IocLayout::TradeDriven {
+                        // 场景 9: one synthesized 部分成交 row, no 前态 repeat
+                        let seq = self.next_notify_seq();
+                        let mut row = before.clone();
+                        row.status = b'1';
+                        row.volume_traded = after.volume_traded;
+                        row.volume_total = after.volume_total;
+                        row.notify_seq = seq;
+                        events.push(EngineEvent::Order(build_order_field(&row, ctx, seq)));
+                        self.trade_event(&row, *price, *volume, trade_id, seq, ctx)
+                    } else {
+                        // 场景 10: the general 前态+新态 pair
+                        let seq_prev = self.next_notify_seq();
+                        let mut prev = before.clone();
+                        prev.notify_seq = seq_prev;
+                        events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+                        let seq_new = self.next_notify_seq();
+                        let mut row = after.clone();
+                        row.status = b'1';
+                        row.notify_seq = seq_new;
+                        events.push(EngineEvent::Order(build_order_field(&row, ctx, seq_new)));
+                        self.trade_event(&row, *price, *volume, trade_id, seq_new, ctx)
+                    };
+                    events.push(trade);
+                }
+                rec.status = b'5';
+                let seq = self.next_notify_seq();
+                rec.notify_seq = seq;
+                events.push(EngineEvent::Order(build_order_field(rec, ctx, seq)));
+            }
+        }
+    }
+
+    /// A FAK that filled completely never gets a cancel report. 官方场景
+    /// 8/9/10 只描述「部分成交部分撤单」，全成无官方形状可依，退回一般
+    /// 前态+新态+Trade 规则（§8.9 场景 2：'a' → 'a' → '0' + Trade），大商所
+    /// 沿用 §3「不重复推送前一状态」的例外。
+    fn emit_fak_full(
+        &mut self,
+        rec: &mut OrderRecord,
+        fills: &[FakFill],
+        layout: IocLayout,
+        events: &mut Vec<EngineEvent>,
+        ctx: &ClockCtx,
+    ) {
+        for (before, after, price, volume, trade_id) in fills {
+            if layout != IocLayout::TradeDriven {
+                let seq_prev = self.next_notify_seq();
+                let mut prev = before.clone();
+                prev.notify_seq = seq_prev;
+                events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+            }
+            let seq_new = self.next_notify_seq();
+            let mut row = after.clone();
+            row.notify_seq = seq_new;
+            events.push(EngineEvent::Order(build_order_field(&row, ctx, seq_new)));
+            let trade = self.trade_event(&row, *price, *volume, trade_id, seq_new, ctx);
+            events.push(trade);
+        }
+        if let Some((_, after, ..)) = fills.last() {
+            *rec = after.clone();
+        }
+    }
+
+    /// Build the OnRtnTrade event for one fill without pushing anything.
+    /// `seq` is the notification sequence stamped on BrokerOrderSeq/SequenceNo.
+    fn trade_event(
+        &mut self,
+        rec: &OrderRecord,
+        price: f64,
+        volume: i32,
+        trade_id: &str,
+        seq: i32,
+        ctx: &ClockCtx,
+    ) -> EngineEvent {
+        let mut tf = CThostFtdcTradeField::zeroed();
+        set_cstr(&mut tf.BrokerID, &cstr(&rec.broker_id));
+        set_cstr(&mut tf.InvestorID, &cstr(&rec.investor_id));
+        set_cstr(&mut tf.UserID, &cstr(&rec.user_id));
+        set_cstr(&mut tf.OrderRef, &cstr(&rec.order_ref));
+        set_cstr(&mut tf.OrderLocalID, &cstr(&rec.order_local_id));
+        set_cstr(&mut tf.OrderSysID, &cstr(&rec.order_sys_id));
+        set_cstr(&mut tf.InstrumentID, &rec.instrument_id);
+        set_cstr(&mut tf.ExchangeID, &rec.exchange_id);
+        set_cstr(&mut tf.TradeID, trade_id);
+        set_cstr(&mut tf.TradingDay, ctx.trading_day);
+        set_cstr(&mut tf.TradeDate, ctx.trading_day);
+        set_cstr(&mut tf.TradeTime, &format_hhmmss(ctx.now_ms));
+        tf.Direction = rec.direction.as_ctp();
+        // 成交开平归一化 (§8.9): only SHFE/INE distinguish 平今/平昨 on the
+        // trade report; every other exchange reports Close. The ledger sees
+        // the true offset through `Fill.offset`.
+        tf.OffsetFlag = trade_offset(rec).as_ctp();
+        tf.HedgeFlag = rec.hedge_flag;
+        tf.Price = price;
+        tf.Volume = volume;
+        tf.TradingRole = b'0';
+        tf.TradeType = b'0';
+        tf.PriceSource = b'0';
+        tf.TradeSource = b'0';
+        tf.SettlementID = 1;
+        tf.BrokerOrderSeq = seq;
+        tf.SequenceNo = seq;
+
+        let fill = Fill {
+            broker_id: rec.broker_id.clone(),
+            investor_id: rec.investor_id.clone(),
+            user_id: rec.user_id,
+            instrument_id: rec.instrument_id.clone(),
+            exchange_id: rec.exchange_id.clone(),
+            direction: rec.direction,
+            offset: rec.offset,
+            hedge_flag: rec.hedge_flag,
+            price,
+            volume,
+            volume_total_original: rec.volume_total_original,
+            order_sys_id: rec.order_sys_id,
+            order_ref: rec.order_ref.clone(),
+            trade_id: to_fixed(trade_id),
+            order_key: format!(
+                "{}/{}/{}",
+                rec.front_id,
+                rec.session_id,
+                cstr(&rec.order_ref)
+            ),
+        };
+        EngineEvent::Trade { field: tf, fill }
+    }
+
     /// Apply one fill and emit the full §8.9 event trio for this order:
     /// 前态 OnRtnOrder → 新态 OnRtnOrder → OnRtnTrade.
     ///
@@ -706,59 +1001,8 @@ impl MatchingEngine {
         let seq_new = self.next_notify_seq();
         rec.notify_seq = seq_new;
         events.push(EngineEvent::Order(build_order_field(rec, ctx, seq_new)));
-
-        let mut tf = CThostFtdcTradeField::zeroed();
-        set_cstr(&mut tf.BrokerID, &cstr(&rec.broker_id));
-        set_cstr(&mut tf.InvestorID, &cstr(&rec.investor_id));
-        set_cstr(&mut tf.UserID, &cstr(&rec.user_id));
-        set_cstr(&mut tf.OrderRef, &cstr(&rec.order_ref));
-        set_cstr(&mut tf.OrderLocalID, &cstr(&rec.order_local_id));
-        set_cstr(&mut tf.OrderSysID, &cstr(&rec.order_sys_id));
-        set_cstr(&mut tf.InstrumentID, &rec.instrument_id);
-        set_cstr(&mut tf.ExchangeID, &rec.exchange_id);
-        set_cstr(&mut tf.TradeID, trade_id);
-        set_cstr(&mut tf.TradingDay, ctx.trading_day);
-        set_cstr(&mut tf.TradeDate, ctx.trading_day);
-        set_cstr(&mut tf.TradeTime, &format_hhmmss(ctx.now_ms));
-        tf.Direction = rec.direction.as_ctp();
-        // 成交开平归一化 (§8.9): only SHFE/INE distinguish 平今/平昨 on the
-        // trade report; every other exchange reports Close. The ledger sees
-        // the true offset through `Fill.offset`.
-        tf.OffsetFlag = trade_offset(rec).as_ctp();
-        tf.HedgeFlag = rec.hedge_flag;
-        tf.Price = price;
-        tf.Volume = volume;
-        tf.TradingRole = b'0';
-        tf.TradeType = b'0';
-        tf.PriceSource = b'0';
-        tf.TradeSource = b'0';
-        tf.SettlementID = 1;
-        tf.BrokerOrderSeq = seq_new;
-        tf.SequenceNo = seq_new;
-
-        let fill = Fill {
-            broker_id: rec.broker_id,
-            investor_id: rec.investor_id,
-            user_id: rec.user_id,
-            instrument_id: rec.instrument_id.clone(),
-            exchange_id: rec.exchange_id.clone(),
-            direction: rec.direction,
-            offset: rec.offset,
-            hedge_flag: rec.hedge_flag,
-            price,
-            volume,
-            volume_total_original: rec.volume_total_original,
-            order_sys_id: rec.order_sys_id,
-            order_ref: rec.order_ref,
-            trade_id: to_fixed(trade_id),
-            order_key: format!(
-                "{}/{}/{}",
-                rec.front_id,
-                rec.session_id,
-                cstr(&rec.order_ref)
-            ),
-        };
-        events.push(EngineEvent::Trade { field: tf, fill });
+        let trade = self.trade_event(rec, price, volume, trade_id, seq_new, ctx);
+        events.push(trade);
     }
 
     /// Push a single order notification with a new status (no 前态 duplicate).
@@ -986,4 +1230,234 @@ fn build_order_field(rec: &OrderRecord, ctx: &ClockCtx, notify_seq: i32) -> CTho
 #[allow(dead_code)]
 fn _offset_label(o: OffsetFlag) -> &'static str {
     o.label()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Direction;
+
+    fn ctx() -> ClockCtx<'static> {
+        ClockCtx {
+            trading_day: "20260915",
+            now_ms: 34_000.0,
+        }
+    }
+
+    /// One GFD sell resting in the book, used as the maker a FAK taker hits.
+    fn maker(instrument: &str, exchange: &str, price: f64, volume: i32) -> OrderIntent {
+        OrderIntent {
+            broker_id: *b"SIM\0\0\0\0\0\0\0\0",
+            investor_id: *b"INV0001\0\0\0\0\0\0",
+            user_id: *b"user\0\0\0\0\0\0\0\0\0\0\0\0",
+            order_ref: *b"M1\0\0\0\0\0\0\0\0\0\0\0",
+            order_local_id: *b"L1\0\0\0\0\0\0\0\0\0\0\0",
+            instrument_id: instrument.to_string(),
+            exchange_id: exchange.to_string(),
+            direction: Direction::Sell,
+            offset: OffsetFlag::Open,
+            hedge_flag: b'1',
+            price_type: b'2',
+            limit_price: price,
+            volume,
+            time_condition: b'3',
+            volume_condition: b'1',
+            min_volume: 0,
+            contingent_condition: b'1',
+            stop_price: 0.0,
+            force_close_reason: 0,
+            request_id: 1,
+            front_id: 1,
+            session_id: 1,
+        }
+    }
+
+    /// A FAK buy: IOC + any-volume, crossing the resting ask. `investor_id`
+    /// differs from the maker's on purpose — the engine's self-trade
+    /// prevention would otherwise skip the only resting order.
+    fn fak_taker(order_ref: &str, volume: i32) -> OrderIntent {
+        let mut ref13 = [0u8; 13];
+        ref13[..order_ref.len()].copy_from_slice(order_ref.as_bytes());
+        OrderIntent {
+            investor_id: *b"INV0002\0\0\0\0\0\0",
+            order_ref: ref13,
+            order_local_id: *b"L2\0\0\0\0\0\0\0\0\0\0\0",
+            direction: Direction::Buy,
+            volume,
+            time_condition: b'1',
+            volume_condition: b'1',
+            request_id: 2,
+            ..maker("rb2610", "SHFE", 0.0, 0)
+        }
+    }
+
+    /// `(OrderStatus, is_trade)` per event plus each order row's volumes — the
+    /// shape a downstream client actually counts.
+    fn shape(events: &[EngineEvent]) -> Vec<(u8, bool, i32, i32)> {
+        events
+            .iter()
+            .map(|e| match e {
+                EngineEvent::Order(f) => (f.OrderStatus, false, f.VolumeTraded, f.VolumeTotal),
+                EngineEvent::Trade { field, .. } => (0u8, true, field.Volume, 0),
+            })
+            .collect()
+    }
+
+    fn statuses(events: &[EngineEvent]) -> Vec<(u8, bool)> {
+        events
+            .iter()
+            .map(|e| match e {
+                EngineEvent::Order(f) => (f.OrderStatus, false),
+                EngineEvent::Trade { .. } => (b'T', true),
+            })
+            .collect()
+    }
+
+    /// Park a 3-lot maker, then let a 13-lot FAK taker cross it: the taker
+    /// gets 3 of 13 filled and the rest canceled — the 「部分成交部分撤单」
+    /// shape scenarios 8/9/10 describe. `submit` returns **both** sides of
+    /// the match, so keep only the taker's rows (maker uses OrderRef `M1`).
+    fn fak_scenario(instrument: &str, exchange: &str, price: f64) -> Vec<EngineEvent> {
+        let mut e = MatchingEngine::new(Catalog::builtin());
+        let rest = e.submit(&maker(instrument, exchange, price, 3), &ctx());
+        assert!(matches!(rest, SubmitOutcome::Accepted { .. }));
+        let mut taker = fak_taker("T1", 13);
+        taker.instrument_id = instrument.to_string();
+        taker.exchange_id = exchange.to_string();
+        taker.limit_price = price;
+        let events = match e.submit(&taker, &ctx()) {
+            SubmitOutcome::Accepted { events } => events,
+            SubmitOutcome::Rejected { error_id, msg } => panic!("FAK rejected: {error_id} {msg}"),
+        };
+        let taker_only: Vec<EngineEvent> = events
+            .into_iter()
+            .filter(|ev| match ev {
+                EngineEvent::Order(f) => cstr(&f.OrderRef) == *"T1",
+                EngineEvent::Trade { field, .. } => cstr(&field.OrderRef) == *"T1",
+            })
+            .collect();
+        assert!(!taker_only.is_empty(), "taker must report something");
+        taker_only
+    }
+
+    // 官方《报单回调规则》场景 8：上期所 FAK 部成部撤 —— 撤单状态回报**先于**
+    // 成交回报，且每笔成交只有一行 '5'（状态已终态，不重复推前态）。无 '3'、无 '1'。
+    #[test]
+    fn fak_shfe_puts_cancel_before_trades() {
+        let ev = fak_scenario("rb2610", "SHFE", 3500.0);
+        assert_eq!(
+            statuses(&ev),
+            vec![(b'a', false), (b'5', false), (b'5', false), (b'T', true)],
+            "'a' → 撤单行 → 每笔成交一行 '5' + Trade",
+        );
+        match &ev[1] {
+            EngineEvent::Order(f) => {
+                assert_eq!(f.OrderStatus, b'5');
+                assert_eq!(f.VolumeTraded, 3, "VolumeTraded 此时已有值");
+                assert_eq!(f.VolumeTotal, 10);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    // 官方场景 9：大商所 FAK —— 进簿确认 '3' 先到，每笔成交只推**一行**合成的
+    // '1'（不重复前态），最后一行 '5'。与郑商所形状不同（场景 10）。
+    #[test]
+    fn fak_dce_synthesizes_one_partial_row_per_trade() {
+        let ev = fak_scenario("m2609", "DCE", 3000.0);
+        assert_eq!(
+            statuses(&ev),
+            vec![(b'a', false), (b'3', false), (b'1', false), (b'T', true), (b'5', false)],
+            "confirm, one synthesized 部分成交, trade, cancel",
+        );
+    }
+
+    // 官方场景 10：郑商所 FAK —— 进簿确认 '3' 先到，成交回报走**一般**的前态+
+    // 新态（'3' → '1'），最后一行 '5'。
+    #[test]
+    fn fak_czce_repeats_previous_state() {
+        let ev = fak_scenario("TA609", "CZCE", 4000.0);
+        assert_eq!(
+            statuses(&ev),
+            vec![
+                (b'a', false),
+                (b'3', false),
+                (b'3', false),
+                (b'1', false),
+                (b'T', true),
+                (b'5', false),
+            ],
+            "confirm, then 前态+新态 per trade, then cancel",
+        );
+    }
+
+    // 三个所族必须给出三种不同形状 —— 这正是 #43 存在的理由：按条数计数、
+    // 或按 '1' 累加成交的下游代码，在其中两组上会静默算错。
+    #[test]
+    fn the_three_exchange_groups_do_not_agree() {
+        let shfe = statuses(&fak_scenario("rb2610", "SHFE", 3500.0));
+        let dce = statuses(&fak_scenario("m2609", "DCE", 3000.0));
+        let czce = statuses(&fak_scenario("TA609", "CZCE", 4000.0));
+        let gfex = statuses(&fak_scenario("si2610", "GFEX", 5000.0));
+        assert_ne!(shfe, dce);
+        assert_ne!(dce, czce);
+        assert_ne!(shfe, czce);
+        assert_eq!(dce, gfex, "GFEX follows the DCE group (场景 9)");
+    }
+
+    // 上期所那条 '5' 的 VolumeTraded/VolumeTotal 语义：撤单回报带走的量与成交
+    // 回报一致，不能把成交又算一遍。
+    #[test]
+    fn fak_shfe_cancel_row_does_not_double_count() {
+        let ev = fak_scenario("rb2610", "SHFE", 3500.0);
+        let rows = shape(&ev);
+        // rows[0] 是初始 'a'，rows[1] 才是那条带成交量的撤单行
+        assert_eq!(rows[1].2, 3, "cancel row VolumeTraded");
+        assert_eq!(rows[1].3, 10, "cancel row VolumeTotal = 13 - 3");
+        let traded: i32 = rows
+            .iter()
+            .filter(|(_, is_trade, ..)| *is_trade)
+            .map(|(_, _, v, _)| *v)
+            .sum();
+        assert_eq!(traded, 3, "trade volume matches the cancel row");
+    }
+
+    // FAK 一手都没成交：交易所主动撤单，三个所都是**一行**终态，不带前态重复。
+    #[test]
+    fn fak_with_no_fill_is_a_single_cancel_row() {
+        let mut e = MatchingEngine::new(Catalog::builtin());
+        let mut taker = fak_taker("T1", 3);
+        taker.instrument_id = "au2612".into();
+        taker.exchange_id = "SHFE".into();
+        taker.limit_price = 100.0; // 空簿 → 无成交
+        let SubmitOutcome::Accepted { events } = e.submit(&taker, &ctx()) else {
+            panic!("FAK must be accepted then canceled, not rejected");
+        };
+        assert_eq!(statuses(&events), vec![(b'a', false), (b'5', false)]);
+    }
+
+    /// FAK 全成：官方无形状可依，退回一般前态+新态+Trade（§8.9 场景 2）。
+    #[test]
+    fn fak_full_fill_falls_back_to_general_trio() {
+        let mut e = MatchingEngine::new(Catalog::builtin());
+        let rest = e.submit(&maker("rb2610", "SHFE", 3500.0, 5), &ctx());
+        assert!(matches!(rest, SubmitOutcome::Accepted { .. }));
+        let mut taker = fak_taker("T1", 5);
+        taker.limit_price = 3500.0;
+        let SubmitOutcome::Accepted { events } = e.submit(&taker, &ctx()) else {
+            panic!("FAK must be accepted");
+        };
+        let taker_only: Vec<EngineEvent> = events
+            .into_iter()
+            .filter(|ev| match ev {
+                EngineEvent::Order(f) => cstr(&f.OrderRef) == *"T1",
+                EngineEvent::Trade { field, .. } => cstr(&field.OrderRef) == *"T1",
+            })
+            .collect();
+        assert_eq!(
+            statuses(&taker_only),
+            vec![(b'a', false), (b'a', false), (b'0', false), (b'T', true)],
+            "§8.9 场景 2（立即全成）: 'a' → 'a' → '0' + Trade, no cancel row",
+        );
+    }
 }

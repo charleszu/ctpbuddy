@@ -12,11 +12,12 @@ in order —
 - `session_login` / `session_logout` drive the matching client;
 - `order_insert` / `order_cancel` re-issue the recorded request (a
   recorded rejection is re-checked against the replay's `error_id`);
-- `md_watermark` advances playback: `idx == current+1` is a plain step,
-  any other index is a seek pattern (forward skip / backward seek /
-  loop restart) and is repositioned by the watermark's `vt_ms` — the
-  vt of the tick the recording had just released — before stepping to
-  the recorded index.
+- `md_watermark` advances playback: `idx <= current+1` is a plain step
+  (the index may already have moved past the target when the caller's poll
+  observed a step this loop had already consumed), any larger index is a
+  seek pattern (forward skip / backward seek / loop restart) and is
+  repositioned by the watermark's `vt_ms` — the vt of the tick the
+  recording had just released — before stepping to the recorded index.
 
 After the walk the fresh journal's **core hash** (§11.4) must equal the
 recording's: the replay reproduces the recording's semantic core
@@ -194,17 +195,29 @@ class _Walker:
         return self.admin.status()["playback"]
 
     def _step_until(self, target: int) -> None:
-        # Poll strictly slower than the core's 10ms pulse: one step command
-        # per pulse is enough (step_once is idempotent), and a faster poll
-        # only floods the world loop.
+        # Drive the paused playback to `target`, one tick per command.
+        #
+        # `Playback::step()` only sets a `step_once` **flag**, and the flag is
+        # cleared by the next world-loop pulse — it is not a counter. So two
+        # `step` commands straddling a pulse boundary release **two** ticks,
+        # not one. The poll interval must therefore be treated as "wait for the
+        # index to actually move", never as "one command is enough": sending a
+        # second command while the first is still pending overshoots the target
+        # (observed: asking for idx 3 landing on 4, which then made the next
+        # watermark look like a backward seek and re-released a duplicate tick).
         deadline = time.time() + _STEP_TIMEOUT
+        sent = 0
+        last_seen = -1
         while True:
             cur = int(self._playback()["idx"])
             if cur >= target:
                 return
             if time.time() >= deadline:
                 raise ReplayError("playback stuck at idx %d (target %d)" % (cur, target))
-            self.admin.step()
+            if sent == 0 or cur > last_seen:
+                self.admin.step()
+                sent += 1
+                last_seen = cur
             time.sleep(0.015)
 
     def _align_front(self, front: Optional[float]) -> None:
@@ -253,7 +266,13 @@ class _Walker:
             raise ReplayError("md_watermark without numeric idx: %r" % (data,))
         target = int(idx)
         cur = int(self._playback()["idx"])
-        if target == cur + 1:
+        if target <= cur + 1:
+            # current+1 is the ordinary case; target == cur means a previous
+            # step already released this tick (the index only moves once the
+            # world loop consumes the command, so a poll can observe it before
+            # the caller does). Either way the position is right — stepping
+            # again would overshoot, and treating it as a seek would re-release
+            # the same tick and duplicate its md_watermark.
             self._step_until(target)
         else:
             # seek pattern (forward skip / backward seek / loop restart):

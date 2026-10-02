@@ -4,7 +4,7 @@
 
 **本地 / 私有部署的 CTP 兼容仿真交易环境** —— 为 CTP 下游系统（策略、交易终端、条件单）提供确定性、可注入、可共享的测试基础设施。
 
-> 完整设计见 [DESIGN.md](DESIGN.md)。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`。官方资料可读版：SDK《6.7.13_API接口说明》HTML 版（405 页干净 HTML，剔除 CHM 主题框架、保留表格/代码/内嵌图片，页间链接与 `anchor-id-*` 锚点均已校验；另有 1 页目录漏收附录、8 个官方附件与 84 条官方源死链/1 条悬空锚点的公示）在 [docs/api-doc-html/](docs/api-doc-html/)，error.xml 错误码全集（299 条，逐条标注「已实现 19 / 可落地 51 / 暂不可达 229」+ 推送面）在 [docs/错误码全集.md](docs/错误码全集.md)，双推送面口径见 [docs/notes/09](docs/notes/09-错单推送面与错误码对账.md)。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；本项目不附带任何官方 SDK 文件，`ctpsdk/` 目录中的头文件由使用者自备、禁止入库与分发。
+> 完整设计见 [DESIGN.md](DESIGN.md)。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`。官方资料可读版：SDK《6.7.13_API接口说明》HTML 版（405 页干净 HTML，剔除 CHM 主题框架、保留表格/代码/内嵌图片，页间链接与 `anchor-id-*` 锚点均已校验；另有 1 页目录漏收附录、8 个官方附件与 84 条官方源死链/1 条悬空锚点的公示）在 [docs/api-doc-html/](docs/api-doc-html/)，error.xml 错误码全集（299 条，逐条标注「已实现 19 / 可落地 51 / 暂不可达 229」+ 推送面）在 [docs/错误码全集.md](docs/错误码全集.md)，双推送面口径见 [docs/notes/09](docs/notes/09-错单推送面与错误码对账.md)；FAK 部成部撤的**三所分流**回报（上期所/大商所+广期所/郑商所三种不同形状）见 [docs/notes/10](docs/notes/10-FAK回报按交易所分流.md)。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；本项目不附带任何官方 SDK 文件，`ctpsdk/` 目录中的头文件由使用者自备、禁止入库与分发。
 
 ## 它解决什么问题
 
@@ -43,9 +43,18 @@ pip install -e ./py
 
 # 3. 跑测试（自动拉起 server；Shim e2e 需先构建 Shim）
 python tests/test_py.py          # Python 侧单测：帧编解码 / 结构体布局 / 场景校验
-python tests/e2e/m1_smoke.py     # 端到端：登录→订阅→报单穿透→断言成交与资金
+cd core && cargo test            # Rust 侧单测：场景 DSL / 行情 transform / FAK 三所回报布局
+cd .. && python tests/e2e/m1_smoke.py     # 端到端：登录→订阅→报单穿透→断言成交与资金
 python shim/build_msvc.py --demo # MSVC 构建 Shim DLL + 真实下游 demo（Windows）
 python tests/e2e/m1_shim_e2e.py  # 真实 CTP 应用经 Shim 打穿核心的全链路
+
+# M2 全量 e2e（每套自起 server，互不依赖）
+python tests/e2e/m2_book.py      # 限价簿撮合：价格/时间优先、FAK/FOK、冻结闭环
+python tests/e2e/m2_scenario.py  # 场景 DSL 管道与播放控制
+python tests/e2e/m2_journal.py   # journal 录制/重放与确定性 core hash
+python tests/e2e/m2_flow.py      # 报单流控 + 订单状态机（双服务器）
+python tests/e2e/m2_surface.py   # 错单双推送面 + 流控面（--order-freq 2）
+python tests/e2e/m2_ioc.py       # FAK 部成部撤的三所分流回报（官方场景 8/9/10）
 
 # 4. 手动起一套玩玩（示例场景 rb_demo）
 ctpbuddy serve --scenario scenarios/rb_demo --data-dir ./data

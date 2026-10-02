@@ -196,7 +196,10 @@ impl Catalog {
     }
 
     /// Builtin defaults (illustrative rates) so a bare `ctpbuddy up` without a
-    /// scenario still has tradable contracts.
+    /// scenario still has tradable contracts. The five exchanges are all
+    /// present on purpose: 官方《报单回调规则》场景 8/9/10 give a **different**
+    /// FAK report layout per exchange group (SHFE/INE/CFFEX, DCE/GFEX, CZCE),
+    /// so e2e can only prove the split if all three groups are tradable.
     pub fn builtin() -> Self {
         let mut c = Catalog::new();
         c.insert(builtin_contract("rb2610", "SHFE", "rb", "螺纹钢主力", 10, 1.0, 0.10, 0.000023, 1.0));
@@ -204,12 +207,38 @@ impl Catalog {
         c.insert(builtin_contract("cu2610", "SHFE", "cu", "沪铜主力", 5, 10.0, 0.10, 0.00005, 1.0));
         c.insert(builtin_contract("m2609", "DCE", "m", "豆粕主力", 10, 1.0, 0.10, 0.00005, 1.0));
         c.insert(builtin_contract("IF2606", "CFFEX", "IF", "沪深300股指", 300, 0.2, 0.12, 0.0000234, 1.0));
+        // CZCE codes carry a **3**-digit YMM suffix (`TA609`), not the 4-digit
+        // YYMM the other groups use — see `parse_delivery_ym`.
+        c.insert(builtin_contract("TA609", "CZCE", "TA", "PTA主力", 5, 2.0, 0.09, 0.0001, 1.0));
+        c.insert(builtin_contract("si2610", "GFEX", "si", "工业硅主力", 10, 5.0, 0.12, 0.0001, 1.0));
         c
     }
 }
 
-/// Parse the trailing `YYMM` of a contract code (`rb2610` -> (2026, 10)).
+/// Parse the delivery month off a contract code.
+///
+/// * `YYMM` (SHFE / DCE / CFFEX / INE / GFEX) — `rb2610` -> (2026, 10).
+/// * `YMM` (CZCE) — `TA609` -> (2026, 9): the leading digit is the decade, so
+///   the year is `2020 + decade`. Only valid while that decade is current,
+///   which is exactly how the real desk reads these codes.
 fn parse_delivery_ym(instrument_id: &str) -> Option<(i32, i32)> {
+    let body: Vec<char> = instrument_id.chars().collect();
+    // 郑商所 3-digit form: last three are digits, the one before is not
+    if body.len() >= 4
+        && body[body.len() - 1].is_ascii_digit()
+        && body[body.len() - 2].is_ascii_digit()
+        && body[body.len() - 3].is_ascii_digit()
+        && !body[body.len() - 4].is_ascii_digit()
+    {
+        let decade = body[body.len() - 3].to_digit(10)? as i32;
+        let mm: i32 = format!("{}{}", body[body.len() - 2], body[body.len() - 1])
+            .parse()
+            .ok()?;
+        if (1..=12).contains(&mm) {
+            return Some((2020 + decade, mm));
+        }
+        return None;
+    }
     if instrument_id.len() < 4 {
         return None;
     }

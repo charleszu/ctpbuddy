@@ -167,7 +167,9 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
     assert pong["cmd"] == "ping", pong
     st = admin.status()
     assert st["broker_id"] == BROKER, st
-    assert st["instruments"] == 5, st  # builtin catalog
+    # builtin catalog: SHFE×3 / DCE / CFFEX / CZCE / GFEX (the last two exist
+    # so the per-exchange FAK report layouts of 官方场景 8/9/10 are drivable)
+    assert st["instruments"] == 7, st  # builtin catalog
     assert st["playback"]["loaded"] is False, st
     print("[ok] admin ping/status (broker %s, %d instruments, no scenario)" % (st["broker_id"], st["instruments"]))
 

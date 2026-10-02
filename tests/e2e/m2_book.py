@@ -169,6 +169,11 @@ def tids(evts, ref: str):
     return [f["TradeID"] for k, f in evts if k == RTN_TRADE and f["OrderRef"] == ref]
 
 
+def rows(evts, ref: str):
+    """Every RTN_ORDER dict for `ref`, in arrival order (statuses + volumes)."""
+    return [f for k, f in evts if k == RTN_ORDER and f["OrderRef"] == ref]
+
+
 def wait_idx(admin: Admin, n: int, timeout: float = 5.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -206,6 +211,9 @@ class Feed:
 
     def trades(self, name, ref):
         return [f for k, f in self.log[name] if k == RTN_TRADE and f["OrderRef"] == ref]
+
+    def rows(self, name, ref):
+        return rows(self.log[name], ref)
 
 
 def main() -> int:
@@ -258,7 +266,9 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
     admin = Admin("127.0.0.1:%d" % admin_port)
     assert admin.ping()["cmd"] == "ping"
     stt = admin.status()
-    assert stt["broker_id"] == BROKER and stt["instruments"] == 5, stt
+    # 7 builtin contracts: SHFE×3 / DCE / CFFEX / CZCE / GFEX — the last two
+    # exist so e2e can drive all three official FAK report layouts (#43).
+    assert stt["broker_id"] == BROKER and stt["instruments"] == 7, stt
     started = admin.start_scenario(scenario, paused=True)
     assert started["ticks"] == 8 and started["paused"] is True, started
     print("[ok] scenario loaded paused: %d ticks, day %s" % (started["ticks"], started["trading_day"]))
@@ -335,17 +345,23 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
         print("[ok] FOK 100 lots: 13 tradable < 100 -> full cancel, freeze released")
 
         # -- 3) FAK (IOC + any volume): fill what crosses, cancel the rest ---
-        # B still rests 1@3500, tick ask1 has 12@3502 -> 13 of 15 fill
+        # B still rests 1@3500, tick ask1 has 12@3502 -> 13 of 15 fill.
+        # SHFE shape is 官方《报单回调规则》场景 8: the exchange pushes the
+        # **cancel** report first (its VolumeTraded already carries 13), then
+        # one '5' row per trade. No '3' (an IOC never rests) and no '1'.
         C.order_insert(RB, direction="0", offset="0", volume=15, limit_price=3502.0,
                        exchange="SHFE", order_ref="C3", time_condition="1",
                        volume_condition="1")
         feed.pump("smoke002", "smoke003")
-        assert feed.st("smoke003", "C3") == ["a", "a", "1", "1", "1", "1", "5"], feed.log["smoke003"]
+        assert feed.st("smoke003", "C3") == ["a", "5", "5", "5"], feed.log["smoke003"]
         assert feed.tr("smoke003", "C3") == [(1, 3500.0), (12, 3502.0)], feed.log["smoke003"]
+        c3 = feed.rows("smoke003", "C3")
+        assert c3[1]["VolumeTraded"] == 13 and c3[1]["VolumeTotal"] == 2, c3[1]
+        assert c3[2]["VolumeTraded"] == 1 and c3[2]["VolumeTotal"] == 14, c3[2]
         assert feed.st("smoke002", "B1") == ["a", "3", "3", "1", "1", "0"], feed.log["smoke002"]
         assert feed.tr("smoke002", "B1") == [(1, 3500.0), (1, 3500.0)], feed.log["smoke002"]
         assert feed.tids("smoke002", "B1")[1] == feed.tids("smoke003", "C3")[0]
-        print("[ok] FAK 15 lots: 1 book + 12 depth filled, 2 cancelled (status '5')")
+        print("[ok] FAK 15 lots (SHFE 场景 8): cancel row first, then 1 '5' per trade")
 
         # -- 4) FAK with MinVolume: 12 tradable < 20 -> whole cancel ---------
         C.order_insert(RB, direction="0", offset="0", volume=10, limit_price=3502.0,
@@ -500,9 +516,14 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
     assert len(cancels) == 2, cancels
     assert {e["data"]["order_ref"] for e in cancels} == {"E1", "E2"}, cancels
     assert all(e["data"]["cancel_time"] for e in cancels), cancels
-    # terminal '5' notifications: C2/C3/C4 auto-cancels + E1/E2 explicit cancels
+    # terminal '5' notifications: C2/C4 auto-cancels + C3's three 场景 8 rows
+    # (撤单行 + 每笔成交一行) + E1/E2 explicit cancels
     fives = [e for e in events if e["type"] == "order_update" and e["data"]["status"] == "5"]
-    assert len(fives) == 5, fives
+    assert len(fives) == 7, fives
+    c3_fives = [e for e in fives if e["data"]["order_ref"] == "C3"]
+    # 撤单行先到且已带成交量，之后每笔成交各一行（官方场景 8）
+    assert [(e["data"]["volume_traded"], e["data"]["volume_total"]) for e in c3_fives] == [
+        (13, 2), (1, 14), (13, 2)], c3_fives
     assert all(e.get("seq", 0) > 0 for e in events), "seq missing"
     print("[ok] journal: %d events, %d fills, %d cancels, %d terminal '5's"
           % (len(events), len(fills), len(cancels), len(fives)))
