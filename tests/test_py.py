@@ -261,6 +261,120 @@ def test_dsl_compile() -> None:
         print("[ok] dsl: compile/load cache semantics + legacy fallback")
 
 
+def test_journal_hash() -> None:
+    """Deterministic journal hashing (DESIGN §11.4, M2-3): ts_wall excluded,
+    core projection drops noise types / re-encodes seq / normalizes the
+    connection-numbering fields of session events."""
+    from ctpbuddy.journal import (
+        JournalError,
+        canonical,
+        core_normalize,
+        count_types,
+        fmt_vt,
+        hash_stream,
+        load_events,
+        verify_events,
+    )
+
+    def ev(seq: int, vt: float, typ: str, data=None, **kw) -> dict:
+        e = {
+            "seq": seq,
+            "ts_wall": "2026-10-02T09:30:00.000+08:00",
+            "trading_day": "20261002",
+            "vt_ms": vt,
+            "type": typ,
+            "data": data if data is not None else {},
+        }
+        e.update(kw)
+        return e
+
+    stream = [
+        ev(1, 34200000.0, "server_start", {"version": "0.1.0", "scenario": "/tmp/x"}),
+        ev(2, 34200000.0, "session_auth", {"front_id": 2, "app_id": "ctpbuddy-python"},
+           broker="8888", investor="dsl001"),
+        ev(3, 34200000.0, "session_login", {"front_id": 2, "session_id": 1},
+           broker="8888", investor="dsl001"),
+        ev(4, 34260000.0, "md_watermark", {"idx": 1}),
+        ev(5, 34260000.0, "order_insert",
+           {"order_ref": "D1A", "instrument": "rb2610", "limit_price": 3504.0},
+           broker="8888", investor="dsl001"),
+        ev(6, 34290000.0, "assertion", {"metric": "fills", "pass": True},
+           broker="8888", investor="dsl001"),
+    ]
+
+    # ts_wall is the wall clock: never part of the hash
+    bumped = [dict(e, ts_wall="2099-01-01T00:00:00.000+08:00") for e in stream]
+    assert hash_stream(stream) == hash_stream(bumped)
+    # any semantic change moves the full hash
+    tampered = [dict(e) for e in stream]
+    tampered[4] = dict(tampered[4], data=dict(tampered[4]["data"], limit_price=3505.0))
+    assert hash_stream(stream) != hash_stream(tampered)
+
+    # core projection: noise types dropped, seq re-encoded 1..n
+    core = core_normalize(stream)
+    assert [e["type"] for e in core] == [
+        "session_auth", "session_login", "order_insert", "assertion"]
+    assert [e["seq"] for e in core] == [1, 2, 3, 4]
+    # interleaved noise events do not move the core hash (but do the full one)
+    noisy = stream[:2] + [ev(99, 34230000.0, "md_watermark", {"idx": 0})] + stream[2:]
+    assert hash_stream(noisy, core=True) == hash_stream(stream, core=True)
+    assert hash_stream(noisy) != hash_stream(stream)
+
+    # connection numbering is normalized: a replay whose connections were
+    # opened in a different order still hashes equal on the core
+    shifted = [dict(e) for e in stream]
+    shifted[1] = dict(shifted[1], data=dict(shifted[1]["data"], front_id=9))
+    shifted[2] = dict(shifted[2], data=dict(shifted[2]["data"], front_id=9))
+    assert hash_stream(shifted, core=True) == hash_stream(stream, core=True)
+    # a re-login on the same connection (session_id 2) IS semantic
+    relogin = [dict(e) for e in stream]
+    relogin[2] = dict(relogin[2], data=dict(relogin[2]["data"], session_id=2))
+    assert hash_stream(relogin, core=True) != hash_stream(stream, core=True)
+
+    # only/skip selectors apply on top
+    assert hash_stream(stream, only=["order_insert"]) == hash_stream([stream[4]])
+    assert hash_stream(stream, skip=["md_watermark"]) != hash_stream(stream)
+    assert hash_stream(stream, only=["order_insert"], skip=["order_insert"]) == \
+        hash_stream([])
+
+    # structural verification
+    assert verify_events(stream) == []
+    broken = stream[:1] + [dict(stream[1], seq=7)] + stream[2:]
+    assert verify_events(broken), "seq gap must be reported"
+    unknown = stream[:1] + [dict(stream[1], type="bogus_type")] + stream[3:]
+    assert any("bogus_type" in p for p in verify_events(unknown))
+    missing = stream[:1] + [{k: v for k, v in stream[1].items() if k != "vt_ms"}] + stream[2:]
+    assert any("vt_ms" in p for p in verify_events(missing))
+
+    # canonical form: ts_wall-free, sorted keys, compact separators
+    c = canonical(stream[1])
+    assert "ts_wall" not in c, c
+    assert c.index('"broker"') < c.index('"data"') < c.index('"seq"'), c
+    assert ", " not in c and ": " not in c, c
+    assert fmt_vt(34260000.0) == "09:31:00.000"
+    assert fmt_vt("nope") == "nope"
+    assert count_types(stream)["order_insert"] == 1
+
+    # file/dir loading roundtrip + error paths
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, "20261002.jsonl")
+        with open(p, "w", encoding="utf-8") as fh:
+            for e in stream:
+                fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+        assert load_events(p) == stream
+        assert load_events(d) == stream  # directory form
+        assert hash_stream(load_events(p)) == hash_stream(stream)
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write("{not json}\n")
+        try:
+            load_events(p)
+            raise AssertionError("malformed line must raise")
+        except JournalError as e:
+            assert "20261002.jsonl:7" in str(e), str(e)
+    print("[ok] journal: ts_wall exclusion, core projection + id normalization, "
+          "selectors, verify, canonical form, load errors")
+
+
 def main() -> int:
     test_struct_layout()
     test_frames()
@@ -268,6 +382,7 @@ def main() -> int:
     test_dsl_spec()
     test_dsl_errors()
     test_dsl_compile()
+    test_journal_hash()
     print("\nPY UNIT: PASS")
     return 0
 

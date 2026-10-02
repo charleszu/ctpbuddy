@@ -483,11 +483,17 @@ impl World {
                         ("order_ref".into(), json::s(&order_ref)),
                         ("order_sys_id".into(), json::s(&sys_id)),
                         ("instrument".into(), json::s(&instrument)),
+                        ("exchange".into(), json::s(&exchange)),
                         ("direction".into(), json::n(direction.as_ctp() as f64)),
                         ("offset".into(), json::n(offset.as_ctp() as f64)),
                         ("price_type".into(), json::s(&(input.OrderPriceType as char).to_string())),
                         ("limit_price".into(), json::n(input.LimitPrice)),
                         ("volume".into(), json::n(input.VolumeTotalOriginal as f64)),
+                        // TC/VC/MinVolume complete the request so a journal
+                        // replay can reconstruct FAK/FOK exactly (DESIGN §11.4)
+                        ("time_condition".into(), json::s(&(tc as char).to_string())),
+                        ("volume_condition".into(), json::s(&(vc as char).to_string())),
+                        ("min_volume".into(), json::n(input.MinVolume as f64)),
                         (
                             "outcome".into(),
                             json::obj_sorted(vec![
@@ -516,6 +522,15 @@ impl World {
             json::obj_sorted(vec![
                 ("order_ref".into(), json::s(&intent.order_ref_s())),
                 ("instrument".into(), json::s(&intent.instrument_id)),
+                ("exchange".into(), json::s(&intent.exchange_id)),
+                ("direction".into(), json::n(intent.direction.as_ctp() as f64)),
+                ("offset".into(), json::n(intent.offset.as_ctp() as f64)),
+                ("price_type".into(), json::s(&(intent.price_type as char).to_string())),
+                ("limit_price".into(), json::n(intent.limit_price)),
+                ("volume".into(), json::n(intent.volume as f64)),
+                ("time_condition".into(), json::s(&(intent.time_condition as char).to_string())),
+                ("volume_condition".into(), json::s(&(intent.volume_condition as char).to_string())),
+                ("min_volume".into(), json::n(intent.min_volume as f64)),
                 (
                     "outcome".into(),
                     json::obj_sorted(vec![

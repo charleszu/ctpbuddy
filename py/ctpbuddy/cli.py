@@ -9,10 +9,20 @@ M2 scenario DSL surface:
   ctpbuddy scenario ticks DIR            summarize a scenario's tick stream
   ctpbuddy scenario compile DIR          scenario.yaml -> scenario.json (core format)
   ctpbuddy replay status|pause|resume|step|seek|loop|speed   playback control
+
+M2-3 journal surface:
+  ctpbuddy journal hash FILE [--core] [--only ...] [--skip ...]
+                                        deterministic sha256 over the event stream
+  ctpbuddy journal show FILE [--type T] [--last N]
+                                        human-readable event listing
+  ctpbuddy journal verify FILE          structural health (seq chain, types)
+  ctpbuddy journal replay FILE --scenario DIR
+                                        re-drive the recording, compare core hashes
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import signal
@@ -21,32 +31,12 @@ import sys
 from typing import List, Optional
 
 from . import __version__
+from .replay import find_core
 from .sdk import Admin
 
 
-def _find_core() -> Optional[str]:
-    env = os.environ.get("CTPBUDDY_CORE")
-    if env and os.path.exists(env):
-        return env
-    found = shutil.which("ctpbuddy-server")
-    if found:
-        return found
-    # dev checkout: py/ is a sibling of core/
-    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    for rel in (
-        os.path.join("core", "target", "debug", "ctpbuddy-server"),
-        os.path.join("core", "target", "release", "ctpbuddy-server"),
-        os.path.join("core", "target", "debug", "ctpbuddy-server.exe"),
-        os.path.join("core", "target", "release", "ctpbuddy-server.exe"),
-    ):
-        cand = os.path.join(here, rel)
-        if os.path.exists(cand):
-            return cand
-    return None
-
-
 def cmd_serve(args: argparse.Namespace) -> int:
-    core = _find_core()
+    core = find_core()
     if core is None:
         print("error: ctpbuddy-server binary not found; set CTPBUDDY_CORE or add it to PATH", file=sys.stderr)
         return 1
@@ -223,6 +213,108 @@ def cmd_scenario_compile(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- journal ---------------------------------------------------------------
+
+
+def _load_journal_or_fail(path: str):
+    from .journal import JournalError, load_events
+
+    try:
+        return load_events(path), None
+    except (JournalError, OSError) as e:
+        return None, str(e)
+
+
+def cmd_journal_hash(args: argparse.Namespace) -> int:
+    from .journal import hash_stream
+
+    events, err = _load_journal_or_fail(args.file)
+    if err:
+        print("error: %s" % err, file=sys.stderr)
+        return 1
+    only = [t for t in (args.only or "").split(",") if t] or None
+    skip = [t for t in (args.skip or "").split(",") if t] or None
+    digest = hash_stream(events, core=args.core, only=only, skip=skip)
+    scope = "core (noise types dropped, seq re-encoded, session ids normalized)" if args.core \
+        else "full stream (ts_wall dropped)"
+    print("file         %s" % args.file)
+    print("events       %d" % len(events))
+    print("scope        %s" % scope)
+    if only:
+        print("only         %s" % ",".join(only))
+    if skip:
+        print("skip         %s" % ",".join(skip))
+    print("sha256       %s" % digest)
+    return 0
+
+
+def cmd_journal_show(args: argparse.Namespace) -> int:
+    from .journal import fmt_vt
+
+    events, err = _load_journal_or_fail(args.file)
+    if err:
+        print("error: %s" % err, file=sys.stderr)
+        return 1
+    if args.type:
+        events = [e for e in events if e.get("type") in args.type]
+    if args.last:
+        events = events[-args.last:]
+    for e in events:
+        who = e.get("investor") or ""
+        data = json.dumps(e.get("data"), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        print("%6s %s %-15s %-12s %s" % (
+            e.get("seq"), fmt_vt(e.get("vt_ms")), e.get("type"), who, data))
+    print("(%d events)" % len(events))
+    return 0
+
+
+def cmd_journal_verify(args: argparse.Namespace) -> int:
+    from .journal import count_types, verify_events
+
+    events, err = _load_journal_or_fail(args.file)
+    if err:
+        print("error: %s" % err, file=sys.stderr)
+        return 1
+    problems = verify_events(events)
+    if problems:
+        print("INVALID: %s" % args.file)
+        for p in problems:
+            print("  -", p)
+        return 1
+    counts = count_types(events)
+    print("OK: %s" % args.file)
+    print("events       %d (seq 1..%d unbroken)" % (len(events), len(events)))
+    print("types        %s" % " ".join("%s=%d" % kv for kv in sorted(counts.items())))
+    return 0
+
+
+def cmd_journal_replay(args: argparse.Namespace) -> int:
+    from .replay import ReplayError, format_result, replay_journal
+
+    try:
+        res = replay_journal(
+            args.file,
+            args.scenario,
+            broker_id=args.broker_id,
+            initial_funds=args.initial_funds,
+            keep_data=args.keep_data,
+            verbose=args.verbose,
+        )
+    except (ReplayError, OSError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print("events       %d recorded / %d replayed" % (
+        res.get("events", 0), res.get("replay_events", 0)))
+    counts = res.get("counts") or {}
+    if counts:
+        print("replayed     %s" % ", ".join("%s=%d" % kv for kv in sorted(counts.items())))
+    print(format_result(res))
+    if args.verbose and res.get("server_log"):
+        print("---- replay server log ----")
+        print(res["server_log"].strip())
+    return 0 if res.get("ok") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ctpbuddy", description=__doc__)
     p.add_argument("--version", action="version", version="ctpbuddy " + __version__)
@@ -253,6 +345,34 @@ def build_parser() -> argparse.ArgumentParser:
     cp = ssub.add_parser("compile", help="compile scenario.yaml to scenario.json (core format)")
     cp.add_argument("dir")
     cp.set_defaults(func=cmd_scenario_compile)
+
+    sp = sub.add_parser("journal", help="journal utilities (hash / show / verify / replay)")
+    jsub = sp.add_subparsers(dest="journal_cmd", required=True)
+    hp = jsub.add_parser("hash", help="deterministic sha256 over the event stream")
+    hp.add_argument("file", help="journal .jsonl file or a journal directory")
+    hp.add_argument("--core", action="store_true",
+                    help="hash the semantic core (drop noise types, re-encode seq, "
+                         "normalize session ids) — the replay comparison hash")
+    hp.add_argument("--only", help="comma-separated event types to include")
+    hp.add_argument("--skip", help="comma-separated event types to exclude")
+    hp.set_defaults(func=cmd_journal_hash)
+    shp = jsub.add_parser("show", help="list journal events")
+    shp.add_argument("file", help="journal .jsonl file or a journal directory")
+    shp.add_argument("--type", action="append", help="only these event types (repeatable)")
+    shp.add_argument("--last", type=int, help="only the last N events")
+    shp.set_defaults(func=cmd_journal_show)
+    vp = jsub.add_parser("verify", help="structural health of a recording")
+    vp.add_argument("file", help="journal .jsonl file or a journal directory")
+    vp.set_defaults(func=cmd_journal_verify)
+    rp = jsub.add_parser("replay", help="re-drive a recording and compare core hashes")
+    rp.add_argument("file", help="journal .jsonl file or a journal directory")
+    rp.add_argument("--scenario", required=True, help="scenario dir the recording was made with")
+    rp.add_argument("--broker-id", default="8888")
+    rp.add_argument("--initial-funds", type=float, default=None,
+                    help="server default funds for new accounts (must match the recording)")
+    rp.add_argument("--keep-data", action="store_true", help="keep the replay data dir")
+    rp.add_argument("-v", "--verbose", action="store_true")
+    rp.set_defaults(func=cmd_journal_replay)
 
     sp = sub.add_parser("replay", help="playback control (pause/resume/step/seek/loop/speed)")
     rsub = sp.add_subparsers(dest="replay_action", required=True)

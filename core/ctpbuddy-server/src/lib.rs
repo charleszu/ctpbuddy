@@ -37,6 +37,11 @@ pub const PULSE: Duration = Duration::from_millis(10);
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Id the next accepted connection will receive (never reused).
+pub(crate) fn next_conn_id() -> u64 {
+    NEXT_CONN_ID.load(Ordering::SeqCst)
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub td_endpoint: String,
@@ -293,7 +298,11 @@ impl World {
         let mut engine_catalog = Catalog::builtin();
         let mut playback = None;
         let mut vt_day = dtime::today_trading_day();
-        let mut vt_ms = dtime::now_ms_of_day();
+        // Before any scenario clock exists there is no virtual time: 0.0 is
+        // the deterministic pre-clock value. Journal envelopes must be a pure
+        // function of scenario state (DESIGN §11.4 hash determinism), so the
+        // startup path may NOT seed vt from the wall clock.
+        let mut vt_ms = 0.0;
         let mut scenario_name = String::new();
         let mut scenario_t0_ms = None;
         let mut assertions = Vec::new();
@@ -566,14 +575,25 @@ impl World {
     }
 
     fn run_loop(&mut self, rx: Receiver<WorldMsg>) {
+        // The pulse is a true timer, not an idle timeout: it must fire every
+        // PULSE even under sustained request load. (A client polling `status`
+        // faster than PULSE would otherwise starve the world clock — no tick
+        // release, no md_watermark, no journal progress.)
+        let mut last_pulse = Instant::now();
         loop {
-            match rx.recv_timeout(PULSE) {
+            let mut wait = PULSE.saturating_sub(last_pulse.elapsed());
+            if wait.is_zero() {
+                self.pulse();
+                last_pulse = Instant::now();
+                wait = PULSE;
+            }
+            match rx.recv_timeout(wait) {
                 Ok(msg) => match msg {
                     WorldMsg::ConnOpened { id, writer, is_admin } => self.on_conn_opened(id, writer, is_admin),
                     WorldMsg::ConnFrame { id, frame } => self.on_frame(id, frame),
                     WorldMsg::ConnClosed { id } => self.on_conn_closed(id),
                 },
-                Err(RecvTimeoutError::Timeout) => self.pulse(),
+                Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             if self.shutdown {

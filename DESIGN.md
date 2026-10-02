@@ -451,10 +451,11 @@ assertions:             # 可选：场景内断言（CI 用）
 | 报单流控（报单/撤单每秒笔数） | CTP 柜台端【程序化交易频繁报撤单管理】 | **Core**（归入 §8.3 风控规则表，M2 实现） | `OnRspOrderAction`「CTP:下单频率限制」 |
 | FTD 报文流控 `FTDMaxCommFlux` | 交易前置 | Core（TODO） | 无错误返回，超限指令被前置缓存到下一秒发出（表现为延迟） |
 | 前置连接数流控 `ConnectFreq` | 交易前置 | Core（TODO） | 超限被主动断开，触发 `OnFrontDisconnected` |
-| 同一用户最大在线会话数 | 柜台 / 交易核心 | Core（TODO） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 |
+| 同一用户最大在线会话数 | 柜台 / 交易核心 | Core（TODO，归入 M2-4 / M3 登录路径按投资者计） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 |
 | 交易所 API 流控 | 交易所端（阈值经交易所 API 查询） | Core（TODO） | `OnRtnOrder` 报「CTP：交易所每秒发送请求数超过许可数」 |
 
 - 刻意两边都实现而不是只做一边：只有 Shim 的 -2 闸门，Core 不答 90，那么「不懂重试 NEED_RETRY 的客户端」在 SimNow 上会暴露的缺陷，在 CTPBuddy 上会被掩盖——仿真环境失去暴露问题的意义。
+- **会话数的确定语义**：同一用户的在线会话数一般有上限 n，**后台可配置、默认 6**；一次会话由 `(FrontID, SessionID)` 共同确定——FrontID 标识一条前置连接，SessionID 是该连接上的登录计数（每连接从 1 起）。这也正是 journal `order_key = front/session/ref`（§11.4）与重放连接编号对齐（§11.2）的语义依据：多会话并行报单时，只有 front+session+ref 三元组能在会话内唯一定位一笔报单。
 - 穿透式监管版本起，API 连接前置时会取到前置的 `QryFreq`（经 `GetFrontInfo` 上报，Shim 已实现 FrontAddr/QryFreq/FTDPkgFreq 回填）；历史版本（穿透式监管前）每秒 1 笔的限制内置在 API 内，现已按前置配置执行。
 - `ReqQuery*` 开头的函数（走交易核心、不经查询核心）不受查询流控限制（文档原文）。
 - 客户端契约：Python SDK 的 `_query_stream` 与 demo 的 `qry_with_retry` 对 90 透明重试——等窗口过去后用同一 `nRequestID` 重发，这是生产 CTP 客户端框架的标准行为。
@@ -590,6 +591,13 @@ REST/JSON，经 ADMIN 通道转发核心：`/api/replay*`、`/api/accounts*`、`
 - **不落每一条 md tick**：tick 由场景文件 + 虚拟时钟确定性重放，journal 只批量记录释放水位（`md_watermark`）——事件量 ∝ 报单/成交/管理指令，不随 tick 数膨胀；
 - **不落 CTP struct 裸字节**：journal payload 用 JSON 关键字段（人读、diff 友好）；位级一致性由 wire 协议（raw struct 透传）保证，JSON 摘要足以定位问题；
 - **回放 = scenario × journal 的确定性合并**：客户端请求与 admin 指令都带虚拟时钟戳 `vt_ms`，重放时请求流与 tick 流按 `vt_ms` 归并（同时刻按 journal 记录序）——即 §7.6"录制的请求流唯一决定输出"的落地；
+- **M2-3 重放驱动实现**（`py/ctpbuddy/replay.py`，trace-following）：驱动起一棵全新核心，按 journal 顺序走输入流——
+  - `scenario_loaded`：**每个** journaled load 都在其记录位置重放（paused；录制无 load 的 startup-path 才在 walk 前 bootstrap）；speed 取日志值（paused 下不影响释放序列）；
+  - `session_auth`：开真实客户机连接；服务端 status 暴露 `next_conn_id`（全局计数器、不复用、关闭留空洞），驱动用 dummy 连接把下一连接 id 对准录制的 `front_id`，使 `order_key = front/session/ref` 与录制一致（**注意**：`connections + 1` 不等于下一 id，有关闭连接时偏小）；
+  - `session_login` / `session_logout` / `order_insert` / `order_cancel`：按 (broker, investor) 路由到对应客户机重放；撤单按 `order_sys_id` 匹配（对连接编号漂移免疫）；拒单用日志 `error_id` 与重放结果比对；
+  - `md_watermark`：`idx == cur+1` → plain step；否则（前跳/后跳/loop 重启）按信封 `vt_ms`（= 该水位刚释放的 tick 的 vt）先 `seek` 再 step（seek 定位首个 vt ≥ target 的 tick）；
+  - `reset_account` 等 admin 输入按 admin 命令重放；`settle_confirm` / 连接关闭不 journal、不重放。
+- **系统侧确定性前提**（M2-3 实测修复）：① 世界循环的脉冲是**真定时器**（每 PULSE 到期必触发，不被请求流量饿死——否则高频 status 轮询会拖死 tick 释放与 md_watermark 落账）；② 场景时钟启动前 vt 归零（`server_start` 等前置事件不得带墙上时钟）。
 - **崩溃恢复**（M2+）：定期快照 + journal 增量重放；快照前的输入零丢失，因为 journal 才是权威，SQLite 随时可重建。
 
 ### 11.3 表结构（v1 定稿）
@@ -749,6 +757,15 @@ CREATE TABLE audit_log (
 
 事件类型：`server_start` / `server_stop` / `scenario_loaded` / `session_auth` / `session_login` / `session_logout` / `order_insert` / `order_cancel` / `fill` / `deposit` / `withdraw` / `reset_account` / `settle` / `admin` / `md_watermark`。
 
+**确定性哈希（M2-3 定稿，`py/ctpbuddy/journal.py`）**：
+
+- **canonical 形式**：每事件剔除 `ts_wall` 后按 `sort_keys` + 紧凑分隔的 JSON 序列化，`\n` 连接全文，sha256。其余字段（`seq`/`vt_ms`/`trading_day`/`type`/`data`…）全部参与；
+- **full hash**：全事件流。**M2 出口标准「同一场景跑两次输出 hash 一致」即以它判定**——录制驱动必须只依赖场景与脚本（轮询连接、瞬态探测、墙上时钟都是非确定性来源，已逐项清除）；
+- **core hash**：语义核心集——剔除噪声类型（`server_start` / `server_stop` / `scenario_loaded` / `md_watermark`，含环境相关字段）、`seq` 重编 1..n、`front_id` 按首现序归一（绝对连接编号在录制/重放间会漂移）；`session_id` **保持原值**（每连接登录计数器，忠实重放下天然一致，重登差异应体现为 diff）；
+- **重放判定**：重放产出的 journal 与录制的 core hash 相等 = 重放复现录制的语义核心（`replay_core == recorded_core`）；
+- **载荷完备性**（`order_insert` 需足以精确重放 FAK/FOK）：`exchange`、`time_condition`、`volume_condition`、`min_volume`、`price_type`、`limit_price`、`volume`、`direction`、`offset` + `outcome{accepted, fills[{trade_id,price,volume}], error_id, msg}`；拒单（CTP 层拒绝）同样落完整请求字段；
+- **服务端可确定性事实**：`order_sys_id` / `trade_id` 为计数器（`{:010}`，可复现）；`eval_assertions` 在 `vt >= t0+after_ms` 首个 pulse 求值且 one-shot；pulse 序 = poll ticks → `vt_now_ms=新vt` → dispatch → eval_assertions → journal md_watermark；`settle_confirm` / `on_conn_closed` 不 journal；`start_scenario`（ADMIN 路径）只 journal `scenario_loaded`，不 journal `reset_account`（后者仅独立 admin 命令产出）。
+
 ### 11.5 写路径与性能
 
 - 世界循环内**内存批量**：事件先进 `Vec`，每 100ms 或 1000 条一次落盘、按交易日轮转文件；不逐条 fsync（最坏丢最后一批 = 重放时少几条请求，起始快照兜底）；
@@ -778,7 +795,7 @@ CREATE TABLE audit_log (
 |---|---|---|
 | M2-1 限价簿撮合引擎（价格/时间优先 + 单 vs 单） | ✅ 2026-10-02 | engine.rs 簿结构 + FAK/FOK + 自成交预防 + 双份 Trade + 冻结闭环；口径入 §8.10；`m2_book.py` 16 断言全绿 + M1 双套件回归 |
 | M2-2 场景 DSL 管道与播放控制 | ✅ 2026-10-02 | scenario.py（stdlib YAML 子集 + 归一化/校验 + compile 缓存）、transform.rs（freeze/gap/liquidity，4 测）、server scenario.rs（spec 解析 + one-shot 断言，5 测）、ADMIN seek/loop + start_scenario 内联 spec、CLI `replay`/`scenario compile|validate`、`scenarios/dsl_demo/`；`m2_scenario.py` e2e 全绿（transforms/accounts/断言/journal/seek/loop）+ M2-1 与 M1 三套件回归 |
-| M2-3 journal 录制/重放与确定性 hash 校验 | 待启 | 同场景两次输出 hash 一致 |
+| M2-3 journal 录制/重放与确定性 hash 校验 | ✅ 2026-10-02 | journal.py（canonical/full+core hash/verify）、replay.py（trace-following 重放驱动，§11.2）、CLI `journal hash|show|verify|replay`、SDK `order_action` 按 sys_id 撤单、服务端 order_insert 载荷增补（TC/VC/MinVolume/exchange…）；三处确定性修复：启动 vt 归零（不取墙上时钟）、脉冲改真定时器（不被请求流量饿死）、status 暴露 `next_conn_id` + 驱动重试式连接（瞬态探测连接会使 front_id 漂移）；`m2_journal.py` e2e 全绿：双跑 full hash 一致、重放 core hash 三相相等、变异负对照（D1A 限价改至 ask 之下 → 行为分歧） |
 | M2-4 报单流控规则表 + 订单状态机与回报时序 | 待启 | §8.3 规则表落地；大商所自补全部成交特例（engine.rs TODO 锚点）；OrderSubmitStatus 七态细化 |
 
 ### 12.3 后续
@@ -891,6 +908,7 @@ ctpbuddy/
 | 13 | §12.2 | M2 里程碑拆为 M2-1~M2-4 四个子项并建进度表（M2-1 ✅） | 任务分解 |
 | 14 | §7.4（新增落地口径） | M2-2：YAML=编写格式 / JSON=核心消费格式（Python 唯一解析器，Rust 核心零 YAML；启动与 ADMIN 共用 build_scenario）；transforms 纯函数语义逐条（gap 不动涨跌停价、liquidity round half away from zero）；assertions one-shot + 10 指标口径；编译缓存 mtime 规则 | M2-2 代码 + m2_scenario.py 实测 |
 | 15 | §7.5（新增落地口径）+ §12.2 | M2-2：seek（跳过的 tick 永不投放、之后续播）与 loop（流结束重置 idx=0 + 重锚墙钟，引擎/账本不重置）；ADMIN+CLI+SDK 三面控制；M2-2 ✅ | M2-2 代码 + m2_scenario.py 实测 |
+| 16 | §8.8 / §11.2 / §11.4 / §12.2 | M2-3：会话数上限语义（后台可配、默认 6，FrontID+SessionID 定会话，佐证 order_key）；重放驱动机制（trace-following、next_conn_id 对齐、md_watermark step/seek 规则、admin 输入重放）；确定性哈希规范（canonical/full/core、front_id 首现序归一、session_id 保真、order_insert 载荷增补、服务端可确定性事实）；M2-3 ✅ | notes/02 A2/B5+；M2-3 代码 + m2_journal.py 实测 |
 
 ---
 

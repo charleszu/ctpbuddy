@@ -122,6 +122,14 @@ impl World {
             ("open_orders".into(), json::n(self.engine.open_order_count() as f64)),
             ("connections".into(), json::n(self.conns.len() as f64)),
             (
+                // Id the NEXT accepted connection will get (a global counter,
+                // never reused — closed connections leave gaps). The replay
+                // driver aligns its dummy connections on this to reproduce
+                // recorded front_ids (DESIGN §11.2).
+                "next_conn_id".into(),
+                json::n(crate::next_conn_id() as f64),
+            ),
+            (
                 "journal_seq".into(),
                 json::n(self.journal.as_ref().map(|j| j.seq()).unwrap_or(0) as f64),
             ),

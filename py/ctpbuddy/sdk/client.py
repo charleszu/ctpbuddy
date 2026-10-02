@@ -292,12 +292,14 @@ class Client:
         front_id: Optional[int] = None,
         session_id: Optional[int] = None,
         action_flag: str = "0",
+        order_sys_id: str = "",
     ) -> Frame:
         payload = generated.pack(
             "CThostFtdcInputOrderActionField",
             BrokerID=self.broker_id,
             InvestorID=self.investor_id,
             OrderRef=order_ref,
+            OrderSysID=order_sys_id,
             FrontID=front_id if front_id is not None else getattr(self, "front_id", 0),
             SessionID=session_id if session_id is not None else getattr(self, "session_id", 0),
             InstrumentID=instrument,
