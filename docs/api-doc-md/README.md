@@ -4,6 +4,10 @@
 
 源：`ctpsdk/6.7.13_20260225/docs/6.7.13_API接口说明.chm`。
 
+配套：SDK 错误码全集（error.xml 299 条可读表）见 [`docs/错误码全集.md`](../错误码全集.md)。
+
+页面为扁平化转换，原 CHM 页间相对链接不可达——导航请用本索引。
+
 - [6.7.13_API接口说明](pages/001-_API-.html.md)
 - [主页](pages/002-ZY.html.md)
 - [阅读指引](pages/003-YDZY.html.md)

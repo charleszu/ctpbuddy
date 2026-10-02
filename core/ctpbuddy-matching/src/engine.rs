@@ -41,7 +41,7 @@ use ctpbuddy_wire::generated::{
 
 use crate::{to_fixed, Catalog, Direction, Fill, OffsetFlag, OrderIntent};
 
-// ---- error ids: the official CTP table (SDK error.xml, docs/notes/07) ------
+// ---- error ids: the official CTP table (SDK error.xml, docs/错误码全集.md) --
 // Every code/prompt below is verbatim from `ctpsdk/6.7.13_20260225/td/win64/
 // error.xml` — a downstream client keys off these numbers, so inventing or
 // misremembering one defeats the simulation. `git log` before this pass had

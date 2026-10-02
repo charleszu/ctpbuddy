@@ -3,6 +3,7 @@
 > 本文件是 CTPBuddy 项目的 CTP 语义权威存档，供后续 Agent 与开发者查阅。
 > 内容来自 `C:\workspace\src\CTP\docs`（30+ 份官方 SDK 文档/教材/坑指）、SDK 自带 CHM《6.7.13_API接口说明》与参考实现 `LocalCTP` 的系统化通读，逐条注明出处；**冲突处以官方 CHM/API 说明为准**。
 > 深度细节（含原文引用、算例、代码行号）在 `docs/notes/` 下五份分册；本文件是索引与结论层。
+> 官方资料可读版：SDK《6.7.13_API接口说明》CHM 已转为 Markdown（404 页）在 [`docs/api-doc-md/`](api-doc-md/)，SDK 错误码全集（error.xml 299 条）可读表在 [`docs/错误码全集.md`](错误码全集.md)。
 
 ---
 
@@ -10,7 +11,8 @@
 
 | 资料 | 主题 | 状态 |
 |---|---|---|
-| SDK CHM《6.7.13_API接口说明》（ctpsdk/6.7.13_20260225/docs） | 接口逐函数说明、报单回调规则、各交易所特殊指令、条件单规则、流控 | 已通读（流控页为权威来源） |
+| SDK CHM《6.7.13_API接口说明》（ctpsdk/6.7.13_20260225/docs） | 接口逐函数说明、报单回调规则、各交易所特殊指令、条件单规则、流控 | 已通读（流控页为权威来源）；全量 Markdown 版（404 页）见 [`docs/api-doc-md/`](api-doc-md/) |
+| SDK error.xml（td/md 各一份 + TGate 变体 error_tgate.xml） | 客户端必须处理的错误码全集（299 条） | 已解码为可读表 [`docs/错误码全集.md`](错误码全集.md)，核心常量按其对账（§10.2） |
 | 综合交易平台API技术开发指南.pdf | API 开发规范、时序、FAQ | 已通读 |
 | 综合交易平台交易API特别说明.pdf | 初始化顺序、两阶段响应、多会话 | 已通读 |
 | 综合交易平台API开发常见问题列表.pdf | 2009 上期技术 FAQ #1~#45 | 已通读 |
@@ -321,7 +323,7 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 
 ### 10.2 M2 落地进度（2026-10-03 更新，M2-4 已收官）
 
-1. **报单流控** ✅（M2-4 落地）：Core `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq` 默认 20，墙钟 1s 窗口），超限 116「CTP:下单频率限制」（§1 #1、§4.5）；官方错误码全集（error.xml 299 条）对账表见 `docs/notes/07-错误码全集.md`，核心常量已按官方逐条修正（详见 DESIGN §8.11）。
+1. **报单流控** ✅（M2-4 落地）：Core `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq` 默认 20，墙钟 1s 窗口），超限 116「CTP:下单频率限制」（§1 #1、§4.5）；官方错误码全集（error.xml 299 条）对账表见 [`docs/错误码全集.md`](错误码全集.md)，核心常量已按官方逐条修正（详见 DESIGN §8.11）。
 2. **订单状态机** ✅（M2-4 落地）：OrderStatus 九态复刻 + OrderSubmitStatus 七态细化——初始 'a' 推送 OSS '0'、其后 '3'；指令级 '4'/'5' 由 journal `submit_status` 承载（accepted insert '0' / rejected '4' / accepted cancel '3' / rejected cancel '5'）。IsAutoSuspend 恒 0（§5.3-5.4）。
 3. **回报时序**（部分）：前态+新态两笔、Trade 后置、大商所自补全部成交特例（含「进簿必返 '3'」与 ExchangeID 回填保按所规则）✅ M2-4 落地；**FAK 按交易所分流未落地**（官方场景 8/9/10：上期所/能源/中金 FAK 部成部撤=['a','5','5']+Trade 无 '1' 行；大商所/郑商所/广期所 FAK=['a','3','3','1']——现引擎全所统一「每笔成交前态+新态」与官方不符，m2_book C3 断言需按所重核，列为独立 TODO）。双推送面（insert 的「错单响应」半面、cancel 的 `OnErrRtnOrderAction`）待 error.xml 全集对账任务补全（§5.1-5.2）。
 4. **撤单语义** ✅（M2-4 落地）：ActionFlag 仅 Delete；OrderSysID 空值不撤；撤单失败 25/26 区分（终态「已全成交或已撤销」vs「找不到相应报单」）已按官方场景 6/7 实现（`terminal_refs` 终态记忆）；双回调成对部分（`OnErrRtnOrderAction` 半面待补，同 3）（§4.4、§5.1）。
@@ -356,4 +358,4 @@ FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、同用�
 
 ---
 
-*分册索引：`docs/notes/01~05`。原始 PDF/CHM/LocalCTP 源码位置见 §0。本文件随项目演进更新；与官方文档冲突时以 SDK CHM 为准。*
+*分册索引：`docs/notes/01~05`；官方资料可读版：`docs/api-doc-md/`（API 接口说明 404 页）、`docs/错误码全集.md`（error.xml 299 条）。原始 PDF/CHM/LocalCTP 源码位置见 §0。本文件随项目演进更新；与官方文档冲突时以 SDK CHM 为准。*

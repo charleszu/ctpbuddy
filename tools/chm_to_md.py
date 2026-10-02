@@ -208,13 +208,15 @@ def slug(name: str) -> str:
 
 def main() -> int:
     src = sys.argv[1] if len(sys.argv) > 1 else "docs/notes/assets/compiled_html"
-    out = sys.argv[2] if len(sys.argv) > 2 else "docs/notes/06-api-doc-md"
+    out = sys.argv[2] if len(sys.argv) > 2 else "docs/api-doc-md"
     os.makedirs(os.path.join(out, "pages"), exist_ok=True)
 
     toc = parse_hhc(os.path.join(src, "API接口说明.hhc"))
     index = ["# 《CTP 6.7.13 API接口说明》Markdown 版\n",
              "由 `tools/chm_to_md.py` 从官方 CHM 反编译页面转换（gb18030 → UTF-8）。\n",
-             "源：`ctpsdk/6.7.13_20260225/docs/6.7.13_API接口说明.chm`。\n"]
+             "源：`ctpsdk/6.7.13_20260225/docs/6.7.13_API接口说明.chm`。\n",
+             "配套：SDK 错误码全集（error.xml 299 条可读表）见 [`docs/错误码全集.md`](../错误码全集.md)。\n",
+             "页面为扁平化转换，原 CHM 页间相对链接不可达——导航请用本索引。\n"]
     n = 0
     for title, local in toc:
         page = os.path.join(src, local.replace("\\", "/"))
