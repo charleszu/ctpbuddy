@@ -388,14 +388,35 @@ class _Walker:
     def on_order_cancel(self, ev: Dict[str, Any]) -> None:
         cli = self._route(ev)
         d = ev.get("data") or {}
-        cli.order_action(
-            instrument=d.get("instrument", ""),
-            order_ref=d.get("order_ref", "") or "",
-            order_sys_id=d.get("order_sys_id", "") or "",
-        )
-        _drain(cli)
+        outcome = d.get("outcome") or {}
+        expected_accepted = bool(outcome.get("accepted", True))
+        expected_err = _num(outcome.get("error_id"))
+        ref = d.get("order_ref", "") or "?"
+        try:
+            cli.order_action(
+                instrument=d.get("instrument", ""),
+                order_ref=d.get("order_ref", "") or "",
+                order_sys_id=d.get("order_sys_id", "") or "",
+            )
+            _drain(cli)
+        except CTPError as e:
+            # a rejected instruction (CTP 报盘拒绝 or the order-frequency
+            # gate) is re-checked by error_id, exactly like a rejected insert
+            if expected_accepted:
+                self.problems.append(
+                    "cancel %s was accepted in the recording but rejected on replay: %s"
+                    % (ref, e))
+            elif expected_err is not None and float(e.error_id) != expected_err:
+                self.problems.append(
+                    "cancel %s rejected with error %s on replay, %s in the recording"
+                    % (ref, e.error_id, int(expected_err)))
+        else:
+            if not expected_accepted:
+                self.problems.append(
+                    "cancel %s was REJECTED in the recording (error %s) but accepted on replay"
+                    % (ref, int(expected_err) if expected_err is not None else "?"))
         self.counts["cancel"] += 1
-        self._say("cancel %s" % (d.get("order_ref") or "?"))
+        self._say("cancel %s (recorded accepted=%s)" % (ref, expected_accepted))
 
     def on_admin_input(self, ev: Dict[str, Any]) -> None:
         t = ev["type"]

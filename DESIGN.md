@@ -508,14 +508,25 @@ assertions:             # 可选：场景内断言（CI 用）
 
 - **簿结构**：每合约 `Book{bids, asks}`——bids 价格降序、asks 价格升序，同价按 `arrival_seq`（到达序，accept 时分配且永不变化）升序；`books: BTreeMap<instrument, Book>` 保证 QryOrder 输出序确定。撮合中 remove+reinsert 依赖稳定 arrival_seq 保住同价单队列位置；
 - **撮合时刻仅两处**：「报单到达」与「tick 到达」；resting 单之间不直接撮合（tick 即外部对手方）——这是引擎确定性的根；
-- **成交价**：簿内成交价 = maker 限价；tick 深度成交价 = 档位价。报单到达时同时考察「簿内最优对手」与「当前 tick 五档」，取更优价，**平手簿内优先**（resting 单先于快照到达）；
+- **成交价**：簿内成交价 = maker 限价；tick 深度成交价 = 档位价。报单到达时同时考察「簿内最优对手」与「当前 tick 五档」，取更优价，**平手 tick 深度优先**（快照量先于刚挂入簿的订单进入队列，时间优先）；消费跟踪见下条。
 - **五档消耗跟踪**：tick 深度是不可变快照，单次撮合过程用 `used: [i32; DEPTH]` 记录各档消耗，每个新 tick 重置；无深度数据时降级为模式 1（最新价、不限量，仅非限价单）；
 - **FAK/FOK 精确语义**（官方编码 `ThostFtdcUserApiDataType.h`：TC_IOC='1'、TC_GFD='3'、VC_AV='1'、VC_MV='2'、VC_CV='3'）：FOK=IOC+CV，lookahead 可成交量 < 报单量则整笔撤；FAK=IOC+AV 部分成交剩余撤，或 IOC+MV 可成交量 < MinVolume 整笔撤；GFD 余量挂簿；AnyPrice 市价单按定义走 IOC（服务端归一化，引擎内双保险）；
 - **自成交预防**：同 (broker, investor) 的 resting 单在 `best_counterpart` / `available_depth` 一律跳过（可开关）；
 - **成交双份语义**：一笔簿内成交产生 maker + taker 两份 Trade 回报，**共用同一 TradeID**（各自 order_key / 方向 / 开平不同）——与真实 CTP「一笔成交双方同 TradeID」一致；tick 深度成交只有 taker 一份、自带 TradeID；
 - **冻结释放闭环**：`freeze` 记**原始估算额**；每次成交按「原始估算额 × 本次量/原申报量」释放并累计 `released_*`；终态 '5'（客户撤单或 IOC/FOK/FAK 自动撤）由 `dispatch_event` 统一 `unfreeze_order` 释放未释放余量（幂等）——全成订单没有 '5'，pro-rata 也必须精确归零（M2-1 修复了按剩余额释放导致多段成交残留 2/9 冻结的缺陷）；
 - **成交开平归一化**：`TradeField.OffsetFlag` 仅 SHFE/INE 保留平今/平昨，其余交易所平仓一律回 Close('1')；`Order.CombOffsetFlag` 保留请求值；`Fill.offset` 保留真值供 ledger 先开先平；
-- **待办锚点**：大商所「全部成交只回成交、CTP 自补报单回报」特例（engine.rs `emit_fill` 处 `TODO(M2-4)`）、报单流控规则表（§8.8）、OrderSubmitStatus 七态细化归 M2-4。
+- **待办锚点**：~~大商所「全部成交只回成交、CTP 自补报单回报」特例（M2-4 已落地，见 §8.11）~~；~~报单流控规则表（M2-4 已落地，见 §8.11）~~；~~OrderSubmitStatus 七态细化（M2-4 已落地，见 §8.11）~~。FAK 回报按交易所分流（官方场景 8/9/10）留待单独任务。
+
+### 8.11 报单流控与订单状态机（M2-4 落地口径，2026-10-03）
+
+实测口径（`tests/e2e/m2_flow.py`，双服务器：Phase 1 `--order-freq 2` 频控 + Phase 2 高预算状态机，18 项断言 + 双 journal 核对）：
+
+- **报单流控闸门**（`handlers.rs::order_gate`，§8.3/§8.8 表格「报单流控」行落地）：每 `(broker, investor)` 每秒预算（`--order-freq`，默认 20），**报单与撤单共享同一预算**，墙钟 1s 窗口（与 `qry_gate` 同构——真实 CTP 按真实时间限流）；闸门位于本地字段校验之后、任何风控/引擎之前——超限报单永不进引擎与账本。超限拒绝码 **`116 ORDER_FREQ_LIMIT`「CTP:下单频率限制」**（历史误用 91，91 实为 `EXCHANGE_RTNERROR`，保留给交易所侧拒绝转发）；撤单侧同码（文档口径 `OnRspOrderAction`）。窗口过期即恢复（墙钟，重放确定性要求驱动复刻录制 pacing）。
+- **OrderSubmitStatus 七态细化**：初始 'a' 推送 OSS '0'（报单已提交），其后所有行 '3'（已经接受）；指令级 '1'/'4'/'5'/'2'/'6' 由 journal 的 `submit_status` 承载——**接受的报单记 '0'、拒付的报单 '4'、接受的撤单 '3'、拒付的撤单 '5'**（M2-4 起 accepted insert 也落 '0'，指令级生命周期在 journal 中完整闭环）。
+- **大商所特例三处**（notes/01 B3，全部对齐官方）：① 每个进簿报单先返未成交 '3'（即使立即成交，IOC 类从不入簿、无此 '3'）；② 全部成交时 CTP 自补全部成交回报且**不重复前态**（部分成交仍守「前态+新态」一般规则）；③ ExchangeID 留空的报单从合约目录回填后才能命中上述按所规则（回填在前、特例判定在后，客户端留空 ExchangeID 不丧失大商所语义）。
+- **官方错误码全集对账**（error.xml 299 条，`docs/notes/07-错误码全集.md`）：核心 12 常量按官方逐条重写（11/12 原值错误，freq 91→116、资金 50→31、未知合约 22→16、涨跌停 33→163、非最小变动价位 34→165、数量不规范 48→164、重复报单 22 保留、平今不足 50、平仓超量 30、找不到报单 25、状态不当 26、字段有误 40→15）；API 负数返回码（-1/-2/-3）error.xml 不含、照 API 文档录。**新增 148 `EXCHANGE_ID_IS_INVALID`**（合约与 ExchangeID 不符，原误用 22）。
+- **同价决胜**（doc/code 一致性校正）：报单到达时簿内最优与 tick 五档比价，**平手 tick 深度优先**——快照量先于刚挂入簿的订单进入队列（时间优先）。
+- **推送面现状**：insert 拒绝走 `ERR_RTN_ORDER_INSERT`（错单回报），cancel 拒绝走 `RSP_ERROR`→`OnRspOrderAction`；「错单响应」半面（insert RSP_ERROR-first / cancel 补 `ERR_RTN_ORDER_ACTION`）留待 error.xml 全集对账任务，e2e 断言只锁 ErrorID+ErrorMsg、不锁推送面。
 
 ---
 
@@ -751,7 +762,7 @@ CREATE TABLE audit_log (
 
 ```json
 {"seq":1,"ts_wall":"2026-10-02T14:30:00.123+08:00","trading_day":"20261002","vt_ms":34200000.0,"type":"scenario_loaded","data":{"path":"scenarios/sample","ticks":340}}
-{"seq":2,"ts_wall":"...","vt_ms":34200000.0,"type":"order_insert","broker":"8888","investor":"test01","data":{"order_ref":"1","instrument":"rb2610","direction":0,"offset":0,"price_type":"2","limit_price":3100.0,"volume":2,"outcome":{"accepted":true,"order_sys_id":"0000000001","fills":[{"price":3098.0,"volume":2,"trade_id":"0000000001"}]}}}
+{"seq":2,"ts_wall":"...","vt_ms":34200000.0,"type":"order_insert","broker":"8888","investor":"test01","data":{"order_ref":"1","instrument":"rb2610","direction":0,"offset":0,"price_type":"2","limit_price":3100.0,"volume":2,"time_condition":"3","volume_condition":"1","min_volume":1,"submit_status":"0","outcome":{"accepted":true,"order_sys_id":"0000000001","fills":[{"price":3098.0,"volume":2,"trade_id":"0000000001"}]}}}
 {"seq":3,"ts_wall":"...","vt_ms":34210000.0,"type":"md_watermark","data":{"idx":42}}
 ```
 
@@ -763,7 +774,7 @@ CREATE TABLE audit_log (
 - **full hash**：全事件流。**M2 出口标准「同一场景跑两次输出 hash 一致」即以它判定**——录制驱动必须只依赖场景与脚本（轮询连接、瞬态探测、墙上时钟都是非确定性来源，已逐项清除）；
 - **core hash**：语义核心集——剔除噪声类型（`server_start` / `server_stop` / `scenario_loaded` / `md_watermark`，含环境相关字段）、`seq` 重编 1..n、`front_id` 按首现序归一（绝对连接编号在录制/重放间会漂移）；`session_id` **保持原值**（每连接登录计数器，忠实重放下天然一致，重登差异应体现为 diff）；
 - **重放判定**：重放产出的 journal 与录制的 core hash 相等 = 重放复现录制的语义核心（`replay_core == recorded_core`）；
-- **载荷完备性**（`order_insert` 需足以精确重放 FAK/FOK）：`exchange`、`time_condition`、`volume_condition`、`min_volume`、`price_type`、`limit_price`、`volume`、`direction`、`offset` + `outcome{accepted, fills[{trade_id,price,volume}], error_id, msg}`；拒单（CTP 层拒绝）同样落完整请求字段；
+- **载荷完备性**（`order_insert` 需足以精确重放 FAK/FOK）：`exchange`、`time_condition`、`volume_condition`、`min_volume`、`price_type`、`limit_price`、`volume`、`direction`、`offset` + `outcome{accepted, fills[{trade_id,price,volume}], error_id, msg}`；拒单（CTP 层拒绝）同样落完整请求字段；**指令级 `submit_status`**（§8.11）：接受 '0' / 拒付 '4'，撤单记录接受 '3' / 拒付 '5'——rejected insert 的 `outcome.error_id` 即官方错误码（error.xml 全集）。
 - **服务端可确定性事实**：`order_sys_id` / `trade_id` 为计数器（`{:010}`，可复现）；`eval_assertions` 在 `vt >= t0+after_ms` 首个 pulse 求值且 one-shot；pulse 序 = poll ticks → `vt_now_ms=新vt` → dispatch → eval_assertions → journal md_watermark；`settle_confirm` / `on_conn_closed` 不 journal；`start_scenario`（ADMIN 路径）只 journal `scenario_loaded`，不 journal `reset_account`（后者仅独立 admin 命令产出）。
 
 ### 11.5 写路径与性能
@@ -785,7 +796,7 @@ CREATE TABLE audit_log (
 | 里程碑 | 内容 | 出口标准 |
 |---|---|---|
 | M1 骨架 ✅ | 仓库 + 头文件 codegen + 核心事件循环 + wire/admin 帧 + 即时成交撮合 + 账户/持仓/资金 + journal 事件日志 + Python SDK/CLI + e2e 冒烟（m1_smoke.py 全绿）+ C++ Shim + 真实下游 demo 全链路（m1_shim_e2e.py 全绿：普通 CTP 6.7.13 应用零改造接入，两类查询流控真实触发）+ 查询流控双实现（DESIGN §8.8） | 已完成 |
-| M2 回放 | CSV 源 + 场景 DSL + 时钟/播放控制 + 限价簿撮合 + journal 录制/重放恢复 + 报单流控规则表 + 订单状态机与回报时序（§8.9）+ FAK/FOK 精确语义 + 结算确认前置校验 | 同一场景跑两次输出 hash 一致 |
+| M2 回放 ✅ | CSV 源 + 场景 DSL + 时钟/播放控制 + 限价簿撮合 + journal 录制/重放恢复 + 报单流控规则表 + 订单状态机与回报时序（§8.9）+ FAK/FOK 精确语义 + 结算确认前置校验 | 同一场景跑两次输出 hash 一致 |
 | M3 账户 | 保证金/手续费/平今平昨/结算 + SQLite 投影（§11.3）+ Web 后台 + install-shim | 结算单字段与 CTP 语义逐项对账 |
 | M4 交付 | 断言 DSL + e2e CI + 三渠道发布 + 文档站 | 全新 venv pip 安装 → demo 策略 CI 全绿 |
 
@@ -796,7 +807,7 @@ CREATE TABLE audit_log (
 | M2-1 限价簿撮合引擎（价格/时间优先 + 单 vs 单） | ✅ 2026-10-02 | engine.rs 簿结构 + FAK/FOK + 自成交预防 + 双份 Trade + 冻结闭环；口径入 §8.10；`m2_book.py` 16 断言全绿 + M1 双套件回归 |
 | M2-2 场景 DSL 管道与播放控制 | ✅ 2026-10-02 | scenario.py（stdlib YAML 子集 + 归一化/校验 + compile 缓存）、transform.rs（freeze/gap/liquidity，4 测）、server scenario.rs（spec 解析 + one-shot 断言，5 测）、ADMIN seek/loop + start_scenario 内联 spec、CLI `replay`/`scenario compile|validate`、`scenarios/dsl_demo/`；`m2_scenario.py` e2e 全绿（transforms/accounts/断言/journal/seek/loop）+ M2-1 与 M1 三套件回归 |
 | M2-3 journal 录制/重放与确定性 hash 校验 | ✅ 2026-10-02 | journal.py（canonical/full+core hash/verify）、replay.py（trace-following 重放驱动，§11.2）、CLI `journal hash|show|verify|replay`、SDK `order_action` 按 sys_id 撤单、服务端 order_insert 载荷增补（TC/VC/MinVolume/exchange…）；三处确定性修复：启动 vt 归零（不取墙上时钟）、脉冲改真定时器（不被请求流量饿死）、status 暴露 `next_conn_id` + 驱动重试式连接（瞬态探测连接会使 front_id 漂移）；`m2_journal.py` e2e 全绿：双跑 full hash 一致、重放 core hash 三相相等、变异负对照（D1A 限价改至 ask 之下 → 行为分歧） |
-| M2-4 报单流控规则表 + 订单状态机与回报时序 | 待启 | §8.3 规则表落地；大商所自补全部成交特例（engine.rs TODO 锚点）；OrderSubmitStatus 七态细化 |
+| M2-4 报单流控规则表 + 订单状态机与回报时序 | ✅ 2026-10-03 | `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq`，墙钟 1s 窗口，超限 116「CTP:下单频率限制」）；OSS 七态细化（journal submit_status '0'/'3'/'4'/'5' 指令级闭环）；大商所自补全部成交特例 + 进簿必返 '3' + ExchangeID 回填保按所规则；官方错误码全集对账（error.xml 299 条，核心 12 常量 11 个修正 + 新增 148）；`m2_flow.py` 双服务器 18 断言全绿 + 全量回归（cargo 9 测 + m1/m2 四套件）；口径入 §8.11 |
 
 ### 12.3 后续
 

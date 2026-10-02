@@ -19,6 +19,8 @@ options:
   -f, --initial-funds <n>
                           new-account initial funds    (default 2000000)
       --qry-freq <n>     ReqQry* budget per second     (default 2)
+      --order-freq <n>   order insert+cancel budget per
+                          second, per investor          (default 20)
       --scenario <dir>   scenario dir with instruments.csv + ticks.csv
       --speed <n>        playback speed multiplier    (0 = as fast as possible)
       --td <addr>        CTP td front endpoint        (default 127.0.0.1:5560)
@@ -57,6 +59,13 @@ fn apply_env(cfg: &mut Config) {
             }
         }
     }
+    if let Ok(v) = std::env::var("CTPBUDDY_ORDER_FREQ") {
+        if let Ok(n) = v.parse::<u32>() {
+            if n >= 1 {
+                cfg.order_freq = n;
+            }
+        }
+    }
     if let Ok(v) = std::env::var("CTPBUDDY_SCENARIO") {
         if !v.is_empty() {
             cfg.scenario_dir = Some(v);
@@ -90,6 +99,15 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                     .map_err(|_| format!("invalid --qry-freq: {v}"))?;
                 if cfg.qry_freq < 1 {
                     return Err("--qry-freq must be >= 1".to_string());
+                }
+            }
+            "--order-freq" => {
+                let v = take("--order-freq")?;
+                cfg.order_freq = v
+                    .parse::<u32>()
+                    .map_err(|_| format!("invalid --order-freq: {v}"))?;
+                if cfg.order_freq < 1 {
+                    return Err("--order-freq must be >= 1".to_string());
                 }
             }
             "--speed" => {

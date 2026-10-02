@@ -7,7 +7,8 @@ investor sessions and drives the whole M2-1 matching surface:
 - order-vs-order matching at arrival: price priority, then time priority
   (fill price = the resting maker's limit price);
 - the incoming order takes the better of the book and the current tick's
-  five-level depth (ties go to the resting order);
+  five-level depth (on a price tie the tick depth wins: its volume queued
+  before the just-parked order);
 - FAK / FOK / FAK-with-MinVolume exact semantics under the official CTP
   encodings (TC_IOC='1'; VC_AV='1', VC_MV='2', VC_CV='3');
 - self-trade prevention: resting orders of the same (broker, investor) never
@@ -371,13 +372,16 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
         D.order_insert(M, direction="0", offset="0", volume=1, limit_price=3002.0,
                        exchange="DCE", order_ref="D1")
         feed.pump("smoke004")
-        assert feed.st("smoke004", "D1") == ["a", "a", "0"], feed.log["smoke004"]
+        # 大商所特例 (notes/01 B3): DCE 对每一个进簿报单先返未成交确认 '3'——
+        # 即使立即成交（IOC 类从不入簿、无此 '3'）；全部成交时 CTP 自补
+        # 全部成交回报且不重复前态，故即时全成为 'a' → '3' → '0'
+        assert feed.st("smoke004", "D1") == ["a", "3", "0"], feed.log["smoke004"]
         assert feed.tr("smoke004", "D1") == [(1, 3002.0)], feed.log["smoke004"]
 
         D.order_insert(M, direction="1", offset="3", volume=1, limit_price=3000.0,
                        exchange="DCE", order_ref="D2")
         feed.pump("smoke004")
-        assert feed.st("smoke004", "D2") == ["a", "a", "0"], feed.log["smoke004"]
+        assert feed.st("smoke004", "D2") == ["a", "3", "0"], feed.log["smoke004"]
         trades = feed.trades("smoke004", "D2")
         assert len(trades) == 1, trades
         assert trades[0]["OffsetFlag"] == ord("1"), trades   # DCE: 平今 -> 平仓

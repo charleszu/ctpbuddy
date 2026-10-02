@@ -143,7 +143,16 @@ class Client:
             self._pending.pop(req_id, None)
         if f is CLOSED or f.msg_type == RSP_ERROR or f.msg_type == ERR_RTN_ORDER_INSERT:
             info = generated.unpack("CThostFtdcRspInfoField", f.payload) if f is not CLOSED else {}
-            raise CTPError(info.get("ErrorID", -1), info.get("ErrorMsg", "connection closed"))
+            # keep the真实推送面: an insert rejection actually arrived via
+            # OnErrRtnOrderInsert (ERR_RTN_ORDER_INSERT), an action rejection
+            # via the request's error response (RSP_ERROR / OnRspOrderAction).
+            if f is CLOSED:
+                kind = "CLOSED"
+            elif f.msg_type == ERR_RTN_ORDER_INSERT:
+                kind = "ERR_RTN_ORDER_INSERT"
+            else:
+                kind = "RSP_ERROR"
+            raise CTPError(info.get("ErrorID", -1), info.get("ErrorMsg", "connection closed"), kind=kind)
         if expect is not None and f.msg_type != expect:
             raise CTPError(-2, "expected msg 0x%04x, got 0x%04x" % (expect, f.msg_type))
         return f

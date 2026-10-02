@@ -36,7 +36,7 @@
 
 | # | 流控 | 配置位置 | 超限症状 | CTPBuddy 落点 |
 |---|---|---|---|---|
-| 1 | 报单/撤单每秒笔数 | **CTP 柜台端**【程序化交易频繁报撤单管理】 | `OnRspOrderAction`「CTP:下单频率限制」 | **Core**（M2 风控规则表 TODO） |
+| 1 | 报单/撤单每秒笔数 | **CTP 柜台端**【程序化交易频繁报撤单管理】 | `OnRspOrderAction`「CTP:下单频率限制」 | **Core** ✅ M2-4 落地（`order_gate`，`--order-freq`，报撤共享每 (broker,investor) 每秒预算，116 号） |
 | 2 | 查询每秒笔数 QryFreq | **交易前置** front_se（穿透式监管版本起，API 连接前置时读取该配置；历史上内置在 API 里 1 笔/秒） | `OnRspError`[90]「CTP：查询未就绪，请稍后重试」，查询不执行 | **Core** `--qry-freq`（默认 2）✅已实现 |
 | 3 | 查询在途笔数 = 1 笔 | **客户端 API 内置**（永远存在，与前置配置无关） | 查询函数**返回值 -2**「未处理请求超过许可数」，请求不上线 | **Shim** 在途闸门 ✅已实现 |
 | 4 | FTD 报文流控 FTDMaxCommFlux | 交易前置 | 无错误，超限报文在前置缓存延迟到下一秒 | Core TODO |
@@ -157,7 +157,7 @@ API 与 SPI 在不同线程；**API（Req*）可被多线程同时调用**（线
 
 ### 4.5 报单流控
 
-柜台端【程序化交易频繁报撤单管理】配置每秒最大报撤笔数，超限 `OnRspOrderAction`「CTP:下单频率限制」。注意与 2009 FAQ「默认 6 笔/秒、超限排队不报错」的历史口径区分——现代柜台是显式拒绝。CTPBuddy 落点：Core M2 风控规则表。
+柜台端【程序化交易频繁报撤单管理】配置每秒最大报撤笔数，超限 `OnRspOrderAction`「CTP:下单频率限制」（官方错误码 **116 ORDER_FREQ_LIMIT**，勿与 91 EXCHANGE_RTNERROR「CTP：交易所返回的错误」混用）。注意与 2009 FAQ「默认 6 笔/秒、超限排队不报错」的历史口径区分——现代柜台是显式拒绝。CTPBuddy 落点：Core M2 风控规则表 ✅（M2-4 落地，报撤共享预算，口径见 DESIGN §8.11）。
 
 ---
 
@@ -319,17 +319,17 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 - Balance=动态权益口径 + 查询时 mark-on-read ✅ §6.1
 - e2e 真实触发两类查询流控（NEED_RETRY 重试 + 在途 -2 拒绝）✅
 
-### 10.2 M2 必做（按优先级）
+### 10.2 M2 落地进度（2026-10-03 更新，M2-4 已收官）
 
-1. **报单流控**：Core 风控规则表实现每秒报撤上限，超限 `OnRspOrderAction`「CTP:下单频率限制」（§1 #1、§4.5）。
-2. **订单状态机**：OrderStatus 九态 + OrderSubmitStatus 七态、终态集合、IsAutoSuspend 恒 0（§5.3-5.4）。
-3. **回报时序**：OnRspOrderInsert/OnErrRtnOrderInsert/OnRtnOrder/OnRtnTrade/OnRspOrderAction/OnErrRtnOrderAction 分流 + 每操作两笔回报去重 + Trade 在新态 Order 之后 + **大商所自补全部成交特例**（§5.1-5.2）。
-4. **撤单语义**：ActionFlag 仅 Delete；OrderSysID 空值不撤；撤单失败双回调成对（§4.4、§5.1）。
-5. **FAK/FOK/条件单**：TC+VC 组合语义、FOK=整单成交否则全撤、FAK 最小成交量整笔撤销规则、条件单触发转新报单（§4.1）。
-6. **交易所差异归一化**：平今转换（非上期所一律 Close）、市价单按所语义、郑商所 FAK-only、TradingDay 各所混乱（§4.1-4.3、§7）。
-7. **成交开平标志 ≠ 报单开平标志**（非上期所平仓回 '1'）的回报实现（§4.3）。
-8. **结算流程**：ReqSettlementInfoConfirm 前置校验、结算字段重置、长假识别（§8）。
-9. **LEDGER 扩展**：MarginPriceType 配置、平今/平昨费率、FrozenCommission、期权权利金（若有期权需求）（§6）。
+1. **报单流控** ✅（M2-4 落地）：Core `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq` 默认 20，墙钟 1s 窗口），超限 116「CTP:下单频率限制」（§1 #1、§4.5）；官方错误码全集（error.xml 299 条）对账表见 `docs/notes/07-错误码全集.md`，核心常量已按官方逐条修正（详见 DESIGN §8.11）。
+2. **订单状态机** ✅（M2-4 落地）：OrderStatus 九态复刻 + OrderSubmitStatus 七态细化——初始 'a' 推送 OSS '0'、其后 '3'；指令级 '4'/'5' 由 journal `submit_status` 承载（accepted insert '0' / rejected '4' / accepted cancel '3' / rejected cancel '5'）。IsAutoSuspend 恒 0（§5.3-5.4）。
+3. **回报时序**（部分）：前态+新态两笔、Trade 后置、大商所自补全部成交特例（含「进簿必返 '3'」与 ExchangeID 回填保按所规则）✅ M2-4 落地；**FAK 按交易所分流未落地**（官方场景 8/9/10：上期所/能源/中金 FAK 部成部撤=['a','5','5']+Trade 无 '1' 行；大商所/郑商所/广期所 FAK=['a','3','3','1']——现引擎全所统一「每笔成交前态+新态」与官方不符，m2_book C3 断言需按所重核，列为独立 TODO）。双推送面（insert 的「错单响应」半面、cancel 的 `OnErrRtnOrderAction`）待 error.xml 全集对账任务补全（§5.1-5.2）。
+4. **撤单语义** ✅（M2-4 落地）：ActionFlag 仅 Delete；OrderSysID 空值不撤；撤单失败 25/26 区分（终态「已全成交或已撤销」vs「找不到相应报单」）已按官方场景 6/7 实现（`terminal_refs` 终态记忆）；双回调成对部分（`OnErrRtnOrderAction` 半面待补，同 3）（§4.4、§5.1）。
+5. **FAK/FOK** ✅（M2-1 落地）：TC+VC 组合语义、FOK=整单成交否则全撤、FAK 最小成交量整笔撤销规则；条件单触发转新报单未做（§4.1）。
+6. **交易所差异归一化** ✅（M2-1 落地）：平今转换（非上期所一律 Close）、市价单按所语义；郑商所 FAK-only 规则表待注入；TradingDay 各所混乱见 §7（§4.1-4.3、§7）。
+7. **成交开平标志 ≠ 报单开平标志** ✅（M2-1 落地）：非上期所平仓回 '1'（§4.3）。
+8. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别 TODO（§8）。
+9. **LEDGER 扩展**：MarginPriceType 配置、平今/平昨费率、FrozenCommission TODO；期权权利金（§6）。
 10. LocalCTP 对账基准：OrderRef 生成规则、撮合规则、结算字段重置清单可直接抄（§9）。
 
 ### 10.3 其他 TODO

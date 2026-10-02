@@ -11,8 +11,11 @@ use std::collections::HashMap;
 use std::mem::size_of;
 use std::time::{Duration, Instant};
 
-use ctpbuddy_ledger::PositionSide;
-use ctpbuddy_matching::{CancelQuery, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome};
+use ctpbuddy_ledger::{PositionSide, ERR_FUNDS, ERR_NO_CLOSE_TODAY_LEDGER};
+use ctpbuddy_matching::{
+    CancelQuery, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome, ERR_BAD_FIELD,
+    ERR_EXCHANGE_ID_INVALID, ERR_ORDER_FREQ,
+};
 use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
     CThostFtdcQryInstrumentField, CThostFtdcQryInvestorPositionField, CThostFtdcQryOrderField,
@@ -290,24 +293,29 @@ impl World {
         }
         let direction = match Direction::from_ctp(input.Direction) {
             Some(d) => d,
-            None => return self.send_err_rtn(conn_id, frame.req_id, 40, "买卖方向非法"),
+            None => return self.send_err_rtn(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
         };
         let offset = match OffsetFlag::from_ctp(input.CombOffsetFlag[0]) {
             Some(o) => o,
-            None => return self.send_err_rtn(conn_id, frame.req_id, 40, "开平标志非法"),
+            None => return self.send_err_rtn(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
         };
         let instrument = cstr(&input.InstrumentID);
-        let exchange = cstr(&input.ExchangeID);
+        let mut exchange = cstr(&input.ExchangeID);
         if instrument.is_empty() {
-            return self.send_err_rtn(conn_id, frame.req_id, 40, "InstrumentID 为空");
+            return self.send_err_rtn(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误");
         }
         if let Some(info) = self.engine.catalog().get(&instrument) {
-            if !exchange.is_empty() && info.exchange_id != exchange {
+            if exchange.is_empty() {
+                // backfill from the catalog: the per-exchange rule tables
+                // (DCE self-completion, 平今归一化, ...) key off ExchangeID,
+                // so a client that leaves it empty must not disable them
+                exchange = info.exchange_id.clone();
+            } else if info.exchange_id != exchange {
                 return self.send_err_rtn(
                     conn_id,
                     frame.req_id,
-                    22,
-                    &format!("合约 {instrument} 不属于交易所 {exchange}"),
+                    ERR_EXCHANGE_ID_INVALID,
+                    "CTP:无效的ExchangeID字段，请填入正确的ExchangeID",
                 );
             }
         }
@@ -375,6 +383,15 @@ impl World {
             session_id,
         };
 
+        // 报单流控 (§8.3): the front-office per-investor每秒报撤 budget.
+        // Placed after the local field validation (a malformed order is a
+        // field error, not a frequency one) and before any risk check —
+        // an over-budget order never reaches the engine or the ledger.
+        if !self.order_gate(&broker, &investor) {
+            self.journal_rejected_order(&broker, &investor, &intent, ERR_ORDER_FREQ, "CTP:下单频率限制");
+            return self.send_err_rtn(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
+        }
+
         // 1) static validation (contract / price / volume)
         if let Err((code, msg)) = self.engine.check(&intent) {
             self.journal_rejected_order(&broker, &investor, &intent, code, &msg);
@@ -427,7 +444,7 @@ impl World {
         {
             // roll back the position reservation made above (close path)
             self.ledger.unfreeze_order(&order_key);
-            let msg = if code == 50 { "可用资金不足" } else { "报单被拒绝" };
+            let msg = if code == ERR_FUNDS { "CTP:资金不足" } else { "报单被拒绝" };
             self.journal_rejected_order(&broker, &investor, &intent, code, msg);
             return self.send_err_rtn(conn_id, frame.req_id, code, msg);
         }
@@ -494,6 +511,10 @@ impl World {
                         ("time_condition".into(), json::s(&(tc as char).to_string())),
                         ("volume_condition".into(), json::s(&(vc as char).to_string())),
                         ("min_volume".into(), json::n(input.MinVolume as f64)),
+                        // the instruction's own lifecycle: accepted at the
+                        // front office = OSS '0' 报单已提交 (notes/05 §2.2);
+                        // the rejected path journals '4', a cancel '3'/'5'
+                        ("submit_status".into(), json::s("0")),
                         (
                             "outcome".into(),
                             json::obj_sorted(vec![
@@ -539,6 +560,8 @@ impl World {
                         ("msg".into(), json::s(msg)),
                     ]),
                 ),
+                // the instruction's own lifecycle: the insert was rejected
+                ("submit_status".into(), json::s("4")),
             ]),
         );
     }
@@ -560,7 +583,16 @@ impl World {
             order_ref: cstr(&action.OrderRef),
             order_sys_id: cstr(&action.OrderSysID),
             investor_id: investor.clone(),
+            instrument_id: cstr(&action.InstrumentID),
         };
+
+        // 报单流控 (§8.3): 报单与撤单共用同一每秒预算。撤单侧超限的显式
+        // 症状正是文档口径的 OnRspOrderAction「CTP:下单频率限制」。
+        if !self.order_gate(&broker, &investor) {
+            self.journal_cancel_rejected(&broker, &investor, &q, ERR_ORDER_FREQ, "CTP:下单频率限制");
+            return self.send_error(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
+        }
+
         let (day, now) = self.clock_owned();
         let ctx = ClockCtx {
             trading_day: &day,
@@ -592,12 +624,50 @@ impl World {
                             ("order_sys_id".into(), json::s(&cstr(&field.OrderSysID))),
                             ("instrument".into(), json::s(&cstr(&field.InstrumentID))),
                             ("cancel_time".into(), json::s(&cstr(&field.CancelTime))),
+                            // the instruction's own lifecycle: accepted
+                            ("submit_status".into(), json::s("3")),
+                            ("outcome".into(), json::obj_sorted(vec![("accepted".into(), json::b(true))])),
                         ]),
                     );
                 }
             }
-            Err((code, msg)) => self.send_error(conn_id, frame.req_id, code, &msg),
+            Err((code, msg)) => {
+                self.journal_cancel_rejected(&broker, &investor, &q, code, &msg);
+                self.send_error(conn_id, frame.req_id, code, &msg)
+            }
         }
+    }
+
+    /// Journal a rejected cancel instruction (CTP 报盘拒绝 or the frequency
+    /// gate): OrderSubmitStatus '5' (撤单已被拒绝) plus the outcome a
+    /// replay re-checks against its own error_id.
+    fn journal_cancel_rejected(
+        &mut self,
+        broker: &str,
+        investor: &str,
+        q: &CancelQuery,
+        error_id: i32,
+        msg: &str,
+    ) {
+        self.journal_record_json(
+            "order_cancel",
+            broker,
+            investor,
+            json::obj_sorted(vec![
+                ("order_ref".into(), json::s(&q.order_ref)),
+                ("order_sys_id".into(), json::s(&q.order_sys_id)),
+                ("instrument".into(), json::s(&q.instrument_id)),
+                ("submit_status".into(), json::s("5")),
+                (
+                    "outcome".into(),
+                    json::obj_sorted(vec![
+                        ("accepted".into(), json::b(false)),
+                        ("error_id".into(), json::n(error_id as f64)),
+                        ("msg".into(), json::s(msg)),
+                    ]),
+                ),
+            ]),
+        );
     }
 
     // ---- MD SUBSCRIBE / UNSUBSCRIBE ----
@@ -677,6 +747,41 @@ impl World {
     fn mark_to_market_now(&mut self) {
         let prices = self.engine.last_prices();
         self.ledger.mark_to_market(self.engine.catalog(), &prices);
+    }
+
+    /// 报单流控 (DESIGN §8.3, docs: 报单流控、查询流控和会话数控制):
+    /// per-(broker, investor) budget of order inserts + cancels per second,
+    /// the front-office half of CTP's 【程序化交易频繁报撤单管理】.
+    ///
+    /// Over-budget requests are rejected **outright** with
+    /// 「CTP:下单频率限制」 — the modern front-office behavior (contrast the
+    /// 2009 FAQ era default of 6 orders/second/session with over-limit
+    /// requests silently queued, which the rules table can inject for
+    /// testing legacy downstreams). The caller picks the reply surface:
+    /// inserts answer `OnErrRtnOrderInsert`, cancels answer
+    /// `OnRspOrderAction` (both must be hooked, §5.1).
+    ///
+    /// Wall-clock window, same as `qry_gate` (real CTP throttles on real
+    /// time); a drive that exceeds the budget is replay-deterministic only
+    /// when the replay reproduces the recording's pacing.
+    ///
+    /// Returns true when the request may proceed.
+    fn order_gate(&mut self, broker: &str, investor: &str) -> bool {
+        let now = Instant::now();
+        let quota = self.cfg.order_freq.max(1);
+        let entry = self
+            .order_freq_windows
+            .entry((broker.to_string(), investor.to_string()))
+            .or_insert((now, 0));
+        let used = if now.duration_since(entry.0) < Duration::from_secs(1) {
+            entry.1 += 1;
+            entry.1
+        } else {
+            entry.0 = now;
+            entry.1 = 1;
+            1
+        };
+        used <= quota
     }
 
     fn on_qry_instrument(&mut self, conn_id: u64, frame: &Frame) {
@@ -893,7 +998,7 @@ fn normalize_conditions(
 
 fn close_reject_msg(code: i32) -> &'static str {
     match code {
-        31 => "可平今仓不足",
-        _ => "持仓不足",
+        ERR_NO_CLOSE_TODAY_LEDGER => "CTP:平今仓位不足",
+        _ => "CTP:平仓量超过持仓量",
     }
 }

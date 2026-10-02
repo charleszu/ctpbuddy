@@ -280,8 +280,8 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
             cli.order_insert(INSTRUMENT, direction="0", offset="0", volume=100, limit_price=REST_PRICE, exchange="SHFE")
             raise AssertionError("underserved order accepted")
         except CTPError as e:
-            assert e.error_id == 50, e  # ERR_FUNDS: frozen + new > available
-        print("[ok] next 100 lots rejected (ErrorID 50, insufficient funds)")
+            assert e.error_id == 31, e  # ERR_FUNDS: frozen + new > available
+        print("[ok] next 100 lots rejected (ErrorID 31, insufficient funds)")
 
         cli.order_action(INSTRUMENT, order_ref="900")
         for kind, field in cli.events(timeout=5.0):
@@ -351,8 +351,8 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
             cli.order_insert("NOPE9999", direction="0", offset="0", volume=1, limit_price=100.0, exchange="SHFE")
             raise AssertionError("unknown instrument accepted")
         except CTPError as e:
-            assert e.error_id == 22, e
-        print("[ok] unknown instrument rejected (ErrorID 22)")
+            assert e.error_id == 16, e  # INSTRUMENT_NOT_FOUND
+        print("[ok] unknown instrument rejected (ErrorID 16)")
 
     # -- journal: the authoritative event stream must record the flow --------
     # shut the core down first so the BufWriter flushes (Drop flushes too)

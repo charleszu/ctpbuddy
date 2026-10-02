@@ -7,8 +7,10 @@
 //! - order-vs-order matching at arrival (price priority, then time
 //!   priority): the fill price is the resting (maker) order's limit price;
 //! - the incoming order compares the best resting price against the current
-//!   tick's five-level depth and takes the better side; tick depth is an
-//!   immutable snapshot, so consumption is tracked per matching pass with
+//!   tick's five-level depth and takes the better side; on a price tie the
+//!   tick depth wins — the snapshot's volume entered the queue before the
+//!   just-parked order (time priority). Tick depth is an immutable
+//!   snapshot, so consumption is tracked per matching pass with
 //!   `used: [i32; DEPTH]`;
 //! - FAK/FOK exact semantics with the official CTP encodings
 //!   (`ThostFtdcUserApiDataType.h`): FOK = TC_IOC('1')+VC_CV('3'),
@@ -17,8 +19,14 @@
 //! - self-trade prevention: resting orders of the same (broker, investor)
 //!   are skipped (switchable);
 //! - callback sequence per DESIGN §8.9 / docs/notes/01: initial unknown
-//!   ('a') push, rest confirmation as a single '3' push, every fill/cancel as
-//!   前态+新态 with OnRtnTrade after the new-state OnRtnOrder.
+//!   ('a') push (OrderSubmitStatus '0'), rest confirmation as a single '3'
+//!   push, every fill/cancel as 前态+新态 with OnRtnTrade after the new-state
+//!   OnRtnOrder — OrderSubmitStatus flips to '3' on every row after the
+//!   initial push (the exchange acted);
+//! - DCE exception (notes/01 B3, landed M2-4): the '3' confirmation is
+//!   pushed before matching (DCE returns it for every book-eligible order,
+//!   even an immediate fill), and the self-completed all-traded report
+//!   skips the 前态.
 //!
 //! Matching happens at two moments only: order arrival and tick arrival.
 //! Resting orders never match each other directly (a tick is the external
@@ -33,18 +41,32 @@ use ctpbuddy_wire::generated::{
 
 use crate::{to_fixed, Catalog, Direction, Fill, OffsetFlag, OrderIntent};
 
-// ---- error ids (recognizable against CTP's table; broker rules table TODO) ----
-pub const ERR_INSTRUMENT_NOT_FOUND: i32 = 22; // 合约不存在或状态异常
-pub const ERR_ORDER_STATUS: i32 = 36; //       合约状态不允许交易
-pub const ERR_PRICE_TICK: i32 = 31; //          价格不符合最小变动价位
-pub const ERR_PRICE_LIMIT: i32 = 33; //         价格超出涨跌停板
-pub const ERR_DIRECTION: i32 = 40; //           买卖方向/开平标志/价格类型非法
-pub const ERR_VOLUME_RANGE: i32 = 34; //        报单手数超出合约范围
-pub const ERR_NO_POSITION: i32 = 30; //         平仓量超过持仓量
-pub const ERR_NO_CLOSE_TODAY: i32 = 38; //      可平今仓不足
-pub const ERR_NO_COUNTERPARTY: i32 = 42; //     无对手盘（IOC/市价，当前深度为空）
-pub const ERR_ORDER_NOT_FOUND: i32 = 75; //     未找到报单（撤单）
-pub const ERR_DUPLICATE_ORDER: i32 = 44; //     重复报单（活动报单引用冲突）
+// ---- error ids: the official CTP table (SDK error.xml, docs/notes/07) ------
+// Every code/prompt below is verbatim from `ctpsdk/6.7.13_20260225/td/win64/
+// error.xml` — a downstream client keys off these numbers, so inventing or
+// misremembering one defeats the simulation. `git log` before this pass had
+// 11 of 12 constants wrong (e.g. freq as 91 instead of 116).
+pub const ERR_INSTRUMENT_NOT_FOUND: i32 = 16; // INSTRUMENT_NOT_FOUND      CTP:找不到合约
+pub const ERR_ORDER_STATUS: i32 = 17; //        INSTRUMENT_NOT_TRADING   CTP:合约不能交易
+pub const ERR_BAD_FIELD: i32 = 15; //           BAD_FIELD                 CTP:报单字段有误
+/// ExchangeID 与合约实际所属交易所不符（合约存在但交易所字段填错）。
+pub const ERR_EXCHANGE_ID_INVALID: i32 = 148; // EXCHANGE_ID_IS_INVALID CTP:无效的ExchangeID字段，请填入正确的ExchangeID
+pub const ERR_PRICE_TICK: i32 = 165; //         PRICE_WRONG_TICK          CTP:报单价格非最小变动价位整数倍
+pub const ERR_PRICE_LIMIT: i32 = 163; //        PRICE_OVER_LIMIT          CTP:报单价格不在涨跌停板价范围内
+pub const ERR_VOLUME_RANGE: i32 = 164; //       VOLUME_NOT_VALID          CTP:下单数量不符合交易所规范
+pub const ERR_DUPLICATE_ORDER: i32 = 22; //     DUPLICATE_ORDER_REF       CTP:报单错误：不允许重复报单
+pub const ERR_NO_POSITION: i32 = 30; //         OVER_CLOSE_POSITION       CTP:平仓量超过持仓量
+pub const ERR_NO_CLOSE_TODAY: i32 = 50; //      OVER_CLOSETODAY_POSITION  CTP:平今仓位不足
+pub const ERR_INSUFFICIENT_MONEY: i32 = 31; //  INSUFFICIENT_MONEY        CTP:资金不足
+/// 无对手盘（IOC/市价，当前深度为空）：交易所侧拒绝，CTP 统一包裹转发为
+/// EXCHANGE_RTNERROR「CTP：交易所返回的错误」。
+pub const ERR_NO_COUNTERPARTY: i32 = 91; //    EXCHANGE_RTNERROR          CTP：交易所返回的错误
+pub const ERR_ORDER_NOT_FOUND: i32 = 25; //     ORDER_NOT_FOUND           CTP:撤单找不到相应报单
+pub const ERR_ORDER_STATUS_UNSUITABLE: i32 = 26; // INSUITABLE_ORDER_STATUS CTP:报单已全成交或已撤销，不能再撤
+/// 报单流控超限（柜台端【程序化交易频繁报撤单管理】每秒报撤笔数）：
+/// 现代柜台口径显式拒绝「CTP:下单频率限制」；2009 FAQ 历史口径为每
+/// 会话 6 笔/秒、超限排队不报错——后者可由规则表注入测试旧下游。
+pub const ERR_ORDER_FREQ: i32 = 116; //        ORDER_FREQ_LIMIT          CTP:下单频率限制
 
 const EPS: f64 = 1e-9;
 
@@ -90,6 +112,15 @@ pub struct OrderRecord {
     /// CTP `THOST_FTDC_OST_*`: 'a' unknown, '3' queued, '1' partial,
     /// '0' all traded, '5' canceled.
     pub status: u8,
+    /// CTP `THOST_FTDC_OSS_*` — the *instruction's* submit state
+    /// (notes/05 §2.2): '0' 报单已提交 on the initial CTP-accept push,
+    /// '3' 已经接受 on every row after it (the exchange has confirmed the
+    /// order into the book, filled it, or accepted its cancel — a
+    /// self-canceled order stays '3', §5.5). '1' 撤单已提交 / '4' 报单
+    /// 已被拒绝 / '5' 撤单已被拒绝 / '2','6' 修改相关 belong to
+    /// instruction-level surfaces the engine does not emit as order rows;
+    /// the server journals rejections with their submit status instead.
+    pub submit_status: u8,
     pub notify_seq: i32,
     /// Monotonic arrival sequence (per engine): the time-priority tiebreaker.
     /// Assigned once at accept and never changes, so remove+reinsert keeps a
@@ -117,6 +148,9 @@ pub struct CancelQuery {
     pub order_ref: String,
     pub order_sys_id: String,
     pub investor_id: String,
+    /// Requested instrument (journaling only; the engine resolves the order
+    /// by the key fields above).
+    pub instrument_id: String,
 }
 
 pub enum SubmitOutcome {
@@ -153,6 +187,11 @@ pub struct MatchingEngine {
     last_md: HashMap<String, Tick>,
     /// (front_id, session_id, order_ref) of orders still on the book.
     active_refs: HashSet<(i32, i32, [u8; 13])>,
+    /// Terminal orders (filled '0' / cancelled '5') kept so a later cancel of
+    /// the same key answers the official INSUITABLE_ORDER_STATUS (26) instead
+    /// of ORDER_NOT_FOUND (25) — real CTP distinguishes the two (报单回调
+    /// 规则 场景 6/7).
+    terminal_refs: HashMap<(i32, i32, [u8; 13]), u8>,
     next_sys: u64,
     next_trade: u64,
     next_notify: i32,
@@ -169,12 +208,20 @@ impl MatchingEngine {
             books: BTreeMap::new(),
             last_md: HashMap::new(),
             active_refs: HashSet::new(),
+            terminal_refs: HashMap::new(),
             next_sys: 1,
             next_trade: 1,
             next_notify: 1,
             next_arrival: 1,
             self_trade_prevention: true,
         }
+    }
+
+    /// Retire an order: drop it from the active set and remember its terminal
+    /// status for later cancel-answer fidelity.
+    fn retire(&mut self, key: (i32, i32, [u8; 13]), status: u8) {
+        self.active_refs.remove(&key);
+        self.terminal_refs.insert(key, status);
     }
 
     pub fn catalog(&self) -> &Catalog {
@@ -202,17 +249,15 @@ impl MatchingEngine {
     pub fn check(&self, intent: &OrderIntent) -> Result<(), (i32, String)> {
         let instr = match self.catalog.get(&intent.instrument_id) {
             Some(i) => i,
-            None => {
-                return Err((ERR_INSTRUMENT_NOT_FOUND, format!("合约 {} 不存在", intent.instrument_id)))
-            }
+            None => return Err((ERR_INSTRUMENT_NOT_FOUND, "CTP:找不到合约".into())),
         };
         if !instr.is_trading {
-            return Err((ERR_ORDER_STATUS, format!("合约 {} 当前不可交易", intent.instrument_id)));
+            return Err((ERR_ORDER_STATUS, "CTP:合约不能交易".into()));
         }
         match intent.price_type {
             b'2' => {
                 if intent.limit_price <= 0.0 {
-                    return Err((ERR_PRICE_TICK, "限价单价格必须大于 0".into()));
+                    return Err((ERR_BAD_FIELD, "CTP:报单字段有误".into()));
                 }
                 let aligned = ((intent.limit_price / instr.price_tick).round() * instr.price_tick
                     - intent.limit_price)
@@ -220,27 +265,24 @@ impl MatchingEngine {
                 if aligned > EPS {
                     return Err((
                         ERR_PRICE_TICK,
-                        format!(
-                            "价格 {} 不符合最小变动价位 {}",
-                            intent.limit_price, instr.price_tick
-                        ),
+                        "CTP:报单价格非最小变动价位整数倍".into(),
                     ));
                 }
             }
             b'1' => {} // 任意价（市价）
             _ => {
-                return Err((ERR_DIRECTION, format!("不支持的价格类型 '{}'", intent.price_type as char)))
+                return Err((ERR_BAD_FIELD, "CTP:报单字段有误".into()))
             }
         }
         if intent.volume <= 0 {
-            return Err((ERR_VOLUME_RANGE, "报单手数必须为正".into()));
+            return Err((ERR_VOLUME_RANGE, "CTP:下单数量不符合交易所规范".into()));
         }
         let min_v = instr.min_volume(intent.price_type);
         let max_v = instr.max_volume(intent.price_type);
         if intent.volume < min_v || intent.volume > max_v {
             return Err((
                 ERR_VOLUME_RANGE,
-                format!("报单手数 {} 超出范围 [{}, {}]", intent.volume, min_v, max_v),
+                "CTP:下单数量不符合交易所规范".into(),
             ));
         }
         Ok(())
@@ -260,10 +302,7 @@ impl MatchingEngine {
                 if p < md.lower_limit_price || p > md.upper_limit_price {
                     return SubmitOutcome::Rejected {
                         error_id: ERR_PRICE_LIMIT,
-                        msg: format!(
-                            "价格 {} 超出涨跌停板 [{}, {}]",
-                            p, md.lower_limit_price, md.upper_limit_price
-                        ),
+                        msg: "CTP:报单价格不在涨跌停板价范围内".into(),
                     };
                 }
             }
@@ -272,7 +311,7 @@ impl MatchingEngine {
         if self.active_refs.contains(&key) {
             return SubmitOutcome::Rejected {
                 error_id: ERR_DUPLICATE_ORDER,
-                msg: "重复的报单引用（同 front/session/OrderRef 仍有活动报单）".into(),
+                msg: "CTP:报单错误：不允许重复报单".into(),
             };
         }
         self.active_refs.insert(key);
@@ -307,6 +346,7 @@ impl MatchingEngine {
             session_id: intent.session_id,
             insert_ms: ctx.now_ms,
             status: b'a',
+            submit_status: b'0',
             notify_seq: 0,
             arrival_seq: {
                 let s = self.next_arrival;
@@ -323,10 +363,16 @@ impl MatchingEngine {
         let is_mv = is_ioc && intent.volume_condition == b'2';
 
         let mut events = Vec::new();
-        // 1) initial unknown-order push (notes/01: every scenario starts here)
+        // 1) initial unknown-order push (notes/01: every scenario starts here).
+        //    OrderSubmitStatus '0' — 报单已提交 (CTP accepted the insert,
+        //    notes/05 §2.2).
         let seq = self.next_notify_seq();
         rec.notify_seq = seq;
         events.push(EngineEvent::Order(build_order_field(&rec, ctx, seq)));
+        // From here on the exchange acts on the order (confirm into the
+        // book / fill / accept the cancel): every later row reports submit
+        // status '3' 已经接受 — a self-canceled order stays '3' (§5.5).
+        rec.submit_status = b'3';
 
         let md = self.last_md.get(&intent.instrument_id).cloned();
 
@@ -338,10 +384,24 @@ impl MatchingEngine {
             let threshold = if is_fok { intent.volume } else { intent.min_volume.max(1) };
             if avail < threshold {
                 self.push_transition(&mut rec, b'5', &mut events, ctx);
-                self.active_refs.remove(&key);
+                self.retire(key, b'5');
                 return SubmitOutcome::Accepted { events };
             }
         }
+
+        // 2b) 大商所报单确认 (notes/01 B3): DCE returns the 未成交 ('3')
+        //     confirmation for EVERY order that enters its book — even one
+        //     that fills immediately — so the '3' cannot wait for the rest
+        //     branch: an immediate full fill must report 'a' → '3' → '0'.
+        //     IOC-class instructions (FAK/FOK/market) never rest and get no
+        //     such confirmation. `dce_confirmed` suppresses the duplicate
+        //     rest-time push below.
+        let dce_confirmed = if rec.exchange_id == "DCE" && !is_ioc {
+            self.push_status(&mut rec, b'3', &mut events, ctx);
+            true
+        } else {
+            false
+        };
 
         // 3) matching loop: book counterpart vs tick counterpart, better price
         //    wins (ties to the resting order: it arrived before the snapshot)
@@ -368,8 +428,8 @@ impl MatchingEngine {
                         let book = self.books.entry(rec.instrument_id.clone()).or_default();
                         insert_resting(book, maker);
                     } else {
-                        self.active_refs
-                            .remove(&(maker.front_id, maker.session_id, maker.order_ref));
+                        // maker fully filled by this match: terminal '0'
+                        self.retire((maker.front_id, maker.session_id, maker.order_ref), b'0');
                     }
                     remaining -= take;
                 }
@@ -390,18 +450,20 @@ impl MatchingEngine {
         if remaining > 0 {
             if is_ioc {
                 self.push_transition(&mut rec, b'5', &mut events, ctx);
-                self.active_refs.remove(&key);
+                self.retire(key, b'5');
             } else {
-                if rec.volume_traded == 0 {
+                if rec.volume_traded == 0 && !dce_confirmed {
                     // exchange 报单确认: a single '3' push, no 前态 duplicate
-                    // (notes/01 scenarios 1/3/4)
+                    // (notes/01 scenarios 1/3/4). DCE already pushed its '3'
+                    // before matching (2b).
                     self.push_status(&mut rec, b'3', &mut events, ctx);
                 }
                 let book = self.books.entry(rec.instrument_id.clone()).or_default();
                 insert_resting(book, rec);
             }
         } else {
-            self.active_refs.remove(&key);
+            // fully filled at arrival: terminal '0'
+            self.retire(key, b'0');
         }
         SubmitOutcome::Accepted { events }
     }
@@ -428,13 +490,28 @@ impl MatchingEngine {
         let (instr, is_bid, pos) = match found {
             Some(v) => v,
             None => {
-                return Err((ERR_ORDER_NOT_FOUND, "未找到活动报单或报单状态不允许撤单".into()))
+                // official split (报单回调规则 场景 6/7): an unknown ref is
+                // ORDER_NOT_FOUND (25); a ref that already reached a terminal
+                // state is INSUITABLE_ORDER_STATUS (26)
+                let key = (q.front_id, q.session_id, {
+                    let mut r = [0u8; 13];
+                    let b = q.order_ref.as_bytes();
+                    let n = b.len().min(13);
+                    r[..n].copy_from_slice(&b[..n]);
+                    r
+                });
+                return if self.terminal_refs.contains_key(&key) {
+                    Err((ERR_ORDER_STATUS_UNSUITABLE,
+                         "CTP:报单已全成交或已撤销，不能再撤".into()))
+                } else {
+                    Err((ERR_ORDER_NOT_FOUND, "CTP:撤单找不到相应报单".into()))
+                };
             }
         };
         let book = self.books.get_mut(&instr).expect("book exists");
         let side = if is_bid { &mut book.bids } else { &mut book.asks };
         let mut rec = side.remove(pos);
-        self.active_refs.remove(&(rec.front_id, rec.session_id, rec.order_ref));
+        self.retire((rec.front_id, rec.session_id, rec.order_ref), b'5');
         let mut events = Vec::new();
         self.push_transition(&mut rec, b'5', &mut events, ctx);
         Ok(events)
@@ -481,7 +558,8 @@ impl MatchingEngine {
                     Direction::Sell => leftover.asks.push(rec),
                 }
             } else {
-                self.active_refs.remove(&(rec.front_id, rec.session_id, rec.order_ref));
+                // tick filled the resting order: terminal '0'
+                self.retire((rec.front_id, rec.session_id, rec.order_ref), b'0');
             }
         }
         if !leftover.is_empty() {
@@ -546,8 +624,9 @@ impl MatchingEngine {
     }
 
     /// Best immediately tradable counterpart: the better price of the best
-    /// resting order and the best tick depth level; ties go to the resting
-    /// order (it arrived before the current snapshot).
+    /// resting order and the best tick depth level; on a price tie the tick
+    /// depth wins — its volume entered the queue before the order that just
+    /// parked (time priority over the snapshot).
     fn best_counterpart(
         &self,
         intent: &OrderIntent,
@@ -594,10 +673,13 @@ impl MatchingEngine {
     /// to both sides (one exchange trade, two reports), a market fill mints
     /// its own for the single taker report.
     ///
-    /// TODO(M2-4): 大商所特例 — on full fill DCE returns only the trade and
-    /// CTP self-completes the all-traded order report without repeating the
-    /// previous state (notes/01 B3). All exchanges use the general sequence
-    /// until the per-exchange rule table lands.
+    /// 大商所特例 (notes/01 B3, landed M2-4): on a full fill DCE returns
+    /// only the trade and CTP **self-completes** the all-traded order report
+    /// **without repeating the previous state** — so the 前态 push is
+    /// skipped exactly when this fill completes the order (`'0'`). Partial
+    /// fills keep the general 前态+新态 rule; the '3' confirmation DCE
+    /// always returns (even for an immediately-filled order) is handled in
+    /// `submit` (2b).
     fn emit_fill(
         &mut self,
         rec: &mut OrderRecord,
@@ -607,11 +689,16 @@ impl MatchingEngine {
         events: &mut Vec<EngineEvent>,
         ctx: &ClockCtx,
     ) {
+        // DCE self-completion: this fill takes the order to '0' and DCE
+        // never repeats the 前态 for its self-completed all-traded report.
+        let dce_self_complete = rec.exchange_id == "DCE" && rec.volume_total == volume;
         // 前态 (the state this order was last reported in)
-        let mut prev = rec.clone();
-        let seq_prev = self.next_notify_seq();
-        prev.notify_seq = seq_prev;
-        events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+        if !dce_self_complete {
+            let mut prev = rec.clone();
+            let seq_prev = self.next_notify_seq();
+            prev.notify_seq = seq_prev;
+            events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+        }
         // 新态
         rec.volume_traded += volume;
         rec.volume_total -= volume;
@@ -872,7 +959,10 @@ fn build_order_field(rec: &OrderRecord, ctx: &ClockCtx, notify_seq: i32) -> CTho
     f.ForceCloseReason = rec.force_close_reason;
     f.RequestID = rec.request_id;
     f.InstallID = 1;
-    f.OrderSubmitStatus = b'0';
+    // OrderSubmitStatus: '0' on the initial CTP-accept push, '3' on every
+    // row after it (the exchange acted: confirmed / filled / accepted the
+    // cancel). see OrderRecord.submit_status for the full seven-state map.
+    f.OrderSubmitStatus = rec.submit_status;
     f.NotifySequence = notify_seq;
     set_cstr(&mut f.TradingDay, ctx.trading_day);
     f.SettlementID = 1;
