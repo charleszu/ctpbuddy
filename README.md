@@ -1,5 +1,7 @@
 # CTPBuddy
 
+[![repo](https://img.shields.io/badge/repo-github.com%2Fcharleszu%2Fctpbuddy-blue)](https://github.com/charleszu/ctpbuddy)
+
 **本地 / 私有部署的 CTP 兼容仿真交易环境** —— 为 CTP 下游系统（策略、交易终端、条件单）提供确定性、可注入、可共享的测试基础设施。
 
 > 完整设计见 [DESIGN.md](DESIGN.md)。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；本项目不附带任何官方 SDK 文件，`ctpsdk/` 目录中的头文件由使用者自备、禁止入库与分发。

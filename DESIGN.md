@@ -46,7 +46,7 @@
 |---|---|
 | 项目名 | **CTPBuddy**（CTP 全大写 + Buddy） |
 | PyPI 包 | `ctpbuddy`（已确认未被占用） |
-| 代码仓 | `github.com/<org>/ctpbuddy` |
+| 代码仓 | `github.com/charleszu/ctpbuddy`（已建仓并推送，main 分支） |
 | 文档 / 下载站 | ctpbuddy.opentrade.one |
 | Shim DLL | `thosttraderapi.dll` / `thostmduserapi.dll`（**原名替换**，不加后缀） |
 
