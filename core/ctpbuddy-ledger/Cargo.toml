@@ -1,0 +1,10 @@
+[package]
+name = "ctpbuddy-ledger"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ctpbuddy-wire = { path = "../ctpbuddy-wire" }
+ctpbuddy-market = { path = "../ctpbuddy-market" }
+ctpbuddy-matching = { path = "../ctpbuddy-matching" }

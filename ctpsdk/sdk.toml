@@ -1,0 +1,35 @@
+# CTP futures SDK member -- pure data (detailed-design.md section 2.2).
+# Dialect knowledge (header naming, md/td split, shared-header rules) lives in
+# framework/adapters/ctp and must never be expressed here.
+
+[meta]
+name = "ctp"                     # member name: sdks/<name>, package prefix "py"+name
+dialect = "ctp"                  # -> framework/adapters/ctp
+vendor_dir = "6.7.13_20260225"
+vendor_version = "6.7.13_20260225"
+# PEP 440 form is stated, not derived: the general P-segment rule would map
+# this version to 6.7.13.0.20260225, but the published wheels use
+# 6.7.13.20260225 and PyPI versions are immutable.
+pep440_version = "6.7.13.20260225"
+
+# Vendor factory signatures (verbatim from ThostFtdcMdApi.h / ThostFtdcTraderApi.h):
+#   md: CreateFtdcMdApi(const char *pszFlowPath = "", const bool bIsUsingUdp=false,
+#                      const bool bIsMulticast=false, bool bIsProductionMode=true)
+#   td: CreateFtdcTraderApi(const char *pszFlowPath = "", bool bIsProductionMode = true)
+# Parameter names are the vendor originals (binding-constitution: faithful 1:1).
+[modules.md]
+api = "CThostFtdcMdApi"
+spi = "CThostFtdcMdSpi"
+lib = { win64 = "thostmduserapi_se", linux64 = "thostmduserapi_se" }
+factory_args = [["bIsUsingUdp", false], ["bIsMulticast", false], ["bIsProductionMode", true]]
+
+[modules.td]
+api = "CThostFtdcTraderApi"
+spi = "CThostFtdcTraderSpi"
+lib = { win64 = "thosttraderapi_se", linux64 = "thosttraderapi_se" }
+factory_args = [["bIsProductionMode", true]]
+
+[build]
+python_tags = ["cp312", "cp313", "cp314"]
+collect_module = true            # transparent-supervision DataCollect library ships with the trader SDK
+binary_aliases = ["TThostFtdcClientSystemInfoType"]  # raw bytes, never through GBK accessors

@@ -1,0 +1,15 @@
+[package]
+name = "ctpbuddy-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ctpbuddy-server"
+path = "src/main.rs"
+
+[dependencies]
+ctpbuddy-wire = { path = "../ctpbuddy-wire" }
+ctpbuddy-market = { path = "../ctpbuddy-market" }
+ctpbuddy-matching = { path = "../ctpbuddy-matching" }
+ctpbuddy-ledger = { path = "../ctpbuddy-ledger" }

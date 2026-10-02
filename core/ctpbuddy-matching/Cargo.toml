@@ -1,0 +1,9 @@
+[package]
+name = "ctpbuddy-matching"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ctpbuddy-wire = { path = "../ctpbuddy-wire" }
+ctpbuddy-market = { path = "../ctpbuddy-market" }
