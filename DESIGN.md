@@ -524,7 +524,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - **报单流控闸门**（`handlers.rs::order_gate`，§8.3/§8.8 表格「报单流控」行落地）：每 `(broker, investor)` 每秒预算（`--order-freq`，默认 20），**报单与撤单共享同一预算**，墙钟 1s 窗口（与 `qry_gate` 同构——真实 CTP 按真实时间限流）；闸门位于本地字段校验之后、任何风控/引擎之前——超限报单永不进引擎与账本。超限拒绝码 **`116 ORDER_FREQ_LIMIT`「CTP:下单频率限制」**（历史误用 91，91 实为 `EXCHANGE_RTNERROR`，保留给交易所侧拒绝转发）；撤单侧同码（文档口径 `OnRspOrderAction`）。窗口过期即恢复（墙钟，重放确定性要求驱动复刻录制 pacing）。
 - **OrderSubmitStatus 七态细化**：初始 'a' 推送 OSS '0'（报单已提交），其后所有行 '3'（已经接受）；指令级 '1'/'4'/'5'/'2'/'6' 由 journal 的 `submit_status` 承载——**接受的报单记 '0'、拒付的报单 '4'、接受的撤单 '3'、拒付的撤单 '5'**（M2-4 起 accepted insert 也落 '0'，指令级生命周期在 journal 中完整闭环）。
 - **大商所特例三处**（notes/01 B3，全部对齐官方）：① 每个进簿报单先返未成交 '3'（即使立即成交，IOC 类从不入簿、无此 '3'）；② 全部成交时 CTP 自补全部成交回报且**不重复前态**（部分成交仍守「前态+新态」一般规则）；③ ExchangeID 留空的报单从合约目录回填后才能命中上述按所规则（回填在前、特例判定在后，客户端留空 ExchangeID 不丧失大商所语义）。
-- **官方错误码全集对账**（error.xml 299 条，可读表见 [`docs/错误码全集.md`](docs/错误码全集.md)；官方 API 接口说明全量 Markdown 版见 [`docs/api-doc-md/`](docs/api-doc-md/)）：核心 12 常量按官方逐条重写（11/12 原值错误，freq 91→116、资金 50→31、未知合约 22→16、涨跌停 33→163、非最小变动价位 34→165、数量不规范 48→164、重复报单 22 保留、平今不足 50、平仓超量 30、找不到报单 25、状态不当 26、字段有误 40→15）；API 负数返回码（-1/-2/-3）error.xml 不含、照 API 文档录。**新增 148 `EXCHANGE_ID_IS_INVALID`**（合约与 ExchangeID 不符，原误用 22）。
+- **官方错误码全集对账**（error.xml 299 条，可读表见 [`docs/错误码全集.md`](docs/错误码全集.md)；官方 API 接口说明全量 HTML 版见 [`docs/api-doc-html/`](docs/api-doc-html/)）：核心 12 常量按官方逐条重写（11/12 原值错误，freq 91→116、资金 50→31、未知合约 22→16、涨跌停 33→163、非最小变动价位 34→165、数量不规范 48→164、重复报单 22 保留、平今不足 50、平仓超量 30、找不到报单 25、状态不当 26、字段有误 40→15）；API 负数返回码（-1/-2/-3）error.xml 不含、照 API 文档录。**新增 148 `EXCHANGE_ID_IS_INVALID`**（合约与 ExchangeID 不符，原误用 22）。
 - **同价决胜**（doc/code 一致性校正）：报单到达时簿内最优与 tick 五档比价，**平手 tick 深度优先**——快照量先于刚挂入簿的订单进入队列（时间优先）。
 - **推送面现状**：insert 拒绝走 `ERR_RTN_ORDER_INSERT`（错单回报），cancel 拒绝走 `RSP_ERROR`→`OnRspOrderAction`；「错单响应」半面（insert RSP_ERROR-first / cancel 补 `ERR_RTN_ORDER_ACTION`）留待 error.xml 全集对账任务，e2e 断言只锁 ErrorID+ErrorMsg、不锁推送面。
 
@@ -867,7 +867,7 @@ CREATE TABLE audit_log (
 
 ```
 ctpbuddy/
-├── docs/                  # 设计文档 + CTP 语义知识库 + 官网源码（ctpbuddy.opentrade.one）+ 官方资料可读版（api-doc-md/、错误码全集.md）
+├── docs/                  # 设计文档 + CTP 语义知识库 + 官网源码（ctpbuddy.opentrade.one）+ 官方资料可读版（api-doc-html/、错误码全集.md）
 ├── shim/                  # C++ Shim（DLL/so）
 │   ├── src/               #   ABI 实现、帧收发、SPI 分发
 │   ├── codegen/           #   头文件 → 结构体注册表 + type id

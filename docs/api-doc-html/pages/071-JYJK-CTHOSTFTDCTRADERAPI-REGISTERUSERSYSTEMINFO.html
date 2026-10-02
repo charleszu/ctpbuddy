@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RegisterUserSystemInfo</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">RegisterUserSystemInfo</h1>
+<p>注册用户终端信息，用于中继服务器多连接模式</p>
+<p>需要在终端认证成功后，用户登录前调用该接口</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual int RegisterUserSystemInfo(CThostFtdcUserSystemInfoField *pUserSystemInfo) = 0;</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>CThostFtdcUserSystemInfoField ：用户系统信息</p>
+<table><tr><th>字段类型</th><th>字段名称</th><th>含义</th><th>值</th></tr><tr><td>TThostFtdcBrokerIDType</td>
+<td>BrokerID</td>
+<td>经纪公司代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcUserIDType</td>
+<td>UserID</td>
+<td>用户代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcClientSystemInfoType</td>
+<td>ClientSystemInfo</td>
+<td>用户端系统内部信息</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcIPAddressType</td>
+<td>ClientPublicIP</td>
+<td>终端IP端口</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcTimeType</td>
+<td>ClientLoginTime</td>
+<td>登录成功时间</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcAppIDType</td>
+<td>ClientAppID</td>
+<td>App代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcSystemInfoLenType</td>
+<td>ClientSystemInfoLen</td>
+<td>用户端系统内部信息长度</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcIPPortType</td>
+<td>ClientIPPort</td>
+<td>终端IP端口</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcOldIPAddressType</td>
+<td>reserve1</td>
+<td>保留的无效字段</td>
+<td>否</td>
+</tr>
+<tr><td>TThostFtdcClientLoginRemarkType</td>
+<td>ClientLoginRemark</td>
+<td>客户登录备注2</td>
+<td>否</td>
+</tr>
+<tr><td>TThostFtdcDeviceTagType</td>
+<td>MAC</td>
+<td>客户终端的MAC等标识</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+</table>
+<p>ClientSystemInfoLen：存储的为加密后的用户终端系统内部信息的长度</p>
+<p>ClientSystemInfo：存储的为加密后的用户终端系统内部信息。</p>
+<p>ClientPublicIP：存储的为用户终端IP，由中继服务器采集和填写</p>
+<p>ClientLoginTime：存储的为用户登录中继时间，由中继服务器采集和填写</p>
+<p>ClientAppid：存储的为用户终端的appid，由中继服务器采集和填写</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>0 正确</p>
+<p>-1 字段长度不对</p>
+<p>-2 非CTP采集的终端信息</p>
+<p>-3 当前终端类型非多对多中继</p>
+<p>-5 字段中存在非法字符或者长度超限</p>
+<p>-6 采集结果字段错误</p>
+<p><a id="anchor-id-01"></a> </p>
+<p>-7 采集库的版本类型和生产库的不一致</p>
+</div><h1><span>◇ </span>4. 调用示例</h1><div>
+<p>//多对多中继终端使用流程</p>
+<p><span>Step 1</span> 终端侧采集信息 向中继发起登录 并将终端信息发送给中继</p>
+<pre><code>char pSystemInfo[344];
+int len;
+CTP_GetSystemInfo(pSystemInfo, len);
+</code></pre>
+<p><span>Step 2</span> 中继收到终端的登录请求，发起终端认证</p>
+<pre><code>ReqAuthenticate();
+</code></pre>
+<p><span>Step 3</span> 终端认证成功后，中继上报用户信息</p>
+<pre><code>RegisterUserSystemInfo()
+{
+    char pSystemInfo[344];
+    int len;
+    ////将从终端得到的信息赋值给下面结构体
+    CThostFtdcUserSystemInfoField field;
+    memset(&field, 0, sizeof(field));
+    strcpy(field.BrokerID, "9999");
+    strcpy(field.UserID, "00001");
+    memcpy(field.ClientSystemInfo, pSystemInfo, len);
+    field.ClientSystemInfoLen = len;
+    strcpy(field.ClientPublicIP, "127.0.0.1");
+    field.ClientIPPort = 65535;
+    strcpy(field.ClientLoginTime, "11:28:28");
+    strcpy(field.ClientAppID, "aaa");
+    m_pUserApi->RegisterUserSystemInfo(&field);
+}
+</code></pre>
+<p><span>Step 4</span> 中继上报成功后，发起登录</p>
+<pre><code>ReqUserLogin();
+</code></pre>
+<p><span>Step 5</span> 中继登录成功</p>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p><div><p>采集信息上报时候总是提示operation not permitted，这是为什么？</p><div><table><tr><td>
+<p>如果提示operation not permitted，可能是AppID类型错误。例如，直连模式的AppID，却错误调用了<a href="155-JYJK-CTHOSTFTDCTRADERAPI-SUBMITUSERSYSTEMINFO.html">SubmitUserSystemInfo</a>。</p>
+<p>此错误不会通过特定接口返回，只在标准输出中提示，例如直接在屏幕上打印出来。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>不上报采集信息，会影响登录吗？</p><div><table><tr><td>
+<p>不影响登录，CTP不做控制，但这样不符合监管要求。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>多对多中继代理模式的AppID怎么填？是填RelayAppID还是ClientAppID？</p><div><table><tr><td>
+<p>认证时用relayappid，上报时填客户端的appid。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>使用中继模式，已经认证成功了。用工具查看不到采集获得的信息，但是在代码里看到的pSystemInfo不为空的。这可能是什么原因？</p><div><table><tr><td>
+<p>采集不落库，基本上都是采集的数据在转储时被截断了。</p>
+<p>一定要使用memcpy，不要把采集的数据当成字符串，他不是字符串。</p>
+<p>还有一种常见错误，ClientSystemInfoLen不按照采集库的返回值填写，而是自己用strlen()之类的函数去获取。</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="070-JYJK-CTHOSTFTDCTRADERAPI-REGISTERSPI.html">← 前页</a><a href="../index.html">目录</a><a href="072-JYJK-CTHOSTFTDCTRADERAPI-RELEASE.html">后页 →</a></nav>
+</body>
+</html>

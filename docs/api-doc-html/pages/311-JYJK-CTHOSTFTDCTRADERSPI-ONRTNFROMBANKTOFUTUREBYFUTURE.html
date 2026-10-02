@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnRtnFromBankToFutureByFuture</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">OnRtnFromBankToFutureByFuture</h1>
+<h1><span>◇ </span>1.说明</h1><div>
+<p>期货发起银行资金转期货通知，当执行<a href="079-JYJK-CTHOSTFTDCTRADERAPI-REQFROMBANKTOFUTUREBYFUTURE.html">ReqFromBankToFutureByFuture</a>后并且报出后，收到返回则调用此接口，私有流回报。</p>
+</div><h1><span>◇ </span>2. 函数原型</h1><div>
+<p>virtual void OnRtnFromBankToFutureByFuture(CThostFtdcRspTransferField *pRspTransfer) {};</p>
+</div><h1><span>◇ </span>3. 参数</h1><div>
+<p>pRspTransfer：银行发起银行资金转期货响应</p>
+<pre><code>struct CThostFtdcRspTransferField
+{
+    ///业务功能码
+    TThostFtdcTradeCodeType TradeCode;
+    ///银行代码
+    TThostFtdcBankIDType BankID;
+    ///银行分支机构代码
+    TThostFtdcBankBrchIDType BankBranchID;
+    ///期商代码
+    TThostFtdcBrokerIDType BrokerID;
+    ///期商分支机构代码
+    TThostFtdcFutureBranchIDType BrokerBranchID;
+    ///交易日期
+    TThostFtdcTradeDateType TradeDate;
+    ///交易时间
+    TThostFtdcTradeTimeType TradeTime;
+    ///银行流水号
+    TThostFtdcBankSerialType BankSerial;
+    ///交易系统日期
+    TThostFtdcTradeDateType TradingDay;
+    ///银期平台消息流水号
+    TThostFtdcSerialType PlateSerial;
+    ///最后分片标志
+    TThostFtdcLastFragmentType LastFragment;
+    ///会话号
+    TThostFtdcSessionIDType SessionID;
+    ///客户姓名
+    TThostFtdcIndividualNameType CustomerName;
+    ///证件类型
+    TThostFtdcIdCardTypeType IdCardType;
+    ///证件号码
+    TThostFtdcIdentifiedCardNoType IdentifiedCardNo;
+    ///客户类型
+    TThostFtdcCustTypeType CustType;
+    ///银行帐号
+    TThostFtdcBankAccountType BankAccount;
+    ///银行密码
+    TThostFtdcPasswordType BankPassWord;
+    ///投资者帐号
+    TThostFtdcAccountIDType AccountID;
+    ///期货密码
+    TThostFtdcPasswordType Password;
+    ///安装编号
+    TThostFtdcInstallIDType InstallID;
+    ///期货公司流水号
+    TThostFtdcFutureSerialType FutureSerial;
+    ///用户标识
+    TThostFtdcUserIDType UserID;
+    ///验证客户证件号码标志
+    TThostFtdcYesNoIndicatorType VerifyCertNoFlag;
+    ///币种代码
+    TThostFtdcCurrencyIDType CurrencyID;
+    ///转帐金额
+    TThostFtdcTradeAmountType TradeAmount;
+    ///期货可取金额
+    TThostFtdcTradeAmountType FutureFetchAmount;
+    ///费用支付标志
+    TThostFtdcFeePayFlagType FeePayFlag;
+    ///应收客户费用
+    TThostFtdcCustFeeType CustFee;
+    ///应收期货公司费用
+    TThostFtdcFutureFeeType BrokerFee;
+    ///发送方给接收方的消息
+    TThostFtdcAddInfoType Message;
+    ///摘要
+    TThostFtdcDigestType Digest;
+    ///银行帐号类型
+    TThostFtdcBankAccTypeType BankAccType;
+    ///渠道标志
+    TThostFtdcDeviceIDType DeviceID;
+    ///期货单位帐号类型
+    TThostFtdcBankAccTypeType BankSecuAccType;
+    ///期货公司银行编码
+    TThostFtdcBankCodingForFutureType BrokerIDByBank;
+    ///期货单位帐号
+    TThostFtdcBankAccountType BankSecuAcc;
+    ///银行密码标志
+    TThostFtdcPwdFlagType BankPwdFlag;
+    ///期货资金密码核对标志
+    TThostFtdcPwdFlagType SecuPwdFlag;
+    ///交易柜员
+    TThostFtdcOperNoType OperNo;
+    ///请求编号
+    TThostFtdcRequestIDType RequestID;
+    ///交易ID
+    TThostFtdcTIDType TID;
+    ///转账交易状态
+    TThostFtdcTransferStatusType TransferStatus;
+    ///错误代码
+    TThostFtdcErrorIDType ErrorID;
+    ///错误信息
+    TThostFtdcErrorMsgType ErrorMsg;
+    ///长客户姓名
+    TThostFtdcLongIndividualNameType LongCustomerName;
+};
+</code></pre>
+<p>TradeCode：202001 期货发起银行资金转期货</p>
+<p>BankBranchID：填0000</p>
+<p>BrokerBranchID：一般为空</p>
+<p>TransferStatus：转账的最后状态，“正常”说明转账成功，“被冲正”说明转账失败</p>
+</div><h1><span>◇ </span>4. 返回</h1><div>
+<p>当查询无记录时，指针返回为null</p>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p>无</p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="310-JYJK-CTHOSTFTDCTRADERSPI-ONRTNFROMBANKTOFUTUREBYBANK.html">← 前页</a><a href="../index.html">目录</a><a href="312-JYJK-CTHOSTFTDCTRADERSPI-ONRTNFROMFUTURETOBANKBYBANK.html">后页 →</a></nav>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SubscribeMarketData</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">SubscribeMarketData</h1>
+<p>订阅行情，对应响应<a href="052-HQJK-CTHOSTFTDCMDSPI-ONRSPSUBMARKETDATA.html">OnRspSubMarketData</a>；订阅成功后，通过<a href="057-HQJK-CTHOSTFTDCMDSPI-ONRTNDEPTHMARKETDATA.html">OnRtnDepthMarketData</a>推送行情信息。</p>
+<blockquote>
+  <p>订阅全市场合约需要把全市场合约代码都赋值给ppInstrumentID，填空不能订阅全市场合约。</p>
+
+  <p>目前<a href="057-HQJK-CTHOSTFTDCMDSPI-ONRTNDEPTHMARKETDATA.html">OnRtnDepthMarketData</a>响应的数量会比请求合约的数量少，且<a href="057-HQJK-CTHOSTFTDCMDSPI-ONRTNDEPTHMARKETDATA.html">OnRtnDepthMarketData</a>响应中会有多次bIsLast=true，此为已知问题，但不影响实际订阅的合约数量。</p>
+</blockquote>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual int SubscribeMarketData(char *ppInstrumentID[], int nCount) = 0;</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>ppInstrumentID：合约数组</p>
+<p>nCount：合约数组的数量</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>0，代表成功。</p>
+<p>-1，表示网络连接失败；</p>
+<p>-2，表示未处理请求超过许可数；</p>
+<p>-3，表示每秒发送请求数超过许可数。</p>
+</div><h1><span>◇ </span>4. 调用示例</h1><div>
+<pre><code>char **ppInstrumentID = new char*[50];
+ppInstrumentID[0] = "T1712";
+m_pUserMdApi->SubscribeMarketData(ppInstrumentID, 1);
+</code></pre>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p><div><p>能否订阅重收全天的行情？</p><div><table><tr><td>
+<p>不行，只推送最新的行情。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><a id="anchor-id-01"></a> </p>
+<p><div><p>订阅全部合约包含期货和期权所有合约后，发生OnSessionDisconnected（4097）的报错，是什么原因？</p><div><table><tr><td>
+<p>行情前置有个缓冲区限制，一瞬间发送太多超出缓冲区后就会有触发自我保护机制把session断开，可以尝试分批订阅，比如每订阅1000个延迟1秒。</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="041-HQJK-CTHOSTFTDCMDAPI-SUBSCRIBEFORQUOTERSP.html">← 前页</a><a href="../index.html">目录</a><a href="043-HQJK-CTHOSTFTDCMDAPI-UNSUBSCRIBEFORQUOTERSP.html">后页 →</a></nav>
+</body>
+</html>

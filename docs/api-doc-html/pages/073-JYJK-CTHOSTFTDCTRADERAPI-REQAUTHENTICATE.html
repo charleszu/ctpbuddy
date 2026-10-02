@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReqAuthenticate</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">ReqAuthenticate</h1>
+<p>客户端认证请求，对应响应<a href="223-JYJK-CTHOSTFTDCTRADERSPI-ONRSPAUTHENTICATE.html">OnRspAuthenticate</a>。如果交易系统开启了强制终端认证，则必须认证通过后才能发起登陆；如果未开启，则不需要认证即可登陆，此时如果主动去认证，不管成功或失败，也不影响后续登陆。</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual int ReqAuthenticate(CThostFtdcReqAuthenticateField *pReqAuthenticateField, int nRequestID) = 0;</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pReqAuthenticateField：客户端认证请求</p>
+<table><tr><th>字段类型</th><th>字段名称</th><th>含义</th><th>值</th></tr><tr><td>TThostFtdcBrokerIDType</td>
+<td>BrokerID</td>
+<td>经纪公司代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcUserIDType</td>
+<td>UserID</td>
+<td>用户代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcProductInfoType</td>
+<td>UserProductInfo</td>
+<td>用户端产品信息</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcAuthCodeType</td>
+<td>AuthCode</td>
+<td>认证码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcAppIDType</td>
+<td>AppID</td>
+<td>App代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+</table>
+<p>UserProductInfo：客户端的产品信息，如软件开发商、版本号等。</p>
+<blockquote>
+  <p>CTP后台用户事件中的用户登录事件所显示的用户端产品信息取自ReqAuthentication接口里的UserProductInfo，而非<a href="039-HQJK-CTHOSTFTDCMDAPI-REQUSERLOGIN.html">ReqUserLogin</a>里的。</p>
+</blockquote>
+<p>AuthCode：认证码需要向期货公司申请得到</p>
+<p>AppID：<strong><span style="color: #FF0000">必填项</span></strong>，不然认证失败，如果没有则要向期货公司申请，申请的AppID必须遵循监控中心规范格式</p>
+<p>UserID：<strong><span style="color: #FF0000">必填项</span></strong>，用户代码。</p>
+<p>nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>0，代表成功。</p>
+<p>-1，表示网络连接失败；</p>
+<p>-2，表示未处理请求超过许可数；</p>
+<p>-3，表示每秒发送请求数超过许可数。</p>
+</div><h1><span>◇ </span>4. 调用示例</h1><div>
+<pre><code>CThostFtdcReqAuthenticateField a = { 0 };
+strcpy_s(a.BrokerID, "9999");
+strcpy_s(a.UserID, "1000001");
+strcpy_s(a.UserProductInfo, "mytest");
+strcpy_s(a.AuthCode, "MLX0LEA4L4UPUCBF");
+strcpy_s(a.AppID, "mytest");
+m_pUserApi->ReqAuthenticate(&a, nRequestID++);
+</code></pre>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p><div><p>每次重连都需要做一遍客户端认证吗？</p><div><table><tr><td>
+<p>重新连接都需要重新认证一下。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>非穿透式版本，开通了强制认证，需要申请一个认证码的。穿透式版本，也需要一个穿透式的认证码。如果想同时开通非穿透式强制认证和穿透式认证，这样就要两个认证码；但API里是只需要一个认证码，那请问这种情况怎么解决？</p><div><table><tr><td>
+<p>这种场景是不存在的，因为穿透式和非穿透式版本的api互不兼容，所以不存在用一个api去同时做新旧前置的认证。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>在使用“看穿式监管信息采集评测工具”时候，发现获取到的记录数和数据库中信息的条目数不匹配。这是为什么？</p><div><table><tr><td>
+<p>数据库中的记录为乱码的话就不显示。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>采集信息库是否是线程安全的？能多个线程同时调用吗？</p><div><table><tr><td>
+<p>不是线程安全的，不能同时调用。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>ErrorID=4043, ErrorMsg-CTP:用户与客户端授权验证失败 请问这个报错的原因是什么？</p><div><table><tr><td>
+<p>认证使用的appid没有授权给当前投资者账号使用。需要柜台重新指定下。</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="072-JYJK-CTHOSTFTDCTRADERAPI-RELEASE.html">← 前页</a><a href="../index.html">目录</a><a href="074-JYJK-CTHOSTFTDCTRADERAPI-REQBATCHORDERACTION.html">后页 →</a></nav>
+</body>
+</html>

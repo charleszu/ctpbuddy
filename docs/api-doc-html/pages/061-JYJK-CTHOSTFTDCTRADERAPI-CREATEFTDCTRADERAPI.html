@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CreateFtdcTraderApi</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">CreateFtdcTraderApi</h1>
+<p>创建TraderApi实例。如果创建多个api实例，则每个实例的flow目录都要区分开，否则可能会导致报单回报丢失。</p>
+<p>接口由  “CreateFtdcTraderApi(const char *pszflowPath="");  ”改为 “CreateFtdcTraderApi(const char*pszflowPath ="",bool blsProductionMode=true);”。</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>static <a href="060-JYJK-CTHOSTFTDCTRADERAPI-_CTHOSTFTDCTRADERAPI.html">CThostFtdcTraderApi</a> *CreateFtdcTraderApi(const char *pszFlowPath = "", bool bIsProductionMode = true);</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pszFlowPath：常量字符指针，用于指定一个文件目录来存贮交易托管系统发布消息的状态。默认值代表当前目录。</p>
+<p>bIsProductionMode：定义连接的是生产还是评测前置，true:使用生产版本的API  false:使用测评版本的API</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>无</p>
+</div><h1><span>◇ </span>4. 调用示例</h1><div>
+<pre><code>//初始化api
+CThostFtdcTraderApi *pUserApi = CThostFtdcTraderApi::CreateFtdcTraderApi("flow\\01\\",true);//连接生产前置
+CSimpleHandler sh(pUserApi);
+pUserApi->RegisterSpi(&sh);
+pUserApi->SubscribePrivateTopic(THOST_TERT_QUICK);
+pUserApi->SubscribePublicTopic(THOST_TERT_QUICK);
+pUserApi->RegisterFront("tcp://127.0.0.1:41205");
+pUserApi->Init();
+//创建第二个api实例，要区分开flow目录
+CThostFtdcTraderApi *pUserApi2 = CThostFtdcTraderApi::CreateFtdcTraderApi("flow\\02\\",true);
+</code></pre>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p><div><p>“RuntimeError:can not open CFlow file in line 279 of file ....\source\userapi\ThostFtdcUserApiImplBase.cpp” 报错是什么意思？</p><div><table><tr><td>
+<p>程序运行之前，flow目录必须提前创建好，否则会报错。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><a id="anchor-id-01"></a> </p>
+<p><div><p>“RuntimeError:can not open CFlow file in line 338 of file ....\source\userapi\ThostFtdcUserApiImplBase.cpp” 报错是什么意思？</p><div><table><tr><td>
+<p>有core文件生成，调试后发现断点在CThostUserFlow::OpenFile中，可能是ulimit参数“open files”太小导致不能开启更多线程。</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="060-JYJK-CTHOSTFTDCTRADERAPI-_CTHOSTFTDCTRADERAPI.html">← 前页</a><a href="../index.html">目录</a><a href="062-JYJK-CTHOSTFTDCTRADERAPI-GETAPIVERSION.html">后页 →</a></nav>
+</body>
+</html>

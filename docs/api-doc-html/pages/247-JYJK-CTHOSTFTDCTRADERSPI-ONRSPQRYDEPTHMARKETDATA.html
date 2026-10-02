@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnRspQryDepthMarketData</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">OnRspQryDepthMarketData</h1>
+<p>请求查询行情响应，当执行<a href="096-JYJK-CTHOSTFTDCTRADERAPI-REQQRYDEPTHMARKETDATA.html">ReqQryDepthMarketData</a>后，该方法被调用。</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual void OnRspQryDepthMarketData(CThostFtdcDepthMarketDataField *pDepthMarketData, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pDepthMarketData：深度行情</p>
+<pre><code>struct CThostFtdcDepthMarketDataField
+{
+    ///交易日
+    TThostFtdcDateType  TradingDay;
+    ///保留的无效字段
+    TThostFtdcOldInstrumentIDType   reserve1;
+    ///交易所代码
+    TThostFtdcExchangeIDType    ExchangeID;
+    ///保留的无效字段
+    TThostFtdcOldExchangeInstIDType reserve2;
+    ///最新价
+    TThostFtdcPriceType LastPrice;
+    ///上次结算价
+    TThostFtdcPriceType PreSettlementPrice;
+    ///昨收盘
+    TThostFtdcPriceType PreClosePrice;
+    ///昨持仓量
+    TThostFtdcLargeVolumeType   PreOpenInterest;
+    ///今开盘
+    TThostFtdcPriceType OpenPrice;
+    ///最高价
+    TThostFtdcPriceType HighestPrice;
+    ///最低价
+    TThostFtdcPriceType LowestPrice;
+    ///数量
+    TThostFtdcVolumeType    Volume;
+    ///成交金额
+    TThostFtdcMoneyType Turnover;
+    ///持仓量
+    TThostFtdcLargeVolumeType   OpenInterest;
+    ///今收盘
+    TThostFtdcPriceType ClosePrice;
+    ///本次结算价
+    TThostFtdcPriceType SettlementPrice;
+    ///涨停板价
+    TThostFtdcPriceType UpperLimitPrice;
+    ///跌停板价
+    TThostFtdcPriceType LowerLimitPrice;
+    ///昨虚实度
+    TThostFtdcRatioType PreDelta;
+    ///今虚实度
+    TThostFtdcRatioType CurrDelta;
+    ///最后修改时间
+    TThostFtdcTimeType  UpdateTime;
+    ///最后修改毫秒
+    TThostFtdcMillisecType  UpdateMillisec;
+    ///申买价一
+    TThostFtdcPriceType BidPrice1;
+    ///申买量一
+    TThostFtdcVolumeType    BidVolume1;
+    ///申卖价一
+    TThostFtdcPriceType AskPrice1;
+    ///申卖量一
+    TThostFtdcVolumeType    AskVolume1;
+    ///申买价二
+    TThostFtdcPriceType BidPrice2;
+    ///申买量二
+    TThostFtdcVolumeType    BidVolume2;
+    ///申卖价二
+    TThostFtdcPriceType AskPrice2;
+    ///申卖量二
+    TThostFtdcVolumeType    AskVolume2;
+    ///申买价三
+    TThostFtdcPriceType BidPrice3;
+    ///申买量三
+    TThostFtdcVolumeType    BidVolume3;
+    ///申卖价三
+    TThostFtdcPriceType AskPrice3;
+    ///申卖量三
+    TThostFtdcVolumeType    AskVolume3;
+    ///申买价四
+    TThostFtdcPriceType BidPrice4;
+    ///申买量四
+    TThostFtdcVolumeType    BidVolume4;
+    ///申卖价四
+    TThostFtdcPriceType AskPrice4;
+    ///申卖量四
+    TThostFtdcVolumeType    AskVolume4;
+    ///申买价五
+    TThostFtdcPriceType BidPrice5;
+    ///申买量五
+    TThostFtdcVolumeType    BidVolume5;
+    ///申卖价五
+    TThostFtdcPriceType AskPrice5;
+    ///申卖量五
+    TThostFtdcVolumeType    AskVolume5;
+    ///当日均价
+    TThostFtdcPriceType AveragePrice;
+    ///业务日期
+    TThostFtdcDateType  ActionDay;
+    ///合约代码
+    TThostFtdcInstrumentIDType  InstrumentID;
+    ///合约在交易所的代码
+    TThostFtdcExchangeInstIDType    ExchangeInstID;
+    ///上带价
+    TThostFtdcPriceType BandingUpperPrice;
+    ///下带价
+    TThostFtdcPriceType BandingLowerPrice;
+};
+</code></pre>
+<p>pRspInfo：响应信息</p>
+<pre><code>struct CThostFtdcRspInfoField
+{
+    ///错误代码
+    TThostFtdcErrorIDType ErrorID;
+    ///错误信息
+    TThostFtdcErrorMsgType ErrorMsg;
+};
+</code></pre>
+<p>nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时指定。</p>
+<p>Turnover：成交金额。自6.7.2版本开始，普通行情前置front的郑商所成交金额从原来的【成交均价*成交数量】改为【成交均价*成交数量*合约乘数】，与其他交易所的算法保持一致（【成交均价*成交数量*合约乘数】）</p>
+<p>bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>当查询无记录时，指针返回为null</p>
+</div><h1><span>◇ </span>4. FAQ</h1><div>
+<p>无</p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="246-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYCONTRACTBANK.html">← 前页</a><a href="../index.html">目录</a><a href="248-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEWARRANTOFFSET.html">后页 →</a></nav>
+</body>
+</html>

@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>各交易所特殊指令</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">各交易所特殊指令</h1>
+<p>由于各家交易所的报单指令略有不同，故在此列出各家交易所报单接口情况。</p>
+<h1><span>◇ </span>1. 各交易所指令</h1><div>
+<h2><span>◇ </span>1.1. 上期所</h2><div>
+<ul>
+<li>1.上期所立即单FOK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [SHFE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [3]   <strong><span style="color: #FF0000">成交量类型：全部数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]  强平原因：非强平</p>
+</blockquote>
+<ul>
+<li>2.上期所立即单FAK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [SHFE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [2]   <strong><span style="color: #FF0000">成交量类型：最小数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<p>[ 注:支持VolumeCondition=AV(任何数量)]</p>
+<ul>
+<li>3.上期所市价单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [SHFE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [1]    <strong><span style="color: #FF0000">报单价格条件：任意价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [3]   成交量类型：全部数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [2000.00000000]    <strong><span style="color: #FF0000">保护价(该价格应在涨跌停板价格之间)</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<table>
+  <tr>
+    <th><b>字段</b></th>
+    <th><b>取值</b></th>
+    <th><b>含义说明</b></th>
+  </tr>
+  <tr>
+    <td>LimitPrice</td>
+    <td>保护价</td>
+    <td>报单成交价不劣于该价格</td>
+  </tr>
+  <tr>
+    <td>VolumeCondition</td>
+    <td>AV</td>
+    <td>任何数量，对应市价 FAK</td>
+  </tr>
+  <tr>
+    <td>VolumeCondition</td>
+    <td>CV</td>
+    <td>全部数量，对应市价 FOK</td>
+  </tr>
+  <tr>
+    <td>VolumeCondition</td>
+    <td>MV</td>
+    <td>最小数量，按指定最小数量成交，剩余部分撤销</td>
+  </tr>
+</table>
+<ul>
+<li>4.上期所市价单转限价</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [SHFE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [1]    <strong><span style="color: #FF0000">报单价格条件：任意价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] <strong><span style="color: #FF0000">有效期类型：当日有效</span></strong></p>
+
+  <p>VolumeCondition [1]   <strong><span style="color: #FF0000">成交量类型：任何数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [2000.00000000]    <strong><span style="color: #FF0000">保护价(该价格应在涨跌停板价格之间)</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<p>[ 注:转限价的市价单先以任何数量成交，未成交部分以保护价为限价价格进入待成交队列]</p>
+<ul>
+<li>5.上期所套利指令</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>InstrumentID [SP au2608&au2610]</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>CombOffsetFlag[0] = THOST_FTDC_OF_Open <strong><span style="color: #FF0000">组合开平标注：左腿开仓</span></strong></p>
+
+  <p>CombOffsetFlag[1] = THOST_FTDC_OF_Open <strong><span style="color: #FF0000">组合开平标注：右腿开仓</span></strong></p>
+
+  <p>CombHedgeFlag[0] = THOST_FTDC_HF_Speculation <strong><span style="color: #FF0000">组合投机套保标志：左腿投机</span></strong></p>
+
+  <p>CombHedgeFlag[1] = THOST_FTDC_HF_Speculation <strong><span style="color: #FF0000">组合投机套保标志：右腿投机</span></strong></p>
+
+  <p>ExchangeID [SHFE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    <strong><span style="color: #FF0000">报单价格条件：限价</span></strong></p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [1]   成交量类型：任何数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [100] <strong><span style="color: #FF0000">价差</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<p>[ 注:套利指令不支持市价单。只支持限价单，包括FAK、FOK]</p>
+</div><h2><span>◇ </span>1.2. 大商所</h2><div>
+<ul>
+<li>1.大商所立即单FOK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [3]   <strong><span style="color: #FF0000">成交量类型：全部数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>2.大商所立即单FAK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [3]   报单手数：3手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [1]   <strong><span style="color: #FF0000">成交量类型：任何数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<p>[ 注:VolumeCondition=MV(最小数量)不生效]</p>
+<ul>
+<li>3.大商所市价单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [1]    <strong><span style="color: #FF0000">报单价格条件：任意价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [3]   成交量类型：全部数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>4.大商所本节有效</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p>注：报单及做市商报价均支持“本节有效”申报，该业务需要交易所上线后方可使用。</p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [2] <strong><span style="color: #FF0000">有效期类型：本节有效</span></strong></p>
+
+  <p>VolumeCondition [1]   成交量类型：任何数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>5.大商所止盈单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] <strong><span style="color: #FF0000">有效期类型：当日有效</span></strong></p>
+
+  <p>VolumeCondition [1]   成交量类型：任何数量</p>
+
+  <p>ContingentCondition [3]   <strong><span style="color: #FF0000">触发条件：止盈</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>6.大商所止损单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] <strong><span style="color: #FF0000">有效期类型：当日有效</span></strong></p>
+
+  <p>VolumeCondition [1]   成交量类型：任何数量</p>
+
+  <p>ContingentCondition [2]   <strong><span style="color: #FF0000">触发条件：止损</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>7.大商所市价止盈单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [1]    <strong><span style="color: #FF0000">报单价格条件：任意价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] <strong><span style="color: #FF0000">有效期类型：当日有效</span></strong></p>
+
+  <p>VolumeCondition [1]   成交量类型：任何数量</p>
+
+  <p>ContingentCondition [3]   <strong><span style="color: #FF0000">触发条件：止盈</span></strong></p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>8.大商所市价止损单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [1]    <strong><span style="color: #FF0000">报单价格条件：任意价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] <strong><span style="color: #FF0000">有效期类型：当日有效</span></strong></p>
+
+  <p>VolumeCondition [1]   成交量类型：任何数量</p>
+
+  <p>ContingentCondition [2]   <strong><span style="color: #FF0000">触发条件：止损</span></strong></p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>9.大商所互换单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [1]    组合开平标注：平仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [1]   <strong><span style="color: #FF0000">互换单标志：是</span></strong></p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [1] 买卖方向：卖</p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [2]   成交量类型：最小数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>10.大商所套利单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>InstrumentID [SP a2109&a2201] <strong><span style="color: #FF0000">合约填套利合约</span></strong></p>
+
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>VolumeTotalOriginal [1]   报单手数：1手</p>
+
+  <p>MinVolume [1] 最小成交量：1手</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [2]   成交量类型：最小数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>11.大商所申请组合</li>
+</ul>
+<p>调用接口：<a href="075-JYJK-CTHOSTFTDCTRADERAPI-REQCOMBACTIONINSERT.html">ReqCombActionInsert</a></p>
+<blockquote>
+  <p><reqcombactioninsert></p>
+
+  <p>BrokerID [1008]</p>
+
+  <p>InvestorID [90096650]</p>
+
+  <p>InstrumentID [OPL m2109-C-2800&m2109-C-2800]</p>
+
+  <p>CombActionRef []</p>
+
+  <p>UserID [90096650]</p>
+
+  <p>ExchangeID [DCE]</p>
+
+  <p>IPAddress []</p>
+
+  <p>MacAddress []</p>
+
+  <p>InvestUnitID []</p>
+
+  <p>Volume [1]</p>
+
+  <p>FrontID [0]</p>
+
+  <p>SessionID [0]</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>CombDirection [0] <strong><span style="color: #FF0000">组合指令方向：申请组合</span></strong></p>
+
+  <p>HedgeFlag [1] 投机套保标志：投机</p>
+
+  <p>nRequestID [1]</p>
+
+  <p></p>
+</blockquote>
+</div><h2><span>◇ </span>1.3. 中金所</h2><div>
+<ul>
+<li>1.中金所立即单FOK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CFFEX]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [3]   <strong><span style="color: #FF0000">成交量类型：全部数量</span></strong></p>
+
+  <p>ContingentCondition [1]   <strong><span style="color: #FF0000">触发条件：立即触发</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>2.中金所立即单FAK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CFFEX]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [2]   <strong><span style="color: #FF0000">成交量类型：最小数量</span></strong></p>
+
+  <p>ContingentCondition [1]   <strong><span style="color: #FF0000">触发条件：立即触发</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<p>[ 注:支持VolumeCondition=AV(任何数量)]</p>
+<ul>
+<li>3.中金所市价单-最优价</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CFFEX]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [3]    <strong><span style="color: #FF0000">报单价格条件：最优价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] 有效期类型：立即完成，否则撤销</p>
+
+  <p>VolumeCondition [1]   <strong><span style="color: #FF0000">成交量类型：任何数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>4.中金所市价单-最优价转限价</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CFFEX]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [3]    <strong><span style="color: #FF0000">报单价格条件：最优价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] <strong><span style="color: #FF0000">有效期类型：当日有效</span></strong></p>
+
+  <p>VolumeCondition [1]   <strong><span style="color: #FF0000">成交量类型：任何数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<p><a id="anchor-id-04"></a> </p>
+<ul>
+<li>5.中金所市价单-五档价</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CFFEX]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [G]    <strong><span style="color: #FF0000">报单价格条件：五档价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] 有效期类型：立即完成，否则撤销</p>
+
+  <p>VolumeCondition [1]   <strong><span style="color: #FF0000">成交量类型：任何数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>6.中金所市价单-五档价转限价</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CFFEX]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [G]    <strong><span style="color: #FF0000">报单价格条件：五档价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] <strong><span style="color: #FF0000">有效期类型：当日有效</span></strong></p>
+
+  <p>VolumeCondition [1]   <strong><span style="color: #FF0000">成交量类型：任何数量</span></strong></p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>7.中金所套利单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [2] <strong><span style="color: #FF0000">组合投机套保标志：套利</span></strong></p>
+
+  <p>ExchangeID [CFFEX]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [2]   成交量类型：最小数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+</div><h2><span>◇ </span>1.4. 郑商所</h2><div>
+<ul>
+<li>1.郑商所立即单FOK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CZCE]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [3]   <strong><span style="color: #FF0000">成交量类型：全部数量</span></strong></p>
+
+  <p>ContingentCondition [1]   <strong><span style="color: #FF0000">触发条件：立即触发</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>2.郑商所立即单FAK</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CZCE]</p>
+
+  <p>VolumeTotalOriginal [3]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [1] <strong><span style="color: #FF0000">有效期类型：立即完成，否则撤销</span></strong></p>
+
+  <p>VolumeCondition [1]   <strong><span style="color: #FF0000">成交量类型：任何数量</span></strong></p>
+
+  <p>ContingentCondition [1]   <strong><span style="color: #FF0000">触发条件：立即触发</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<p>[ 注:VolumeCondition=MV(最小数量)不生效]</p>
+<ul>
+<li>3.郑商所市价单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CZCE]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]</p>
+
+  <p>OrderPriceType [1]    <strong><span style="color: #FF0000">报单价格条件：任意价</span></strong></p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [3]   成交量类型：全部数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>LimitPrice [0.00000000]   <strong><span style="color: #FF0000">价格：0</span></strong></p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>4.郑商所套利单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>InstrumentID [SPD TA109&TA110]    <strong><span style="color: #FF0000">合约填套利合约</span></strong></p>
+
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CZCE]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [2]   成交量类型：最小数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>5.郑商所互换单</li>
+</ul>
+<p>调用接口：<a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<blockquote>
+  <p>CombOffsetFlag [1]    组合开平标注：平仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CZCE]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [1]   <strong><span style="color: #FF0000">互换单标志：是</span></strong></p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [1] 买卖方向：卖</p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [2]   成交量类型：最小数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+<ul>
+<li>6.郑商所组合单</li>
+</ul>
+<p>调用接口：<a href="075-JYJK-CTHOSTFTDCTRADERAPI-REQCOMBACTIONINSERT.html">ReqCombActionInsert</a></p>
+<blockquote>
+  <p>InstrumentID [SPD TA109&TA206]    <strong><span style="color: #FF0000">填组合合约</span></strong></p>
+
+  <p>CombOffsetFlag [0]    组合开平标注：开仓</p>
+
+  <p>CombHedgeFlag [1] 组合投机套保标志：投机</p>
+
+  <p>ExchangeID [CZCE]</p>
+
+  <p>VolumeTotalOriginal [1]</p>
+
+  <p>MinVolume [1]</p>
+
+  <p>IsSwapOrder [0]   互换单标志：否</p>
+
+  <p>OrderPriceType [2]    报单价格条件：限价</p>
+
+  <p>Direction [0] 买卖方向：买</p>
+
+  <p>TimeCondition [3] 有效期类型：当日有效</p>
+
+  <p>VolumeCondition [2]   成交量类型：最小数量</p>
+
+  <p>ContingentCondition [1]   触发条件：立即触发</p>
+
+  <p>ForceCloseReason [0]</p>
+</blockquote>
+</div><h2><span>◇ </span>1.5. 广期所</h2><div>
+<p>报单指令同大商所，请参考大商所</p>
+</div><h2><span>◇ </span>1.6. 能源中心</h2><div>
+<p>报单指令同上期所，请参考上期所</p>
+
+</div></div></div>
+</article>
+<nav class="pager"><a href="399-QTYWGZ-TJDGZ.html">← 前页</a><a href="../index.html">目录</a><a href="401-QTYWGZ-JKZYXZYXHSM.html">后页 →</a></nav>
+</body>
+</html>

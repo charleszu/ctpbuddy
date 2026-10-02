@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>报单回调规则</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">报单回调规则</h1>
+<p>本文例举了一些常用的报单操作所对应的回调规则。在给定交易所报单回报顺序的前提下，CTP返回给API的回调顺序是固定的。</p>
+<p>目前大商所的回报比较特殊，当一笔委托全部成交后，大商所直接返回该笔委托的成交回报，而不返回状态为全部成交的报单回报，对于这种情况，CTP会补一个状态为全部成交的报单回报，下文会举例说明。</p>
+<h1><span>◇ </span>1. 术语说明</h1><div>
+<ul>
+<li>报单回报</li>
+</ul>
+<p>指报单的状态回报，有未知单报单回报、未成交报单回报、部分成交报单回报、全部成交报单回报和撤单回报。对应回调函数<a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>，以OrderStatus字段区分。</p>
+<ul>
+<li>成交回报</li>
+</ul>
+<p>指报单成交后推送的成交回报，对应回调函数<a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a>。</p>
+<ul>
+<li>错单响应</li>
+</ul>
+<p>指报单被CTP拒绝后返回的响应通知，对应回调函数<a href="237-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERINSERT.html">OnRspOrderInsert</a>，其中ErrorID和ErrorMsg指明了错误原因。</p>
+<ul>
+<li>错单回报</li>
+</ul>
+<p>指报单被CTP或交易所拒绝后的报单的状态回报。对应回调函数<a href="214-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNORDERINSERT.html">OnErrRtnOrderInsert</a>。</p>
+</div><h1><span>◇ </span>2. 回调规则</h1><div>
+<ul>
+<li>测试场景1</li>
+</ul>
+<p>报单合约ag1207，报入1手，到交易所先未成交，后全部成交1手。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p>回调顺序：</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单） </p>
+<p>此时CTP接收到交易所的未成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>此时CTP接收到交易所的成交回报和全部成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （全部成交）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景2</li>
+</ul>
+<p>报单合约ag1207，报入1手，到交易所立即全部成交1手。（注意，此案例没有收到交易所的未成交回报状态，而是直接收到全部成交状态）</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP接收到交易所的成交回报和成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （全部成交报单已提交）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景3</li>
+</ul>
+<p>报单合约ag1207，报入1手，到交易所先未成交，然后撤单1手。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>（未知单）</p>
+<p>此时CTP接收到交易所的未成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>（未成交）</p>
+<p><a href="085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html">ReqOrderAction</a></p>
+<p>此时CTP接收到交易所的撤单报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>（未成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>（已撤单）</p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景4</li>
+</ul>
+<p>报单合约ag1207，报入10手，到交易所先未成交，然后成交3手，然后剩余全部成交7手。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP接收到交易所的未成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>此时CTP接收到交易所的成交回报和部分成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （部分成交）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+<p>此时CTP接收到交易所的成交回报和全部成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （部分成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （全部成交）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景5</li>
+</ul>
+<p>报单合约ag1207，报入10手，到交易所先未成交，然后成交4手，然后剩余全部撤单6手。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP接收到交易所的未成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>此时CTP接收到交易所的成交回报和部分成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （部分成交）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+<p>发起撤单</p>
+<p><a href="085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html">ReqOrderAction</a></p>
+<p>此时CTP接收到交易所的撤单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>（部分成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>（已撤单）</p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景6</li>
+</ul>
+<p>对一笔已经撤单的委托单再次撤单。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>对一笔已撤单再次撤单</p>
+<p><a href="085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html">ReqOrderAction</a></p>
+<p>触发撤单错误响应</p>
+<p><a href="236-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERACTION.html">OnRspOrderAction</a> （CTP:报单已全成交或已撤销，不能再撤）</p>
+<p>触发撤单错误回报</p>
+<p><a href="213-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNORDERACTION.html">OnErrRtnOrderAction</a> （CTP:报单已全成交或已撤销，不能再撤）</p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景7</li>
+</ul>
+<p>对一笔未成交委托进行撤单，因为委托号填写错误导致撤单失败</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>撤一笔不存在的委托</p>
+<p><a href="085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html">ReqOrderAction</a></p>
+<p>触发撤单错误响应（CTP:撤单找不到相应报单）</p>
+<p><a href="236-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERACTION.html">OnRspOrderAction</a></p>
+<p>触发撤单错误回报</p>
+<p><a href="213-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNORDERACTION.html">OnErrRtnOrderAction</a> （CTP:撤单找不到相应报单）</p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景8</li>
+</ul>
+<p>报入上期所FAK单子，报入后部分成交部分撤单。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报入上期所FAK</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP收到了交易所推送的撤单状态的报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （已撤单，回报中VolumeTraded字段此时已有值）</p>
+<p>此时CTP收到了交易所推送的成交回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （已撤单）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+
+</div></td><td></td></tr></tbody></table>
+<p>相同场景下，能源中心和中金所FAK的回报与上期所一致。</p>
+<ul>
+<li>测试场景9</li>
+</ul>
+<p>报入大商所FAK单子，报入后部分成交部分撤单</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报入大商所FAK</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP收到了交易所推送的未成交状态的报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>此时CTP收到了交易所推送的成交回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （部分成交）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+<p>此时CTP收到了交易所推送的撤单状态的报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （已撤单）</p>
+
+</div></td><td></td></tr></tbody></table>
+<p>相同场景下，广期所FAK的回报与大商所一致。</p>
+<ul>
+<li>测试场景10</li>
+</ul>
+<p>报入郑商所FAK单子，报入后部分成交部分撤单</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报入郑商所FAK</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP收到了交易所推送的未成交状态的报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>此时CTP收到了交易所推送的部分成交状态的报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （部分成交）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+<p>此时CTP收到了交易所推送的撤单状态的报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （已撤单）</p>
+
+</div></td><td></td></tr></tbody></table>
+</div><h1><span>◇ </span>3. 大商所特殊回调规则</h1><div>
+<p>目前大商所的回报比较特殊，当一笔委托全部成交后，大商所直接返回该笔委托的成交回报，而不返回状态为全部成交的报单回报，对于这种情况，CTP会补一个状态为全部成交的报单回报。</p>
+<ul>
+<li>测试场景1</li>
+</ul>
+<p>报单合约c1911-C-1760，报入1手，到交易所先未成交，后全部成交1手。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP接收到交易所的未成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>此时CTP接收到交易所的成交回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （全部成交）（CTP补充生成，且不重复推送前一状态）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景2</li>
+</ul>
+<p>报单合约c1911-C-1760，报入1手，到交易所立即全部成交1手。注意，大商所不管会不会立即成交，只要委托进入报单簿后都会返回一笔未成交报单回报给到CTP。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP接收到交易所的未成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>此时CTP接收到交易所的成交回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （全部成交）（CTP补充生成，且不重复推送前一状态）</p>
+<p><a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a></p>
+
+</div></td><td></td></tr></tbody></table>
+<ul>
+<li>测试场景3</li>
+</ul>
+<p>报单合约c1911-C-1760，报入1手，到交易所先未成交，然后撤单1手。</p>
+<table><tbody><tr><td></td><td><div>
+
+<p>报单</p>
+<p><a href="086-JYJK-CTHOSTFTDCTRADERAPI-REQORDERINSERT.html">ReqOrderInsert</a></p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未知单）</p>
+<p>此时CTP接收到交易所的未成交报单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p>发起撤单</p>
+<p><a href="085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html">ReqOrderAction</a></p>
+<p>此时CTP接收到交易所的撤单回报</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （未成交）</p>
+<p><a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a> （已撤单）</p>
+
+</div></td><td></td></tr></tbody></table>
+
+</div></div>
+</article>
+<nav class="pager"><a href="388-QTYWGZ-BJHXJ.html">← 前页</a><a href="../index.html">目录</a><a href="390-QTYWGZ-DCEZB.html">后页 →</a></nav>
+</body>
+</html>

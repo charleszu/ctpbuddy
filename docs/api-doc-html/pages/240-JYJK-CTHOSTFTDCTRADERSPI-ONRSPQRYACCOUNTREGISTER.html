@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnRspQryAccountregister</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">OnRspQryAccountregister</h1>
+<p>请求查询银期签约关系响应，当执行<a href="089-JYJK-CTHOSTFTDCTRADERAPI-REQQRYACCOUNTREGISTER.html">ReqQryAccountregister</a>后，该方法被调用</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual void OnRspQryAccountregister(CThostFtdcAccountregisterField *pAccountregister, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pAccountregister：客户开销户信息表</p>
+<pre><code>struct CThostFtdcAccountregisterField
+{
+    ///交易日期
+    TThostFtdcTradeDateType TradeDay;
+    ///银行编码
+    TThostFtdcBankIDType BankID;
+    ///银行分支机构编码
+    TThostFtdcBankBrchIDType BankBranchID;
+    ///银行帐号
+    TThostFtdcBankAccountType BankAccount;
+    ///期货公司编码
+    TThostFtdcBrokerIDType BrokerID;
+    ///期货公司分支机构编码
+    TThostFtdcFutureBranchIDType BrokerBranchID;
+    ///投资者帐号
+    TThostFtdcAccountIDType AccountID;
+    ///证件类型
+    TThostFtdcIdCardTypeType IdCardType;
+    ///证件号码
+    TThostFtdcIdentifiedCardNoType IdentifiedCardNo;
+    ///客户姓名
+    TThostFtdcIndividualNameType CustomerName;
+    ///币种代码
+    TThostFtdcCurrencyIDType CurrencyID;
+    ///开销户类别
+    TThostFtdcOpenOrDestroyType OpenOrDestroy;
+    ///签约日期
+    TThostFtdcTradeDateType RegDate;
+    ///解约日期
+    TThostFtdcTradeDateType OutDate;
+    ///交易ID
+    TThostFtdcTIDType TID;
+    ///客户类型
+    TThostFtdcCustTypeType CustType;
+    ///银行帐号类型
+    TThostFtdcBankAccTypeType BankAccType;
+    ///长客户姓名
+    TThostFtdcLongIndividualNameType LongCustomerName;
+};
+</code></pre>
+<p>BankID：银行编码</p>
+<p>BankBranchID：值为0000</p>
+<p>BrokerBranchID：值为0000</p>
+<p>pRspInfo：响应信息</p>
+<pre><code>struct CThostFtdcRspInfoField
+{
+    ///错误代码
+    TThostFtdcErrorIDType ErrorID;
+    ///错误信息
+    TThostFtdcErrorMsgType ErrorMsg;
+};
+</code></pre>
+<p>nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时指定。</p>
+<p>bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>当查询无记录时，指针返回为null</p>
+</div><h1><span>◇ </span>4. FAQ</h1><div>
+<p>无</p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="239-JYJK-CTHOSTFTDCTRADERSPI-ONRSPPARKEDORDERINSERT.html">← 前页</a><a href="../index.html">目录</a><a href="241-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYBROKERTRADINGALGOS.html">后页 →</a></nav>
+</body>
+</html>

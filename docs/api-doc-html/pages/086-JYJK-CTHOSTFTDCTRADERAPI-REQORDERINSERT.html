@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReqOrderInsert</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">ReqOrderInsert</h1>
+<p>报单录入请求，录入错误时对应响应<a href="237-JYJK-CTHOSTFTDCTRADERSPI-ONRSPORDERINSERT.html">OnRspOrderInsert</a>、<a href="214-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNORDERINSERT.html">OnErrRtnOrderInsert</a>，正确时对应回报<a href="317-JYJK-CTHOSTFTDCTRADERSPI-ONRTNORDER.html">OnRtnOrder</a>、<a href="326-JYJK-CTHOSTFTDCTRADERSPI-ONRTNTRADE.html">OnRtnTrade</a>。</p>
+<p>可以录入限价单、市价单、条件单等交易所支持的指令，撤单时使用<a href="085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html">ReqOrderAction</a>。</p>
+<p>不支持预埋单录入，预埋单请使用<a href="088-JYJK-CTHOSTFTDCTRADERAPI-REQPARKEDORDERINSERT.html">ReqParkedOrderInsert</a>。</p>
+<p>详见<a href="389-QTYWGZ-DBHB.html">报单回调规则</a></p>
+<p>关于流控详见<a href="396-QTYWGZ-LK.html">报单流控、查询流控和会话数控制</a></p>
+<p>关于Tas的说明详见<a href="398-QTYWGZ-TASJS.html">TAS介绍</a></p>
+<p>关于<a href="399-QTYWGZ-TJDGZ.html">条件单规则</a>详见<a href="399-QTYWGZ-TJDGZ.html">条件单规则</a></p>
+<p>关于各个交易所的特殊指令详见<a href="400-QTYWGZ-GJYSTSZL.html">各交易所特殊指令</a></p>
+<p>关于接口中的重要序号说明详见<a href="401-QTYWGZ-JKZYXZYXHSM.html">接口中一些重要序号说明</a></p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual int ReqOrderInsert(CThostFtdcInputOrderField *pInputOrder, int nRequestID) = 0;</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pInputOrder：输入报单</p>
+<table><tr><th>字段类型</th><th>字段名称</th><th>含义</th><th>值</th></tr><tr><td>TThostFtdcBrokerIDType</td>
+<td>BrokerID</td>
+<td>经纪公司代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcInvestorIDType</td>
+<td>InvestorID</td>
+<td>投资者代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcInstrumentIDType</td>
+<td>InstrumentID</td>
+<td>合约代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcOrderRefType</td>
+<td>OrderRef</td>
+<td>报单引用</td>
+<td><strong><span style="color: #FF0000">可自定义或不填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcUserIDType</td>
+<td>UserID</td>
+<td>用户代码</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcCombOffsetFlagType</td>
+<td>CombOffsetFlag</td>
+<td>开平标志</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcCombHedgeFlagType</td>
+<td>CombHedgeFlag</td>
+<td>投机套保标志</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcDateType</td>
+<td>GTDDate</td>
+<td>GTD日期</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcBusinessUnitType</td>
+<td>BusinessUnit</td>
+<td>业务单元</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcExchangeIDType</td>
+<td>ExchangeID</td>
+<td>交易所代码</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcInvestUnitIDType</td>
+<td>InvestUnitID</td>
+<td>投资单元代码</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcAccountIDType</td>
+<td>AccountID</td>
+<td>投资者帐号</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcCurrencyIDType</td>
+<td>CurrencyID</td>
+<td>币种代码</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcClientIDType</td>
+<td>ClientID</td>
+<td>客户代码</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcIPAddressType</td>
+<td>IPAddress</td>
+<td>IP地址</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcMacAddressType</td>
+<td>MacAddress</td>
+<td>Mac地址</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcVolumeType</td>
+<td>VolumeTotalOriginal</td>
+<td>数量</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcVolumeType</td>
+<td>MinVolume</td>
+<td>最小成交量</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcBoolType</td>
+<td>IsAutoSuspend</td>
+<td>自动挂起标志</td>
+<td><strong><span style="color: #FF0000">必填0</span></strong></td>
+</tr>
+<tr><td>TThostFtdcRequestIDType</td>
+<td>RequestID</td>
+<td>请求编号</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcBoolType</td>
+<td>UserForceClose</td>
+<td>用户强平标志</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcBoolType</td>
+<td>IsSwapOrder</td>
+<td>互换单标志</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcOrderPriceTypeType</td>
+<td>OrderPriceType</td>
+<td>报单价格条件</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcDirectionType</td>
+<td>Direction</td>
+<td>买卖方向</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcTimeConditionType</td>
+<td>TimeCondition</td>
+<td>有效期类型</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcVolumeConditionType</td>
+<td>VolumeCondition</td>
+<td>成交量类型</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcContingentConditionType</td>
+<td>ContingentCondition</td>
+<td>触发条件</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcForceCloseReasonType</td>
+<td>ForceCloseReason</td>
+<td>强平原因</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcPriceType</td>
+<td>LimitPrice</td>
+<td>价格</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcPriceType</td>
+<td>StopPrice</td>
+<td>止损价</td>
+<td><strong><span style="color: #FF0000">必填</span></strong></td>
+</tr>
+<tr><td>TThostFtdcOldInstrumentIDType</td>
+<td>reserve1</td>
+<td>保留的无效字段</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcOldIPAddressType</td>
+<td>reserve2</td>
+<td>保留的无效字段</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcOrderMemoType</td>
+<td>OrderMemo</td>
+<td>报单回显字段</td>
+<td>无</td>
+</tr>
+<tr><td>TThostFtdcSequenceNo12Type</td>
+<td>SessionReqSeq</td>
+<td>session上请求计数 api自动维护</td>
+<td>无</td>
+</tr>
+</table>
+<p>OrderPriceType：确定输入的报单类型，比如限价单则填写<code>THOST_FTDC_OPT_LimitPrice</code>、市价单则填写<code>THOST_FTDC_OPT_AnyPrice</code>。</p>
+<p>Direction：确定买卖方向</p>
+<p><a id="anchor-id-05"></a> </p>
+<p>CombOffsetFlag：确定开平标志。上期所和能源交易所支持平昨和平今指令，分别对应昨仓和今仓；如果下平仓指令，则等同于平昨指令。大商所、广期所、郑商所、中金所按交易所规则只能报入平仓指令，如果报入平昨平今指令ctp会转成平仓指令报出。</p>
+<p><a id="anchor-id-04"></a> </p>
+<p>CombHedgeFlag：确定投机套保标志，注：郑商所平仓只能报入“投机”属性 例:投机 <code>THOST_FTDC_BHF_Speculation</code></p>
+<p>TimeCondition：确定报单有效期类型，目前只支持GFD和IOC，其他都不支持 例:立即完成，否则撤销 <code>THOST_FTDC_TC_IOC</code>，为支持大商所GIS属性交易指令，新增<code>THOST_FTDC_TC_GFS</code>枚举值</p>
+<p>VolumeCondition：确定成交量类型</p>
+<p>ContingentCondition：确定触发条件</p>
+<p>StopPrice：止损价，用于条件单的触发价格</p>
+<p>ForceCloseReason：普通用户下单填写<code>THOST_FTDC_FCC_NotForceClose</code> 非强平</p>
+<p>IsSwapOrder：互换单填1</p>
+<p>CurrencyID：不填写默认为CNY</p>
+<p>OrderRef：OrderRef是本地会话全局唯一编号，必须保持递增；可由用户维护，也可由系统自动填写。一定为数字。</p>
+<p>IPAddress：中继需填写客户IP地址；非中继填写无效，直接取登录成功会话中的IP。填写规则如下：ipv4原样填写，ipv6要转成非零压缩地址，即原始地址，同时要去掉冒号，eg：AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHH</p>
+<p>MacAddress：中继需填写客户MAC地址；非中继填写无效，直接取登录成功会话中的MAC。</p>
+<p>BusinessUnit：保留字段。</p>
+<p><a id="anchor-id-01"></a> </p>
+<p>LimitPrice：郑商所报单的价格会被交易所按照最小变动价位截取。(eg:报入1500.9，最小变动价位是1，会被交易所截取为1500。)其他交易所则直接返回错误。</p>
+<p>OrderMemo:报单回显字段，OrderMemo字段可供终端厂商标记订单使用，CTP不做处理，即终端填写什么CTP就返回什么</p>
+<p>nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。</p>
+<p>SessionReqSeq：一个session中，一笔业务流程周期中唯一序号，此序号由API自动填写，客户维护无效。</p>
+<p>OrderMemo：该字段CTP不做任何处理，即终端填写什么CTP就返回什么。可以用来给多账户系统做标记用。</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>0，代表成功。</p>
+<p>-1，表示网络连接失败；</p>
+<p>-2，表示未处理请求超过许可数；</p>
+<p>-3，表示每秒发送请求数超过许可数。</p>
+</div><h1><span>◇ </span>4. 调用示例</h1><div>
+<pre><code>//限价单:
+CThostFtdcInputOrderField ord = { 0 };
+strcpy_s(ord.BrokerID, “0000”);
+strcpy_s(ord.InvestorID, “00001”);
+strcpy_s(ord.ExchangeID, “SHFE”);
+strcpy_s(ord.InstrumentID, “ag1801”);
+strcpy_s(ord.UserID, “00001”);
+ord.OrderPriceType = THOST_FTDC_OPT_LimitPrice;//限价
+ord.Direction = THOST_FTDC_D_Buy;//买
+ord.CombOffsetFlag[0] = THOST_FTDC_OF_Open;//开
+ord.CombHedgeFlag[0] = THOST_FTDC_HF_Speculation;//投机
+ord.LimitPrice = 100;
+ord.VolumeTotalOriginal = 1;
+ord.TimeCondition = THOST_FTDC_TC_GFD;///当日有效
+ord.VolumeCondition = THOST_FTDC_VC_AV;///任意数量
+ord.MinVolume = 1;
+ord.ContingentCondition = THOST_FTDC_CC_Immediately;
+ord.StopPrice = 0;
+ord.ForceCloseReason = THOST_FTDC_FCC_NotForceClose;
+ord.IsAutoSuspend = 0;
+m_pUserApi->ReqOrderInsert(&ord, nRequestID++);
+</code></pre>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p><div><p>郑商所白糖期权的跨式和宽跨式套利指令，在ctp里如何实现？</p><div><table><tr><td>
+<p>和普通的限价单类似，不同的地方是在填写InstrumentID的时候</p>
+<p>郑商所跨式组合（STD）: STD SR703C5300&SR703P5300</p>
+<p>郑商所宽跨式组合（STG): STG SR703C5300&SR703P5200</p>
+<p>支持FAK和FOK</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>“已撤单报单被拒绝CZCE:出错:不支持无限制期权组合订单”是什么原因？</p><div><table><tr><td>
+<p>郑商所的组合合约下单，TimeCondition应该用<code>THOST_FTDC_TC_IOC</code>（1）。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>如果下单后遇到报错“ctp：每秒报单数超过许可数”，是什么原因？</p><div><table><tr><td>
+<p>这是由于报单频率太快被前置流控所致。投资者可询问期货公司具体的流控设置；期货公司可以自行查看FLEX"程序化交易频繁报撤单管理"中的设置，以及Front的流控配置。注意：Front的流控会放到下一秒，不会报错；FLEX"程序化交易频繁报撤单管理"中的流控会报错。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>“CTP:报单错误：不允许重复报单”，是什么原因？</p><div><table><tr><td>
+<p>这是表示OrderRef没有递增。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>“CTP:无此权限”，是什么原因？</p><div><table><tr><td>
+<p>这可能InvestorID填写错误，或者该InvestorID不属于UserID的组织架构下。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>“CTP:交易所未处理请求超过许可数”，是什么原因？</p><div><table><tr><td>
+<p>表示报单频率过快，超过了交易所的流控。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><div><p>“CTP:交易所每秒发送请求数超过许可数”，是什么原因？</p><div><table><tr><td>
+<p>表示报单频率过快，超过了交易所的流控。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><a id="anchor-id-02"></a> </p>
+<p><div><p>投机套保标志能够用来判断报单所使用的交易编码类型？</p><div><table><tr><td>
+<p>ctp支持，但是有些交易所不支持多交易编码。除中金所有投机、套保、套利三个交易编码外，其他交易所只有投机交易编码。并且交易编码还有做市商类型，但是投机套保中没有做市商这种类型。</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p><a id="anchor-id-03"></a> </p>
+<p><div><p>req请求返回值为0，可能出现回报收不到的情况吗？</p><div><table><tr><td>
+<p>可能的，Req返回为0，代表socket.write成功，并不表示柜台那边已经收到了请求。不保证一定有OnRsp和OnErrRtn的情况。</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="085-JYJK-CTHOSTFTDCTRADERAPI-REQORDERACTION.html">← 前页</a><a href="../index.html">目录</a><a href="087-JYJK-CTHOSTFTDCTRADERAPI-REQPARKEDORDERACTION.html">后页 →</a></nav>
+</body>
+</html>

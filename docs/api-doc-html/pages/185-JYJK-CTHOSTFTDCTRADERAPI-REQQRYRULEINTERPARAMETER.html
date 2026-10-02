@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReqQryRULEInterParameter</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">ReqQryRULEInterParameter</h1>
+<p>请求RULE跨品种抵扣参数查询，对应响应请求<a href="356-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRULEINTERPARAMETER.html">OnRspQryRULEInterParameter</a></p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual int ReqQryRULEInterParameter(CThostFtdcQryRULEInterParameterField *pQryRULEInterParameter, int nRequestID) = 0;</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pQryRULEInterParameter：RULE跨品种抵扣参数查询</p>
+<table><tr><th>字段类型</th><th>字段名称</th><th>含义</th><th>是否可作为过滤条件</th></tr><tr><td>TThostFtdcExchangeIDType</td>
+<td>ExchangeID</td>
+<td>交易所代码</td>
+<td><strong><span style="color: #FF0000">是</span></strong></td>
+</tr>
+<tr><td>TThostFtdcInstrumentIDType</td>
+<td>Leg1ProdFamilyCode</td>
+<td>第一腿构成品种</td>
+<td><strong><span style="color: #FF0000">是</span></strong></td>
+</tr>
+<tr><td>TThostFtdcInstrumentIDType</td>
+<td>Leg1ProdFamilyCode</td>
+<td>第二腿构成品种</td>
+<td><strong><span style="color: #FF0000">是</span></strong></td>
+</tr>
+<tr><td>TThostFtdcCommodityGroupIDType</td>
+<td>CommodityGroupID</td>
+<td>商品群号</td>
+<td><strong><span style="color: #FF0000">是</span></strong></td>
+</tr>
+</table>
+<p>nRequestID：请求ID，对应响应里的nRequestID，无递增规则，由用户自行维护。</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>0，代表成功。</p>
+<p>-1，表示网络连接失败；</p>
+<p>-2，表示未处理请求超过许可数；</p>
+<p>-3，表示每秒发送请求数超过许可数。</p>
+</div><h1><span>◇ </span>4. 调用示例</h1><div>
+<p>无</p>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p>无</p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="184-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRULEINTRAPARAMETER.html">← 前页</a><a href="../index.html">目录</a><a href="186-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODRULEMARGIN.html">后页 →</a></nav>
+</body>
+</html>

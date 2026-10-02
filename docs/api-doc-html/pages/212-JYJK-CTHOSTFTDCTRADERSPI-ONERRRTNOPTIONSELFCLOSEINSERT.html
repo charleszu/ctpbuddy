@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnErrRtnOptionSelfCloseInsert</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">OnErrRtnOptionSelfCloseInsert</h1>
+<p>期权自对冲录入错误回报，当执行<a href="084-JYJK-CTHOSTFTDCTRADERAPI-REQOPTIONSELFCLOSEINSERT.html">ReqOptionSelfCloseInsert</a>后有字段填写不对之类的CTP报错则通过此接口返回</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual void OnErrRtnOptionSelfCloseInsert(CThostFtdcInputOptionSelfCloseField *pInputOptionSelfClose, CThostFtdcRspInfoField *pRspInfo) {};</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pInputOptionSelfClose：输入的期权自对冲</p>
+<pre><code>struct CThostFtdcInputOptionSelfCloseField
+{
+    ///经纪公司代码
+    TThostFtdcBrokerIDType  BrokerID;
+    ///投资者代码
+    TThostFtdcInvestorIDType    InvestorID;
+    ///保留的无效字段
+    TThostFtdcOldInstrumentIDType   reserve1;
+    ///期权自对冲引用
+    TThostFtdcOrderRefType  OptionSelfCloseRef;
+    ///用户代码
+    TThostFtdcUserIDType    UserID;
+    ///数量
+    TThostFtdcVolumeType    Volume;
+    ///请求编号
+    TThostFtdcRequestIDType RequestID;
+    ///业务单元
+    TThostFtdcBusinessUnitType  BusinessUnit;
+    ///投机套保标志
+    TThostFtdcHedgeFlagType HedgeFlag;
+    ///期权行权的头寸是否自对冲
+    TThostFtdcOptSelfCloseFlagType  OptSelfCloseFlag;
+    ///交易所代码
+    TThostFtdcExchangeIDType    ExchangeID;
+    ///投资单元代码
+    TThostFtdcInvestUnitIDType  InvestUnitID;
+    ///资金账号
+    TThostFtdcAccountIDType AccountID;
+    ///币种代码
+    TThostFtdcCurrencyIDType    CurrencyID;
+    ///交易编码
+    TThostFtdcClientIDType  ClientID;
+    ///保留的无效字段
+    TThostFtdcOldIPAddressType  reserve2;
+    ///Mac地址
+    TThostFtdcMacAddressType    MacAddress;
+    ///合约代码
+    TThostFtdcInstrumentIDType  InstrumentID;
+    ///IP地址
+    TThostFtdcIPAddressType IPAddress;
+};
+</code></pre>
+<p>pRspInfo：响应信息</p>
+<pre><code>struct CThostFtdcRspInfoField
+{
+    ///错误代码
+    TThostFtdcErrorIDType ErrorID;
+    ///错误信息
+    TThostFtdcErrorMsgType ErrorMsg;
+};
+</code></pre>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>当查询无记录时，指针返回为null</p>
+</div><h1><span>◇ </span>4. FAQ</h1><div>
+<p>无</p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="211-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNOPTIONSELFCLOSEACTION.html">← 前页</a><a href="../index.html">目录</a><a href="213-JYJK-CTHOSTFTDCTRADERSPI-ONERRRTNORDERACTION.html">后页 →</a></nav>
+</body>
+</html>

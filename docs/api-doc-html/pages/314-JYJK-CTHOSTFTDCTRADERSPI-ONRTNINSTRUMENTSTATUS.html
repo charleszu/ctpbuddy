@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnRtnInstrumentStatus</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">OnRtnInstrumentStatus</h1>
+<p>合约交易状态通知，主动推送。公有流回报。</p>
+<p>各交易所的合约状态变化详见<a href="395-QTYWGZ-HYZTBHSM2.html">合约状态变化说明</a>。</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual void OnRtnInstrumentStatus(CThostFtdcInstrumentStatusField *pInstrumentStatus) {};</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pInstrumentStatus：合约状态</p>
+<pre><code>struct CThostFtdcInstrumentStatusField
+{
+    ///交易所代码
+    TThostFtdcExchangeIDType    ExchangeID;
+    ///保留的无效字段
+    TThostFtdcOldExchangeInstIDType reserve1;
+    ///结算组代码
+    TThostFtdcSettlementGroupIDType SettlementGroupID;
+    ///保留的无效字段
+    TThostFtdcOldInstrumentIDType   reserve2;
+    ///合约交易状态
+    TThostFtdcInstrumentStatusType  InstrumentStatus;
+    ///交易阶段编号
+    TThostFtdcTradingSegmentSNType  TradingSegmentSN;
+    ///进入本状态时间
+    TThostFtdcTimeType  EnterTime;
+    ///进入本状态原因
+    TThostFtdcInstStatusEnterReasonType EnterReason;
+    ///合约在交易所的代码
+    TThostFtdcExchangeInstIDType    ExchangeInstID;
+    ///合约代码
+    TThostFtdcInstrumentIDType  InstrumentID;
+};
+</code></pre>
+<p>EnterTime：只有郑商所的时间戳是CTP的本地时间，其他交易所的是交易所时间</p>
+<blockquote>
+  <p>注：TThostFtdcInstrumentStatusType 合约交易状态类型新增THOST_FTDC_IS_TransactionProcessing 为'7'的枚举值，与上期所API合约状态保持一致。</p>
+
+  <p>对于到期日合约，上期所收盘后推送的合约状态值是7。交易所会根据此枚举值做业务判断，该合约状态表示到期日合约在15:00至15:30分可以做执行宣告、放弃执行宣告、期权自对冲等业务。对于CTP来讲，这个状态是无用。</p>
+</blockquote>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>当查询无记录时，指针返回为null</p>
+</div><h1><span>◇ </span>4. FAQ</h1><div>
+<p><div><p>如何获取期权合约的状态？</p><div><table><tr><td>
+<p>合约状态推送到产品级别，期权也是推送到产品级别。</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="313-JYJK-CTHOSTFTDCTRADERSPI-ONRTNFROMFUTURETOBANKBYFUTURE.html">← 前页</a><a href="../index.html">目录</a><a href="315-JYJK-CTHOSTFTDCTRADERSPI-ONRTNOPENACCOUNTBYBANK.html">后页 →</a></nav>
+</body>
+</html>

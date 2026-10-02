@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6.7.9版本更新说明</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">6.7.9版本更新说明</h1>
+<p>版本号：v6.7.9_20241224 10:22:26.8774</p>
+<p>后台版本：V6.7.9</p>
+<p>变更说明：（请各终端厂商根据自身情况进行开发）</p>
+<h1><span>◇ </span>1. API变动</h1><div>
+<h2><span>◇ </span>1.1. API断线重连时间由原来的立即重连修改为等待1s后重连。</h2><div>
+</div><h2><span>◇ </span>1.2. 新增接口：组合腿信息查询，</h2><div>
+<p>该接口支持查询可申请组合合约的信息和套利合约信息，查询条件中单腿合约代码（必填）。</p>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///组合腿信息查询</p>
+<p>virtual int <a href="189-JYJK-CTHOSTFTDCTRADERAPI-REQQRYCOMBLEG.html">ReqQryCombLeg</a>(CThostFtdcQryCombLegField *pQryCombLeg, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///组合腿信息查询响应</p>
+<p>virtual void <a href="360-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYCOMBLEG.html">OnRspQryCombLeg</a>(CThostFtdcCombLegField *pCombLeg, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div></div>
+</article>
+<nav class="pager"><a href="016-6.7.8BBGXSM.html">← 前页</a><a href="../index.html">目录</a><a href="018-6.7.9-P1BBGXSM.html">后页 →</a></nav>
+</body>
+</html>

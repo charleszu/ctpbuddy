@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OnRspQryInstrument</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">OnRspQryInstrument</h1>
+<p>请求查询合约响应，当执行<a href="104-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINSTRUMENT.html">ReqQryInstrument</a>后，该方法被调用。</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>virtual void OnRspQryInstrument(CThostFtdcInstrumentField *pInstrument, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pInstrument：合约</p>
+<pre><code>struct CThostFtdcInstrumentField
+{
+    ///保留的无效字段
+    TThostFtdcOldInstrumentIDType   reserve1;
+    ///交易所代码
+    TThostFtdcExchangeIDType    ExchangeID;
+    ///合约名称
+    TThostFtdcInstrumentNameType    InstrumentName;
+    ///保留的无效字段
+    TThostFtdcOldExchangeInstIDType reserve2;
+    ///保留的无效字段
+    TThostFtdcOldInstrumentIDType   reserve3;
+    ///产品类型
+    TThostFtdcProductClassType  ProductClass;
+    ///交割年份
+    TThostFtdcYearType  DeliveryYear;
+    ///交割月
+    TThostFtdcMonthType DeliveryMonth;
+    ///市价单最大下单量
+    TThostFtdcVolumeType    MaxMarketOrderVolume;
+    ///市价单最小下单量
+    TThostFtdcVolumeType    MinMarketOrderVolume;
+    ///限价单最大下单量
+    TThostFtdcVolumeType    MaxLimitOrderVolume;
+    ///限价单最小下单量
+    TThostFtdcVolumeType    MinLimitOrderVolume;
+    ///合约数量乘数
+    TThostFtdcVolumeMultipleType    VolumeMultiple;
+    ///最小变动价位
+    TThostFtdcPriceType PriceTick;
+    ///创建日
+    TThostFtdcDateType  CreateDate;
+    ///上市日
+    TThostFtdcDateType  OpenDate;
+    ///到期日
+    TThostFtdcDateType  ExpireDate;
+    ///开始交割日
+    TThostFtdcDateType  StartDelivDate;
+    ///结束交割日
+    TThostFtdcDateType  EndDelivDate;
+    ///合约生命周期状态
+    TThostFtdcInstLifePhaseType InstLifePhase;
+    ///当前是否交易
+    TThostFtdcBoolType  IsTrading;
+    ///持仓类型
+    TThostFtdcPositionTypeType  PositionType;
+    ///持仓日期类型
+    TThostFtdcPositionDateTypeType  PositionDateType;
+    ///多头保证金率
+    TThostFtdcRatioType LongMarginRatio;
+    ///空头保证金率
+    TThostFtdcRatioType ShortMarginRatio;
+    ///是否使用大额单边保证金算法
+    TThostFtdcMaxMarginSideAlgorithmType    MaxMarginSideAlgorithm;
+    ///保留的无效字段
+    TThostFtdcOldInstrumentIDType   reserve4;
+    ///执行价
+    TThostFtdcPriceType StrikePrice;
+    ///期权类型
+    TThostFtdcOptionsTypeType   OptionsType;
+    ///合约基础商品乘数
+    TThostFtdcUnderlyingMultipleType    UnderlyingMultiple;
+    ///组合类型
+    TThostFtdcCombinationTypeType   CombinationType;
+    ///合约代码
+    TThostFtdcInstrumentIDType  InstrumentID;
+    ///合约在交易所的代码
+    TThostFtdcExchangeInstIDType    ExchangeInstID;
+    ///产品代码
+    TThostFtdcInstrumentIDType  ProductID;
+    ///基础商品代码
+    TThostFtdcInstrumentIDType  UnderlyingInstrID;
+};
+</code></pre>
+<p>VolumeMultiple：合约乘数（取自交易所）</p>
+<p>PriceTick：最小变动价位（取自交易所）</p>
+<p>IsTrading：是否活跃（取自交易所）</p>
+<p>DeliveryYear：交割年份（取自交易所）</p>
+<p>DeliveryMonth：交割月（取自交易所）</p>
+<p><a id="anchor-id-01"></a> </p>
+<p>MaxMarketOrderVolume:（取自交易所，郑商所的由柜台产品设置）</p>
+<p><a id="anchor-id-02"></a> </p>
+<p>MinMarketOrderVolume:（取自交易所，郑商所的由柜台产品设置）</p>
+<p>MaxLimitOrderVolume:（取自交易所）</p>
+<p>MinLimitOrderVolume:（取自交易所）</p>
+<blockquote>
+  <p>柜台版本6.6.5及以上版本支持每日从交易所更新市价单、限价单最大最小报单量；</p>
+
+  <p>CTP不会根据合约信息里的下单量限制去判断下单手数，交由交易所判断。</p>
+</blockquote>
+<p>OpenDate：上市日（取自交易所）</p>
+<p>CreateDate：创建日（取自交易所）</p>
+<p>ExpireDate：到期日（取自交易所）</p>
+<p>StartDeliveDate：开始交割日（取自交易所）</p>
+<p>EndDelivDate：结束交割日（取自交易所）</p>
+<blockquote>
+  <p><code>取自交易所</code>表示这些字段每天更新自交易所，其余字段为柜台设置值。</p>
+</blockquote>
+<p><a id="anchor-id-04"></a> </p>
+<p>PositionDateType:持仓日期类型（区分产品是否有昨仓和今仓的区别，只有上海和能源是使用历史持仓）</p>
+<p><a id="anchor-id-03"></a> </p>
+<p>LongMarginRatio：多头保证金率（终值），算法如下：</p>
+<p>跟随交易所多头保证金率：LongMarginRatioByMoney（由<a href="250-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATE.html">OnRspQryExchangeMarginRate</a>查到）+LongMarginRatioByMoney（由<a href="251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html">OnRspQryExchangeMarginRateAdjust</a>查到）</p>
+<p>不跟随交易所多头保证金率：NoLongMarginRatioByMoney（由<a href="251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html">OnRspQryExchangeMarginRateAdjust</a>查到）</p>
+<p>ShortMarginRatio：空头保证金率（终值），算法如下：</p>
+<p>跟随交易所空头保证金率：ShortMarginRatioByMoney（由<a href="250-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATE.html">OnRspQryExchangeMarginRate</a>查到）+ShortMarginRatioByMoney（由<a href="251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html">OnRspQryExchangeMarginRateAdjust</a>查到）</p>
+<p>不跟随交易所空头保证金率：NoShortMarginRatioByMoney（由<a href="251-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYEXCHANGEMARGINRATEADJUST.html">OnRspQryExchangeMarginRateAdjust</a>查到）</p>
+<p>pRspInfo：响应信息</p>
+<pre><code>struct CThostFtdcRspInfoField
+{
+    ///错误代码
+    TThostFtdcErrorIDType ErrorID;
+    ///错误信息
+    TThostFtdcErrorMsgType ErrorMsg;
+};
+</code></pre>
+<p>nRequestID：返回用户操作请求的ID，该ID 由用户在操作请求时指定。</p>
+<p>bIsLast：指示该次返回是否为针对nRequestID的最后一次返回。</p>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>当查询无记录时，指针返回为null</p>
+</div><h1><span>◇ </span>4. FAQ</h1><div>
+<p><div><p>月均价合约代码是否和其他期货品种代码一样吗？</p><div><table><tr><td>
+<p>不一样，例：pp2607F(聚乙烯均价合约)</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="254-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYFORQUOTE.html">← 前页</a><a href="../index.html">目录</a><a href="256-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINSTRUMENTCOMMISSIONRATE.html">后页 →</a></nav>
+</body>
+</html>

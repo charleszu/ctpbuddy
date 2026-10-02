@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CreateFtdcMdApi</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">CreateFtdcMdApi</h1>
+<p>创建<a href="027-HQJK-CTHOSTFTDCMDAPI-_CTHOSTFTDCMDAPI.html">CThostFtdcMdApi</a>实例。</p>
+<p>接口由 “CreateFtdcMdApi(const char *pszFlowPath = "", const bool blsUsingUdp=false, const bool blsMulticast=false);”改为“CreateFtdcMdApi(const char *pszFlowPath = "", const bool blsUsingUdp=false, const bool blsMulticast=false, bool blsProductionMode=true);”  。</p>
+<h1><span>◇ </span>1. 函数原型</h1><div>
+<p>static <a href="027-HQJK-CTHOSTFTDCMDAPI-_CTHOSTFTDCMDAPI.html">CThostFtdcMdApi</a> *CreateFtdcMdApi(const char *pszFlowPath = "", const bool bIsUsingUdp=false, const bool bIsMulticast=false, bool bIsProductionMode=true);</p>
+</div><h1><span>◇ </span>2. 参数</h1><div>
+<p>pszFlowPath：常量字符指针，用于指定一个文件目录来存贮交易托管系统发布消息的状态。默认值代表当前目录。</p>
+<p>bIsUsingUdp：是否使用UDP行情</p>
+<p>bIsMulticast：是否使用组播行情</p>
+<blockquote>
+  <p>组播行情只能在内网中使用，需要咨询所连接的系统是否支持组播行情。</p>
+</blockquote>
+<p>bIsProductionMode:选在连接的是生产还是评测前置，true:使用生产版本的API  false:使用测评版本API</p>
+<p>各类型行情字段组合如下：</p>
+<table><tr><th>　</th><th>bIsUsingUdp</th><th>bIsMulticast</th></tr><tr><td>TCP行情前置</td>
+<td>false</td>
+<td>false</td>
+</tr>
+<tr><td>UDP行情前置</td>
+<td>true</td>
+<td>false</td>
+</tr>
+<tr><td>组播行情前置</td>
+<td>true</td>
+<td>true</td>
+</tr>
+</table>
+<p>连接mdfront时，在ini中有ThostChannelModel、ThostUsingMulticast两项用于配置对客户端的连接模式，分三种情况：</p>
+<table><tr><th>　</th><th>ThostChannelModel</th><th>ThostUsingMulticast</th><th>终端配置的模式</th></tr><tr><td>TCP模式</td>
+<td>tcp</td>
+<td>　</td>
+<td>TCP</td>
+</tr>
+<tr><td>UDP模式</td>
+<td>udp</td>
+<td>no</td>
+<td>TCP、UDP</td>
+</tr>
+<tr><td>组播模式</td>
+<td>udp</td>
+<td>yes</td>
+<td>组播</td>
+</tr>
+</table>
+</div><h1><span>◇ </span>3. 返回</h1><div>
+<p>返回一个<a href="027-HQJK-CTHOSTFTDCMDAPI-_CTHOSTFTDCMDAPI.html">CThostFtdcMdApi</a>实例。</p>
+</div><h1><span>◇ </span>4. 调用示例</h1><div>
+<pre><code>CThostFtdcMdApi  *pUserMdApi = CThostFtdcMdApi::CreateFtdcMdApi();
+CSimpleMdHandler ash(pUserMdApi);
+pUserMdApi->RegisterSpi(&ash);
+pUserMdApi->RegisterFront(“tcp://127.0.0.1:41205”);
+pUserMdApi->Init();
+</code></pre>
+</div><h1><span>◇ </span>5. FAQ</h1><div>
+<p><div><p>“RuntimeError:can not open CFlow file in line 279 of file ....\source\userapi\ThostFtdcUserApiImplBase.cpp”程序一运行就报这个错是为什么？</p><div><table><tr><td>
+<p>程序运行之前，flow目录必须提前创建好，否则会报错。</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div>
+</article>
+<nav class="pager"><a href="027-HQJK-CTHOSTFTDCMDAPI-_CTHOSTFTDCMDAPI.html">← 前页</a><a href="../index.html">目录</a><a href="029-HQJK-CTHOSTFTDCMDAPI-GETAPIVERSION.html">后页 →</a></nav>
+</body>
+</html>

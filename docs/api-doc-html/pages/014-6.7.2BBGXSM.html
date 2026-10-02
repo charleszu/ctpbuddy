@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6.7.2版本更新说明</title>
+<style>:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1f2328;
+       font: 16px/1.75 -apple-system, "Segoe UI", "PingFang SC",
+       "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+.doc { max-width: 920px; margin: 0 auto; padding: 32px 28px 48px; }
+.doc > h1.pagetitle { font-size: 1.6em; margin: 0 0 .6em;
+       padding-bottom: .3em; border-bottom: 2px solid #d0d7de; }
+h1 { font-size: 1.35em; margin: 1.4em 0 .5em; }
+h2 { font-size: 1.2em; margin: 1.3em 0 .5em; }
+h3 { font-size: 1.08em; margin: 1.2em 0 .5em; }
+p { margin: .55em 0; }
+a { color: #0969da; text-decoration: none; }
+a:hover { text-decoration: underline; }
+table { border-collapse: collapse; margin: .8em 0; font-size: .95em; }
+th, td { border: 1px solid #d0d7de; padding: 5px 10px; text-align: left; }
+th { background: #f6f8fa; }
+pre { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+      padding: 12px 14px; overflow: auto; font-size: .9em; line-height: 1.5; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+       background: #f6f8fa; border-radius: 4px; padding: 0 4px; font-size: .92em; }
+pre code { background: none; padding: 0; }
+blockquote { margin: .6em 0; padding: .2em 1em; color: #57606a;
+       border-left: 4px solid #d0d7de; }
+img { max-width: 100%; height: auto; }
+hr { border: none; border-top: 1px solid #d0d7de; margin: 1.6em 0; }
+ul, ol { padding-left: 1.6em; }
+.pager { display: flex; gap: 1.2em; max-width: 920px; margin: 0 auto;
+       padding: 0 28px 40px; border-top: 1px solid #d0d7de; padding-top: 14px;
+       font-size: .95em; }
+.pager .home { margin-left: auto; }
+</style>
+</head>
+<body>
+<article class="doc">
+<h1 class="pagetitle">6.7.2版本更新说明</h1>
+<p>版本号：v6.7.2_20230913_traderapi</p>
+<p>后台版本：V6.7.2</p>
+<p>注意：此版本为支持郑商所附加保证金算法调整、中金所新组保RCAMS和大商所新组保Rule业务而变更，新增12个交易查询接口，请各终端厂商根据自身情况进行开发。该版本修改了心跳打印逻辑，不会自动打印了。</p>
+<p>变更说明：（请各终端厂商根据自身情况进行开发）</p>
+<h1><span>◇ </span>1. API变动</h1><div>
+<h2><span>◇ </span>1.1. 新增接口：SPBM附加跨品种抵扣参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///SPBM附加跨品种抵扣参数查询</p>
+<p>virtual int <a href="175-JYJK-CTHOSTFTDCTRADERAPI-REQQRYSPBMADDONINTERPARAMETER.html">ReqQrySPBMAddOnInterParameter</a>(CThostFtdcQrySPBMAddOnInterParameterField *pQrySPBMAddOnInterParameter, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///SPBM附加跨品种抵扣参数查询响应</p>
+<p>virtual void <a href="346-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYSPBMADDONINTERPARAMETER.html">OnRspQrySPBMAddOnInterParameter</a>(CThostFtdcSPBMAddOnInterParameterField *pSPBMAddOnInterParameter, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};  </p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.2. 新增接口：RCAMS产品组合信息查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS产品组合信息查询</p>
+<p>virtual int <a href="176-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSCOMBPRODUCTINFO.html">ReqQryRCAMSCombProductInfo</a>(CThostFtdcQryRCAMSCombProductInfoField *pQryRCAMSCombProductInfo, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS产品组合信息查询响应</p>
+<p>virtual void <a href="347-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRCAMSCOMBPRODUCTINFO.html">OnRspQryRCAMSCombProductInfo</a>(CThostFtdcRCAMSCombProductInfoField *pRCAMSCombProductInfo, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.3. 新增接口：RCAMS同合约风险对冲参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS同合约风险对冲参数查询</p>
+<p>virtual int <a href="177-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINSTRPARAMETER.html">ReqQryRCAMSInstrParameter</a>(CThostFtdcQryRCAMSInstrParameterField *pQryRCAMSInstrParameter, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS同合约风险对冲参数查询响应</p>
+<p>virtual void <a href="348-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRCAMSINSTRPARAMETER.html">OnRspQryRCAMSInstrParameter</a>(CThostFtdcRCAMSInstrParameterField *pRCAMSInstrParameter, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.4. 新增接口：RCAMS品种内风险对冲参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS品种内风险对冲参数查询</p>
+<p>virtual int <a href="178-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINTRAPARAMETER.html">ReqQryRCAMSIntraParameter</a>(CThostFtdcQryRCAMSIntraParameterField *pQryRCAMSIntraParameter, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS品种内风险对冲参数查询响应</p>
+<p>virtual void <a href="349-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRCAMSINTRAPARAMETER.html">OnRspQryRCAMSIntraParameter</a>(CThostFtdcRCAMSIntraParameterField *pRCAMSIntraParameter, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.5. 新增接口：RCAMS跨品种风险折抵参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS跨品种风险折抵参数查询</p>
+<p>virtual int <a href="179-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINTERPARAMETER.html">ReqQryRCAMSInterParameter</a>(CThostFtdcQryRCAMSInterParameterField *pQryRCAMSInterParameter, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS跨品种风险折抵参数查询响应</p>
+<p>virtual void <a href="350-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRCAMSINTERPARAMETER.html">OnRspQryRCAMSInterParameter</a>(CThostFtdcRCAMSInterParameterField *pRCAMSInterParameter, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.6. 新增接口：RCAMS空头期权风险调整参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS空头期权风险调整参数查询</p>
+<p>virtual int <a href="180-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSSHORTOPTADJUSTPARAM.html">ReqQryRCAMSShortOptAdjustParam</a>(CThostFtdcQryRCAMSShortOptAdjustParamField *pQryRCAMSShortOptAdjustParam, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS空头期权风险调整参数查询响应</p>
+<p>virtual void <a href="351-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRCAMSSHORTOPTADJUSTPARAM.html">OnRspQryRCAMSShortOptAdjustParam</a>(CThostFtdcRCAMSShortOptAdjustParamField *pRCAMSShortOptAdjustParam, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.7. 新增接口：RCAMS策略组合持仓查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS策略组合持仓查询</p>
+<p>virtual int <a href="181-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRCAMSINVESTORCOMBPOSITION.html">ReqQryRCAMSInvestorCombPosition</a>(CThostFtdcQryRCAMSInvestorCombPositionField *pQryRCAMSInvestorCombPosition, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RCAMS策略组合持仓查询响应</p>
+<p>virtual void <a href="352-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRCAMSINVESTORCOMBPOSITION.html">OnRspQryRCAMSInvestorCombPosition</a>(CThostFtdcRCAMSInvestorCombPositionField *pRCAMSInvestorCombPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.8. 新增接口：投资者品种RCAMS保证金查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///投资者品种RCAMS保证金查询</p>
+<p>virtual int <a href="182-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODRCAMSMARGIN.html">ReqQryInvestorProdRCAMSMargin</a>(CThostFtdcQryInvestorProdRCAMSMarginField *pQryInvestorProdRCAMSMargin, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///投资者品种RCAMS保证金查询响应</p>
+<p>virtual void <a href="353-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINVESTORPRODRCAMSMARGIN.html">OnRspQryInvestorProdRCAMSMargin</a>(CThostFtdcInvestorProdRCAMSMarginField *pInvestorProdRCAMSMargin, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.9. 新增接口：RULE合约保证金参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RULE合约保证金参数查询</p>
+<p>virtual int <a href="183-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRULEINSTRPARAMETER.html">ReqQryRULEInstrParameter</a>(CThostFtdcQryRULEInstrParameterField *pQryRULEInstrParameter, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RULE合约保证金参数查询响应</p>
+<p>virtual void <a href="354-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRULEINSTRPARAMETER.html">OnRspQryRULEInstrParameter</a>(CThostFtdcRULEInstrParameterField *pRULEInstrParameter, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.10. 新增接口：RULE品种内对锁仓折扣参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RULE品种内对锁仓折扣参数查询</p>
+<p>virtual int <a href="184-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRULEINTRAPARAMETER.html">ReqQryRULEIntraParameter</a>(CThostFtdcQryRULEIntraParameterField *pQryRULEIntraParameter, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RULE品种内对锁仓折扣参数查询响应</p>
+<p>virtual void <a href="355-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRULEINTRAPARAMETER.html">OnRspQryRULEIntraParameter</a>(CThostFtdcRULEIntraParameterField *pRULEIntraParameter, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.11. 新增接口：RULE跨品种抵扣参数查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RULE跨品种抵扣参数查询</p>
+<p>virtual int <a href="185-JYJK-CTHOSTFTDCTRADERAPI-REQQRYRULEINTERPARAMETER.html">ReqQryRULEInterParameter</a>(CThostFtdcQryRULEInterParameterField *pQryRULEInterParameter, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///RULE跨品种抵扣参数查询响应</p>
+<p>virtual void <a href="356-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYRULEINTERPARAMETER.html">OnRspQryRULEInterParameter</a>(CThostFtdcRULEInterParameterField *pRULEInterParameter, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+</div><h2><span>◇ </span>1.12. 新增接口：投资者产品RULE保证金查询。</h2><div>
+<p>（1）查询请求</p>
+<p><div><p></p><div><table><tr><td>
+<p>///投资者产品RULE保证金查询</p>
+<p>virtual int <a href="186-JYJK-CTHOSTFTDCTRADERAPI-REQQRYINVESTORPRODRULEMARGIN.html">ReqQryInvestorProdRULEMargin</a>(CThostFtdcQryInvestorProdRULEMarginField *pQryInvestorProdRULEMargin, int nRequestID) = 0;</p>
+</td></tr></table>
+</div><p></p></div></p>
+<p>（2）查询响应</p>
+<p><div><p></p><div><table><tr><td>
+<p>///投资者产品RULE保证金查询响应</p>
+<p>virtual void <a href="357-JYJK-CTHOSTFTDCTRADERSPI-ONRSPQRYINVESTORPRODRULEMARGIN.html">OnRspQryInvestorProdRULEMargin</a>(CThostFtdcInvestorProdRULEMarginField *pInvestorProdRULEMargin, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) {};</p>
+</td></tr></table>
+</div><p></p></div></p>
+
+</div></div></div>
+</article>
+<nav class="pager"><a href="013-6.7.1BBGXSM.html">← 前页</a><a href="../index.html">目录</a><a href="015-6.7.7BBGXSM.html">后页 →</a></nav>
+</body>
+</html>
