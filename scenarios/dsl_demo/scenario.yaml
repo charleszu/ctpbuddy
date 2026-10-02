@@ -1,0 +1,51 @@
+# dsl_demo —— DESIGN §7.4 场景管道演练（M2-2）
+#
+# source → transforms → virtual clock → 撮合/账本：
+#   freeze     09:32:00 起 30s 停牌（09:32:00 这一 tick 被丢弃，12 → 11）
+#   liquidity  09:31:00 起五档挂量 ×0.5（bid 10→5 / ask 12→6，余档同理）
+#   gap        09:33:00 起价格 +2（last/average/五档价平移，涨跌停价不动）
+#
+# 变换后的行情序列（e2e tests/e2e/m2_scenario.py 逐 tick 断言）：
+#   09:30:00 last 3500 bid 3498/10 ask 3502/12
+#   09:30:30 last 3501 bid 3499/10 ask 3503/12
+#   09:31:00 last 3502 bid 3500/5  ask 3504/6   ← liquidity 生效
+#   09:31:30 last 3503 bid 3501/5  ask 3505/6   ← 断言①（orders_filled / balance）在此求值
+#   09:32:30 last 3505 bid 3503/5  ask 3507/6   ← 09:32:00 被 freeze 丢弃
+#   09:33:00 last 3508 bid 3506/5  ask 3510/6   ← gap +2 生效（3506/3508 → 3508/3510）
+#   09:33:30 last 3509 bid 3507/5  ask 3511/6
+#   09:34:00 last 3510 bid 3508/5  ask 3512/6   ← 断言②（fills）在此求值
+#   09:34:30 last 3511 bid 3509/5  ask 3513/6
+#   09:35:00 last 3512 bid 3510/5  ask 3514/6
+#   09:35:30 last 3513 bid 3511/5  ask 3515/6
+name: dsl-pipeline-demo
+source:
+  kind: csv            # 唯一支持的来源（M2）
+  path: ticks.csv      # 相对场景目录
+transforms:
+  - kind: freeze       # 停牌：[at, at+duration) 内无行情
+    at: "09:32:00"
+    duration: 30s
+  - kind: liquidity    # 流动性：五档挂量 ×scale（四舍五入 half away from zero）
+    from: "09:31:00"
+    scale: 0.5
+  - kind: gap          # 跳空：at 起价格平移（涨跌停价不动）
+    at: "09:33:00"
+    shift: 2.0
+clock:
+  time_scale: 0        # 0 = 尽快回放；否则为倍速
+  start: "09:30:00"    # 早于此虚拟时刻的 tick 直接丢弃（不投放）
+accounts:
+  - investor: "dsl001" # 场景自动开户（初始资金可配；未出现的账号走服务默认）
+    balance: 800000
+  - investor: "dsl002"
+    balance: 400000
+assertions:            # one-shot：虚拟时钟越过 t0+after 时求值一次
+  - after: 90s         # t0 = 09:30:00（首个投放 tick）→ 09:31:30 求值
+    investor: "dsl001"
+    expect: { orders_filled: ">=1", balance: ">0" }
+  - after: 240s        # 09:34:00 求值
+    investor: "dsl001"
+    expect: { fills: ">=2" }
+  - after: 90s         # dsl002 全程不报单 → 失败路径也要可观测（journal pass=false）
+    investor: "dsl002"
+    expect: { orders_filled: ">=1" }

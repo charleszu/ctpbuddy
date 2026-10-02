@@ -316,11 +316,29 @@ assertions:             # 可选：场景内断言（CI 用）
 
 管道：`source → transforms → virtual clock → 撮合/账本`。Transforms 顺序执行、可组合，自身也是确定性纯函数。
 
+**落地口径（M2-2，2026-10-02）**：
+
+- **YAML 是编写格式，JSON 是核心消费格式**。唯一解析器/校验器在 Python 控制面（`py/ctpbuddy/scenario.py`，stdlib-only 的受限 YAML 子集：块映射/块序列/标量/一级 flow mapping/注释，错误带行号）。归一化后经 ADMIN `start_scenario` 的 `spec` 字段内联下发，或由 `ctpbuddy scenario compile DIR` 写 `scenario.json` 供核心启动路径（`--scenario`）读取；Rust 核心零 YAML、零 locale、纯确定性管道。启动路径与 ADMIN 路径共用同一个 `build_scenario`，保证两条加载路径管道一致。
+- 时间全部归一为「当日虚拟 ms」：`HH:MM:SS[.mmm]`（接受 `YYYY-MM-DD HH:MM:SS` 日期前缀，取时间部分）；时长 `90s` / `5m` / `1h30m` / 裸秒数。
+- **transforms 纯函数、顺序执行、可组合**（market crate `transform.rs`）：freeze 丢弃 `[at, at+duration)` 窗口内 tick；gap 从 at 起平移 last/average/五档价格（**涨跌停价不动**——涨跌停是规则表概念，跳空穿停板由引擎限价检查拒单，符合真实行为）；liquidity 从 from 起五档挂量 ×scale（round half away from zero，clamp ≥0）。
+- clock：`time_scale`（0 = 尽快，否则为倍速）优先于服务默认；`start` 之前的 tick 直接丢弃、永不投放。显式 speed 参数 > spec `clock.time_scale` > 服务默认 > 0。
+- accounts：场景加载时按 (investor, balance) 开户（既有账户状态不动；balance ≤ 0 回落服务默认资金）；未列出的账号首次登录按默认资金开户。
+- assertions：**one-shot**——虚拟时钟越过 `t0 + after_ms`（t0 = 首个投放 tick）时在 pulse 求值一次，journal `assertion` 事件（metric/op/value/actual/pass/after_ms），admin status 暴露 total/evaluated/passed/failed/items。指标 10 个：balance（=dynamic_equity）/available/close_profit/commission/position_profit/used_margin/frozen_margin/orders_filled（今日 VolumeTraded>0 的去重 OrderSysID 数）/open_orders/fills；比较符 `>=`/`<=`/`>`/`<`/`==`/`!=`（`=` 归一为 `==`）。`expect` flow mapping 按指标展开为逐指标断言。
+- 编译缓存：`scenario.json` 不旧于 `scenario.yaml`（mtime 判断）时优先，否则重解析 yaml；`ctpbuddy scenario validate DIR` 同时校验 ticks.csv 与 DSL。
+- 参考场景 `scenarios/dsl_demo/`（12 tick 原始流经 freeze/liquidity/gap 后 11 tick，含 4 条断言其中 1 条设计为失败路径）；e2e `tests/e2e/m2_scenario.py` 逐 tick 断言变换后的行情序列与成交价。
+
 ### 7.5 播放控制
 
 - 运行 / 暂停 / **单步（一个 tick）** / 倍速（1–1000x）/ seek / 循环 / 停止；
 - 控制入口：Web 后台、CLI（`ctpbuddy replay ...`）、ADMIN 帧；
 - 单步与暂停是调试刚需，优先级高于倍速。
+
+**落地口径（M2-2，2026-10-02）**：
+
+- pause/resume/step 随 M1 场景加载落地；**seek/loop 为 M2-2 新增**。`seek(target_ms)` 定位到首个 vt ≥ target 的 tick——跳过的 tick 永不投放，之后从该位续播；`loop(on)` 在流结束后重置 idx=0、virtual_time=ticks[0].vt 并重锚墙钟基线（引擎/账本状态**不**重置，账户重置走 `reset_account` 或重载场景）。
+- 控制入口三面齐全：ADMIN 帧（`pause`/`resume`/`step`/`seek`/`loop`/`set_speed`）、CLI（`ctpbuddy replay pause|resume|step|seek|loop|speed|status`）、Python SDK（`Admin.pause/seek/loop/set_speed/...`）；Web 后台入口留待 M3。
+- `step` 在暂停时释放恰好一个 tick；loop 重启在暂停时同样发生（重置位置但不投放，随后一步即重播首 tick）——e2e 以此确定性验证。
+- 播放状态可观测：admin status 的 `playback` 暴露 loaded/idx/total/paused/speed/looping/virtual_time/trading_day。
 
 ### 7.6 确定性边界（承诺的精确措辞）
 
@@ -759,7 +777,7 @@ CREATE TABLE audit_log (
 | 子项 | 状态 | 交付物 / 出口标准 |
 |---|---|---|
 | M2-1 限价簿撮合引擎（价格/时间优先 + 单 vs 单） | ✅ 2026-10-02 | engine.rs 簿结构 + FAK/FOK + 自成交预防 + 双份 Trade + 冻结闭环；口径入 §8.10；`m2_book.py` 16 断言全绿 + M1 双套件回归 |
-| M2-2 场景 DSL 管道与播放控制 | 待启 | scenario.yaml（source→transforms freeze/gap/liquidity→clock→accounts→assertions）；seek/loop；ADMIN+CLI |
+| M2-2 场景 DSL 管道与播放控制 | ✅ 2026-10-02 | scenario.py（stdlib YAML 子集 + 归一化/校验 + compile 缓存）、transform.rs（freeze/gap/liquidity，4 测）、server scenario.rs（spec 解析 + one-shot 断言，5 测）、ADMIN seek/loop + start_scenario 内联 spec、CLI `replay`/`scenario compile|validate`、`scenarios/dsl_demo/`；`m2_scenario.py` e2e 全绿（transforms/accounts/断言/journal/seek/loop）+ M2-1 与 M1 三套件回归 |
 | M2-3 journal 录制/重放与确定性 hash 校验 | 待启 | 同场景两次输出 hash 一致 |
 | M2-4 报单流控规则表 + 订单状态机与回报时序 | 待启 | §8.3 规则表落地；大商所自补全部成交特例（engine.rs TODO 锚点）；OrderSubmitStatus 七态细化 |
 
@@ -871,6 +889,8 @@ ctpbuddy/
 | 11 | §8.10（新增） | M2-1 限价簿撮合落地口径整节：簿结构与到达序、两时刻撮合、成交价=maker 限价、五档 `used` 消耗、FAK/FOK 官方编码精确语义、自成交预防、簿内成交双份 Trade 共享 TradeID、冻结按原始额 pro-rata + 终态解冻闭环、成交开平归一化（仅 SHFE/INE 留平今/平昨） | M2-1 代码 + m2_book.py 实测 |
 | 12 | §8.2 / §8.10 | **TC/VC 字符编码纠正**：官方 `ThostFtdcUserApiDataType.h` 为 TC_IOC='1'、TC_GFS='2'、TC_GFD='3'、TC_GTD='4'、TC_GTC='5'、VC_AV='1'、VC_MV='2'、VC_CV='3'；M1 实现曾按「'1'=GFD、'3'=IOC、'2'=all」编码（与官方相反），M2-1 已改官方值：GFS→GFD 归一，GTD/GTC 显式拒绝（不静默丢弃），AnyPrice 强制 IOC，SDK `order_insert` 默认 `time_condition='3'` 并开放 `min_volume` | 官方头文件 + notes/01 A3 |
 | 13 | §12.2 | M2 里程碑拆为 M2-1~M2-4 四个子项并建进度表（M2-1 ✅） | 任务分解 |
+| 14 | §7.4（新增落地口径） | M2-2：YAML=编写格式 / JSON=核心消费格式（Python 唯一解析器，Rust 核心零 YAML；启动与 ADMIN 共用 build_scenario）；transforms 纯函数语义逐条（gap 不动涨跌停价、liquidity round half away from zero）；assertions one-shot + 10 指标口径；编译缓存 mtime 规则 | M2-2 代码 + m2_scenario.py 实测 |
+| 15 | §7.5（新增落地口径）+ §12.2 | M2-2：seek（跳过的 tick 永不投放、之后续播）与 loop（流结束重置 idx=0 + 重锚墙钟，引擎/账本不重置）；ADMIN+CLI+SDK 三面控制；M2-2 ✅ | M2-2 代码 + m2_scenario.py 实测 |
 
 ---
 

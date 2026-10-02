@@ -10,6 +10,7 @@ pub mod dtime;
 pub mod handlers;
 pub mod journal;
 pub mod json;
+pub mod scenario;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
@@ -44,8 +45,10 @@ pub struct Config {
     pub broker_id: String,
     pub scenario_dir: Option<String>,
     pub initial_funds: f64,
+    /// Playback speed multiplier; `None` = unspecified (a scenario's
+    /// `clock.time_scale` or the as-fast-as-possible default applies).
     /// 0 = as fast as possible.
-    pub playback_speed: f64,
+    pub playback_speed: Option<f64>,
     /// Directory for the journal / logs. Empty = disabled.
     pub data_dir: String,
     /// 查询流控 (docs: 报单流控、查询流控和会话数控制): per-session
@@ -62,7 +65,7 @@ impl Default for Config {
             broker_id: "8888".into(),
             scenario_dir: None,
             initial_funds: 2_000_000.0,
-            playback_speed: 0.0,
+            playback_speed: None,
             data_dir: String::new(),
             qry_freq: 2,
         }
@@ -193,6 +196,62 @@ struct Conn {
 
 /// The whole world: market, matching, ledger, sessions, transports.
 /// State is mutated exclusively inside `run_loop`.
+/// Read + parse `scenario.json` (the compiled form of scenario.yaml) at
+/// startup. A missing file means a legacy ticks.csv-only scenario; a broken
+/// file is reported and ignored (the core still serves the raw tick stream).
+fn load_startup_spec(dir: &str) -> Option<scenario::Spec> {
+    let path = format!("{dir}/scenario.json");
+    let text = std::fs::read_to_string(&path).ok()?;
+    match json::parse(&text) {
+        Ok(v) => match scenario::parse_spec(&v) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                eprintln!("[ctpbuddy] scenario.json invalid: {e}");
+                None
+            }
+        },
+        Err(e) => {
+            eprintln!("[ctpbuddy] scenario.json parse failed: {e}");
+            None
+        }
+    }
+}
+
+/// Resolve a scenario directory into (catalog, transformed tick stream).
+/// Shared by startup and the admin `start_scenario` command so both paths
+/// apply the pipeline identically (DESIGN §7.4: source → transforms → clock).
+fn build_scenario(
+    dir: &str,
+    spec: Option<&scenario::Spec>,
+) -> Result<(Catalog, Vec<Tick>), String> {
+    let instruments = format!("{dir}/instruments.csv");
+    let mut catalog = Catalog::builtin();
+    if std::path::Path::new(&instruments).exists() {
+        match Catalog::load_csv(&instruments) {
+            Ok(c) if !c.is_empty() => catalog = c,
+            Ok(_) => {}
+            Err(e) => return Err(format!("instruments.csv: {e}")),
+        }
+    }
+    let ticks_path = match spec.and_then(|s| s.source_path.as_deref()) {
+        Some(p) => format!("{dir}/{p}"),
+        None => format!("{dir}/ticks.csv"),
+    };
+    let ticks = CsvSource::load(&ticks_path).map_err(|e| format!("{}: {e}", ticks_path))?;
+    let ticks = match spec {
+        Some(s) => {
+            let mut t = ctpbuddy_market::transform::apply_all(&ticks, &s.transforms);
+            if let Some(start) = s.start_ms {
+                // clock.start: ticks before the start are dropped, never delivered
+                t.retain(|tk| tk.virtual_ms() >= start);
+            }
+            t
+        }
+        None => ticks,
+    };
+    Ok((catalog, ticks))
+}
+
 pub struct World {
     cfg: Config,
     engine: MatchingEngine,
@@ -207,6 +266,13 @@ pub struct World {
     orders_today: Vec<CThostFtdcOrderField>,
     /// Today's fills (QryTrade projection).
     trades_today: Vec<CThostFtdcTradeField>,
+    /// Loaded scenario name ("" when none / legacy dir without scenario.json).
+    scenario_name: String,
+    /// Virtual ms of the scenario's first delivered tick (assertion `after`
+    /// is relative to it). None when no scenario is loaded.
+    scenario_t0_ms: Option<f64>,
+    /// Scenario assertions (DESIGN §7.4), one-shot at their virtual time.
+    assertions: Vec<scenario::Assertion>,
     shutdown: bool,
 }
 
@@ -228,27 +294,40 @@ impl World {
         let mut playback = None;
         let mut vt_day = dtime::today_trading_day();
         let mut vt_ms = dtime::now_ms_of_day();
+        let mut scenario_name = String::new();
+        let mut scenario_t0_ms = None;
+        let mut assertions = Vec::new();
+        let mut startup_accounts: Vec<(String, Option<f64>)> = Vec::new();
 
         if let Some(dir) = &cfg.scenario_dir {
-            let instruments = format!("{dir}/instruments.csv");
-            if std::path::Path::new(&instruments).exists() {
-                match Catalog::load_csv(&instruments) {
-                    Ok(c) if !c.is_empty() => engine_catalog = c,
-                    Ok(_) => {}
-                    Err(e) => eprintln!("[ctpbuddy] instruments.csv load failed: {e}"),
-                }
-            }
-            let ticks_path = format!("{dir}/ticks.csv");
-            match CsvSource::load(&ticks_path) {
-                Ok(ticks) => {
+            // scenario.json is the compiled form of scenario.yaml (written by
+            // `ctpbuddy scenario compile`); no file = legacy ticks.csv-only.
+            let spec = load_startup_spec(dir);
+            match build_scenario(dir, spec.as_ref()) {
+                Ok((catalog, ticks)) => {
+                    engine_catalog = catalog;
                     if let Some(first) = ticks.first() {
                         vt_day = first.trading_day.clone();
                         vt_ms = first.virtual_ms();
+                        scenario_t0_ms = Some(first.virtual_ms());
                     }
-                    playback = Some(Playback::new(ticks, cfg.playback_speed));
-                    println!("[ctpbuddy] ticks {}", playback.as_ref().unwrap().progress().1);
+                    if let Some(s) = &spec {
+                        scenario_name = s.name.clone();
+                        assertions = s.assertions.clone();
+                        startup_accounts = s.accounts.clone();
+                    }
+                    let speed = cfg
+                        .playback_speed
+                        .or(spec.as_ref().and_then(|s| s.time_scale))
+                        .unwrap_or(0.0);
+                    playback = Some(Playback::new(ticks, speed));
+                    println!(
+                        "[ctpbuddy] ticks {} (scenario {})",
+                        playback.as_ref().unwrap().progress().1,
+                        if scenario_name.is_empty() { "legacy" } else { &scenario_name }
+                    );
                 }
-                Err(e) => eprintln!("[ctpbuddy] ticks.csv load failed: {e}"),
+                Err(e) => eprintln!("[ctpbuddy] scenario load failed: {e}"),
             }
         }
 
@@ -267,7 +346,7 @@ impl World {
             let _ = j.flush();
         }
 
-        World {
+        let mut world = World {
             engine: MatchingEngine::new(engine_catalog),
             ledger: Ledger::new(cfg.initial_funds),
             playback,
@@ -277,8 +356,212 @@ impl World {
             vt_now_ms: vt_ms,
             orders_today: Vec::new(),
             trades_today: Vec::new(),
+            scenario_name,
+            scenario_t0_ms,
+            assertions,
             shutdown: false,
             cfg,
+        };
+        let broker = world.cfg.broker_id.clone();
+        for (investor, funds) in &startup_accounts {
+            world.ledger.ensure_account_with(&broker, investor, funds.unwrap_or(0.0));
+        }
+        world.eval_assertions();
+        world
+    }
+
+    /// Load a scenario into the world (admin `start_scenario`): swap catalog
+    /// and tick stream, reset today's order state, create scenario accounts,
+    /// install assertions. Returns (tick count, trading day, scenario name).
+    pub(crate) fn apply_scenario(
+        &mut self,
+        dir: &str,
+        spec: Option<&scenario::Spec>,
+        paused: bool,
+        speed: Option<f64>,
+    ) -> Result<(usize, String, String), String> {
+        let (catalog, ticks) = build_scenario(dir, spec)?;
+        if ticks.is_empty() {
+            return Err("场景没有任何 tick（transforms / clock.start 之后为空）".to_string());
+        }
+        let n = ticks.len();
+        let day = ticks[0].trading_day.clone();
+        let t0 = ticks[0].virtual_ms();
+        let name = spec.map(|s| s.name.clone()).unwrap_or_default();
+
+        // NOTE: swapping the scenario drops active orders; their ledger freezes
+        // are released with `reset_account` (M2: cancel-all admin command).
+        self.engine = MatchingEngine::new(catalog);
+        self.orders_today.clear();
+        self.trades_today.clear();
+        // explicit speed > scenario clock.time_scale > server default
+        let speed = speed
+            .or(spec.and_then(|s| s.time_scale))
+            .or(self.cfg.playback_speed)
+            .unwrap_or(0.0);
+        let mut pb = Playback::new(ticks, speed);
+        if paused {
+            pb.pause();
+        }
+        self.playback = Some(pb);
+        self.vt_trading_day = day.clone();
+        self.vt_now_ms = t0;
+        self.scenario_name = name.clone();
+        self.scenario_t0_ms = Some(t0);
+        self.assertions = spec.map(|s| s.assertions.clone()).unwrap_or_default();
+
+        let broker = self.cfg.broker_id.clone();
+        if let Some(s) = spec {
+            for (investor, funds) in &s.accounts {
+                self.ledger
+                    .ensure_account_with(&broker, investor, funds.unwrap_or(0.0));
+            }
+        }
+        self.eval_assertions();
+        Ok((n, day, name))
+    }
+
+    /// Current metric value for a scenario assertion (DESIGN §7.4).
+    fn assertion_actual(&self, broker: &str, investor: &str, metric: &str) -> f64 {
+        let acct = |f: &dyn Fn(&ctpbuddy_ledger::Account) -> f64| -> f64 {
+            self.ledger
+                .account(broker, investor)
+                .map(|a| f(a))
+                .unwrap_or(f64::NAN)
+        };
+        match metric {
+            "balance" => acct(&|a| a.dynamic_equity()),
+            "available" => acct(&|a| a.available()),
+            "close_profit" => acct(&|a| a.close_profit),
+            "commission" => acct(&|a| a.commission),
+            "position_profit" => acct(&|a| a.position_profit),
+            "used_margin" => acct(&|a| a.used_margin),
+            "frozen_margin" => acct(&|a| a.frozen_margin),
+            "orders_filled" => {
+                // distinct orders with at least one fill today
+                let mut seen = HashSet::new();
+                for o in &self.orders_today {
+                    if cstr(&o.InvestorID) == investor && o.VolumeTraded > 0 {
+                        seen.insert(cstr(&o.OrderSysID));
+                    }
+                }
+                seen.len() as f64
+            }
+            "open_orders" => self
+                .engine
+                .active_order_fields("")
+                .iter()
+                .filter(|o| cstr(&o.InvestorID) == investor)
+                .count() as f64,
+            "fills" => self
+                .trades_today
+                .iter()
+                .filter(|t| cstr(&t.InvestorID) == investor)
+                .count() as f64,
+            _ => f64::NAN,
+        }
+    }
+
+    /// (passed, failed) among evaluated assertions (admin status).
+    pub(crate) fn assertion_counts(&self) -> (usize, usize) {
+        let mut passed = 0;
+        let mut failed = 0;
+        for a in &self.assertions {
+            if a.evaluated {
+                if a.pass {
+                    passed += 1;
+                } else {
+                    failed += 1;
+                }
+            }
+        }
+        (passed, failed)
+    }
+
+    /// Assertion summary for admin status (items carry the one-shot result).
+    pub(crate) fn assertions_status(&self) -> Value {
+        let (passed, failed) = self.assertion_counts();
+        let evaluated = passed + failed;
+        let items: Vec<Value> = self
+            .assertions
+            .iter()
+            .map(|a| {
+                json::obj_sorted(vec![
+                    ("after_ms".into(), json::n(a.after_ms)),
+                    ("investor".into(), json::s(&a.investor)),
+                    ("metric".into(), json::s(&a.metric)),
+                    ("op".into(), json::s(a.op.symbol())),
+                    ("value".into(), json::n(a.value)),
+                    (
+                        "actual".into(),
+                        if a.actual.is_nan() {
+                            Value::Null
+                        } else {
+                            json::n(a.actual)
+                        },
+                    ),
+                    ("pass".into(), json::b(a.pass)),
+                    ("evaluated".into(), json::b(a.evaluated)),
+                ])
+            })
+            .collect();
+        json::obj_sorted(vec![
+            ("total".into(), json::n(self.assertions.len() as f64)),
+            ("evaluated".into(), json::n(evaluated as f64)),
+            ("passed".into(), json::n(passed as f64)),
+            ("failed".into(), json::n(failed as f64)),
+            ("items".into(), Value::Arr(items)),
+        ])
+    }
+
+    /// Evaluate due scenario assertions. One-shot per assertion: it fires at
+    /// the first pulse where the virtual clock passes `t0 + after_ms` and is
+    /// journaled exactly once (determinism for §7.6 / M2-3 hash replay).
+    fn eval_assertions(&mut self) {
+        if self.assertions.is_empty() {
+            return;
+        }
+        let vt = self.vt_now_ms;
+        let t0 = self.scenario_t0_ms.unwrap_or(vt);
+        let broker = self.cfg.broker_id.clone();
+        let due: Vec<usize> = self
+            .assertions
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| !a.evaluated && vt >= t0 + a.after_ms)
+            .map(|(i, _)| i)
+            .collect();
+        for i in due {
+            let (investor, metric, after_ms) = {
+                let a = &self.assertions[i];
+                (a.investor.clone(), a.metric.clone(), a.after_ms)
+            };
+            let actual = self.assertion_actual(&broker, &investor, &metric);
+            let (op_sym, value, pass) = {
+                let a = &mut self.assertions[i];
+                a.actual = actual;
+                a.pass = a.op.apply(actual, a.value);
+                a.evaluated = true;
+                (a.op.symbol(), a.value, a.pass)
+            };
+            self.journal_record_json(
+                "assertion",
+                &broker,
+                &investor,
+                json::obj_sorted(vec![
+                    ("metric".into(), json::s(&metric)),
+                    ("op".into(), json::s(op_sym)),
+                    ("value".into(), json::n(value)),
+                    ("actual".into(), json::n(actual)),
+                    ("pass".into(), json::b(pass)),
+                    ("after_ms".into(), json::n(after_ms)),
+                ]),
+            );
+            if !pass {
+                eprintln!(
+                    "[ctpbuddy] assertion FAILED: {investor} {metric} {op_sym} {value} (actual {actual})"
+                );
+            }
         }
     }
 
@@ -319,6 +602,8 @@ impl World {
                 self.dispatch_event(ev);
             }
         }
+        // scenario assertions fire at deterministic virtual times (§7.4)
+        self.eval_assertions();
         if !ticks.is_empty() {
             self.journal_record_json(
                 "md_watermark",

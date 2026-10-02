@@ -323,6 +323,18 @@ impl Ledger {
             .or_insert_with(|| Account::new(broker_id, investor_id, initial))
     }
 
+    /// Ensure an account exists with scenario-authored initial funds
+    /// (DESIGN.md §7.4 `accounts`). Existing accounts keep their state; a
+    /// non-positive `funds` falls back to the server default.
+    pub fn ensure_account_with(&mut self, broker_id: &str, investor_id: &str, funds: f64) -> &mut Account {
+        let initial = self.initial_funds;
+        self.accounts
+            .entry(AccountKey::new(broker_id, investor_id))
+            .or_insert_with(|| {
+                Account::new(broker_id, investor_id, if funds > 0.0 { funds } else { initial })
+            })
+    }
+
     pub fn account(&self, broker_id: &str, investor_id: &str) -> Option<&Account> {
         self.accounts.get(&AccountKey::new(broker_id, investor_id))
     }

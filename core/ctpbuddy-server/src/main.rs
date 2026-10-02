@@ -47,7 +47,7 @@ fn apply_env(cfg: &mut Config) {
     }
     if let Ok(v) = std::env::var("CTPBUDDY_SPEED") {
         if let Ok(n) = v.parse::<f64>() {
-            cfg.playback_speed = n;
+            cfg.playback_speed = Some(n);
         }
     }
     if let Ok(v) = std::env::var("CTPBUDDY_QRY_FREQ") {
@@ -94,9 +94,10 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
             }
             "--speed" => {
                 let v = take("--speed")?;
-                cfg.playback_speed = v
+                let n = v
                     .parse::<f64>()
                     .map_err(|_| format!("invalid --speed: {v}"))?;
+                cfg.playback_speed = Some(n);
             }
             "--td" => cfg.td_endpoint = take("--td")?,
             "--data-dir" => cfg.data_dir = take("--data-dir")?,

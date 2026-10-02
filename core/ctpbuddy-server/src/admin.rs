@@ -1,14 +1,15 @@
 //! Admin control plane (JSON over ADMIN_REQ/ADMIN_RSP frames, port 5561).
 //!
 //! Commands: ping / status / start_scenario / pause / resume / step /
-//! set_speed / reset_account / shutdown. All commands are journaled.
+//! set_speed / seek / loop / reset_account / shutdown. All commands are
+//! journaled.
 
-use ctpbuddy_market::{CsvSource, Playback};
-use ctpbuddy_matching::{Catalog, MatchingEngine};
+use ctpbuddy_market::format_hhmmss;
 use ctpbuddy_wire::msgs;
 use ctpbuddy_wire::Frame;
 
 use crate::json::{self, Value};
+use crate::scenario;
 use crate::{World, SERVER_VERSION};
 
 impl World {
@@ -37,6 +38,8 @@ impl World {
             "start_scenario" => self.admin_start_scenario(conn_id, frame.req_id, &v),
             "pause" | "resume" | "step" => self.admin_playback_ctl(conn_id, frame.req_id, &cmd),
             "set_speed" => self.admin_set_speed(conn_id, frame.req_id, &v),
+            "seek" => self.admin_seek(conn_id, frame.req_id, &v),
+            "loop" => self.admin_loop(conn_id, frame.req_id, &v),
             "reset_account" => self.admin_reset_account(conn_id, frame.req_id, &v),
             "shutdown" => {
                 self.admin_reply(
@@ -86,6 +89,10 @@ impl World {
                 "speed".into(),
                 json::n(self.playback.as_ref().map(|p| p.speed()).unwrap_or(0.0)),
             ),
+            (
+                "looping".into(),
+                json::b(self.playback.as_ref().map(|p| p.looping()).unwrap_or(false)),
+            ),
             ("virtual_time".into(), json::s(&self.now_str())),
             ("trading_day".into(), json::s(&self.vt_day())),
         ]);
@@ -109,6 +116,7 @@ impl World {
             ("cmd".into(), json::s("status")),
             ("server".into(), json::s(&format!("ctpbuddy/{SERVER_VERSION}"))),
             ("broker_id".into(), json::s(&self.cfg.broker_id)),
+            ("scenario".into(), json::s(&self.scenario_name)),
             ("playback".into(), pb),
             ("instruments".into(), json::n(self.engine.catalog().len() as f64)),
             ("open_orders".into(), json::n(self.engine.open_order_count() as f64)),
@@ -118,6 +126,7 @@ impl World {
                 json::n(self.journal.as_ref().map(|j| j.seq()).unwrap_or(0) as f64),
             ),
             ("accounts".into(), Value::Arr(accounts)),
+            ("assertions".into(), self.assertions_status()),
         ]);
         self.admin_reply(conn_id, req_id, v);
     }
@@ -130,64 +139,112 @@ impl World {
         if !std::path::Path::new(&path).is_dir() {
             return self.admin_error(conn_id, req_id, &format!("场景目录不存在: {path}"));
         }
-        // instruments.csv (optional; builtin fallback)
-        let instruments = format!("{path}/instruments.csv");
-        let mut catalog = Catalog::builtin();
-        if std::path::Path::new(&instruments).exists() {
-            match Catalog::load_csv(&instruments) {
-                Ok(c) if !c.is_empty() => catalog = c,
-                Ok(_) => {}
-                Err(e) => return self.admin_error(conn_id, req_id, &format!("instruments.csv: {e}")),
-            }
-        }
-        // ticks.csv (required)
-        let ticks_path = format!("{path}/ticks.csv");
-        let ticks = match CsvSource::load(&ticks_path) {
-            Ok(t) => t,
-            Err(e) => return self.admin_error(conn_id, req_id, &format!("ticks.csv: {e}")),
+        // Optional normalized spec: scenario.yaml parsed/validated by the
+        // Python control plane (DESIGN §7.4). Absent = legacy ticks.csv-only.
+        let spec = match v.get("spec") {
+            Some(sv) => match scenario::parse_spec(sv) {
+                Ok(s) => Some(s),
+                Err(e) => return self.admin_error(conn_id, req_id, &e),
+            },
+            None => None,
         };
-        let n = ticks.len();
         let paused = v.get_bool("paused").unwrap_or(false);
-        let speed = v.get_num("speed").unwrap_or(self.cfg.playback_speed);
-        let (day, t0) = ticks
-            .first()
-            .map(|t| (t.trading_day.clone(), t.virtual_ms()))
-            .unwrap_or_else(|| (self.vt_day(), 0.0));
-
-        // NOTE: swapping the scenario drops active orders; their ledger freezes
-        // are released with `reset_account` (M2: cancel-all admin command).
-        self.engine = MatchingEngine::new(catalog);
-        self.orders_today.clear();
-        self.trades_today.clear();
-        let mut pb = Playback::new(ticks, speed);
-        if paused {
-            pb.pause();
-        }
-        self.playback = Some(pb);
-        self.vt_trading_day = day.clone();
-        self.vt_now_ms = t0;
-
+        let speed = v.get_num("speed");
+        let (n, day, name) = match self.apply_scenario(&path, spec.as_ref(), paused, speed) {
+            Ok(r) => r,
+            Err(e) => return self.admin_error(conn_id, req_id, &e),
+        };
+        let n_transforms = spec.as_ref().map(|s| s.transforms.len()).unwrap_or(0);
+        let n_accounts = spec.as_ref().map(|s| s.accounts.len()).unwrap_or(0);
+        let n_assertions = spec.as_ref().map(|s| s.assertions.len()).unwrap_or(0);
+        let speed_now = self.playback.as_ref().map(|p| p.speed()).unwrap_or(0.0);
         self.journal_record_json(
             "scenario_loaded",
             "",
             "",
             json::obj_sorted(vec![
                 ("path".into(), json::s(&path)),
+                ("name".into(), json::s(&name)),
                 ("ticks".into(), json::n(n as f64)),
                 ("paused".into(), json::b(paused)),
-                ("speed".into(), json::n(speed)),
+                ("speed".into(), json::n(speed_now)),
+                ("transforms".into(), json::n(n_transforms as f64)),
+                ("accounts".into(), json::n(n_accounts as f64)),
+                ("assertions".into(), json::n(n_assertions as f64)),
             ]),
         );
+        let (passed, failed) = self.assertion_counts();
         let reply = json::obj_sorted(vec![
             ("ok".into(), json::b(true)),
             ("cmd".into(), json::s("start_scenario")),
             ("path".into(), json::s(&path)),
+            ("name".into(), json::s(&name)),
             ("ticks".into(), json::n(n as f64)),
             ("trading_day".into(), json::s(&day)),
             ("paused".into(), json::b(paused)),
-            ("speed".into(), json::n(speed)),
+            ("speed".into(), json::n(speed_now)),
+            ("assertions_passed".into(), json::n(passed as f64)),
+            ("assertions_failed".into(), json::n(failed as f64)),
         ]);
         self.admin_reply(conn_id, req_id, reply);
+    }
+
+    fn admin_seek(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+        let at_ms = match v.get("at") {
+            Some(Value::Num(n)) => *n,
+            Some(Value::Str(s)) => match scenario::parse_hms_ms(s) {
+                Some(ms) => ms,
+                None => {
+                    return self.admin_error(
+                        conn_id,
+                        req_id,
+                        &format!("无法解析 at: '{s}'（期望 HH:MM:SS 或 ms 数字）"),
+                    )
+                }
+            },
+            _ => return self.admin_error(conn_id, req_id, "seek 需要 at（HH:MM:SS 或 ms 数字）"),
+        };
+        let (idx, total, vt) = {
+            let Some(pb) = self.playback.as_mut() else {
+                return self.admin_error(conn_id, req_id, "未加载场景（先 start_scenario）");
+            };
+            pb.seek(at_ms);
+            let (idx, total) = pb.progress();
+            (idx, total, pb.virtual_time())
+        };
+        self.vt_now_ms = vt;
+        self.admin_reply(
+            conn_id,
+            req_id,
+            json::obj_sorted(vec![
+                ("ok".into(), json::b(true)),
+                ("cmd".into(), json::s("seek")),
+                ("at_ms".into(), json::n(at_ms)),
+                ("idx".into(), json::n(idx as f64)),
+                ("total".into(), json::n(total as f64)),
+                ("virtual_time".into(), json::s(&format_hhmmss(vt))),
+            ]),
+        );
+    }
+
+    fn admin_loop(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+        let looping = {
+            let Some(pb) = self.playback.as_mut() else {
+                return self.admin_error(conn_id, req_id, "未加载场景（先 start_scenario）");
+            };
+            let on = v.get_bool("on").unwrap_or(true);
+            pb.set_loop(on);
+            pb.looping()
+        };
+        self.admin_reply(
+            conn_id,
+            req_id,
+            json::obj_sorted(vec![
+                ("ok".into(), json::b(true)),
+                ("cmd".into(), json::s("loop")),
+                ("looping".into(), json::b(looping)),
+            ]),
+        );
     }
 
     fn admin_playback_ctl(&mut self, conn_id: u64, req_id: u32, cmd: &str) {

@@ -47,10 +47,21 @@ class Admin:
     def status(self) -> Dict[str, Any]:
         return self.cmd("status")
 
-    def start_scenario(self, path: str, paused: bool = False, speed: Optional[float] = None) -> Dict[str, Any]:
+    def start_scenario(
+        self,
+        path: str,
+        paused: bool = False,
+        speed: Optional[float] = None,
+        spec: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Load a scenario dir. `spec` is the normalized scenario.json payload
+        (see ctpbuddy.scenario) — applied inline by the core so a
+        scenario.yaml can be driven without writing scenario.json first."""
         kw: Dict[str, Any] = {"path": path, "paused": paused}
         if speed is not None:
             kw["speed"] = speed
+        if spec is not None:
+            kw["spec"] = spec
         return self.cmd("start_scenario", **kw)
 
     def pause(self) -> Dict[str, Any]:
@@ -61,6 +72,13 @@ class Admin:
 
     def step(self) -> Dict[str, Any]:
         return self.cmd("step")
+
+    def seek(self, at: Any) -> Dict[str, Any]:
+        """Seek to a virtual time: `"HH:MM:SS"` string or ms since midnight."""
+        return self.cmd("seek", at=at)
+
+    def loop(self, on: bool = True) -> Dict[str, Any]:
+        return self.cmd("loop", on=on)
 
     def set_speed(self, speed: float) -> Dict[str, Any]:
         return self.cmd("set_speed", speed=speed)

@@ -4,6 +4,8 @@
 //! everything downstream of a source consumes this canonical representation
 //! (DESIGN.md §7). The virtual clock is the only time authority of the world.
 
+pub mod transform;
+
 use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcDepthMarketDataField};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -270,6 +272,9 @@ pub struct Playback {
     step_once: bool,
     /// 0 = as fast as possible; otherwise wall-clock ms per virtual ms (1/speed).
     speed: f64,
+    /// Loop the whole stream when it runs out (engine/ledger state is NOT
+    /// reset — use reset_account / a scenario reload for that).
+    looping: bool,
     started: Option<Instant>,
     virtual_time: f64,
 }
@@ -282,6 +287,7 @@ impl Playback {
             paused: false,
             step_once: false,
             speed,
+            looping: false,
             started: None,
             virtual_time: 0.0,
         }
@@ -311,6 +317,31 @@ impl Playback {
         self.step_once = true;
     }
 
+    /// Reposition to the first tick at/after `target_ms` (virtual ms since
+    /// midnight). Skipped ticks are never delivered; the wall-clock baseline
+    /// is re-anchored so pacing continues smoothly from the new position.
+    pub fn seek(&mut self, target_ms: f64) {
+        let mut i = 0;
+        while i < self.ticks.len() && self.ticks[i].virtual_ms() < target_ms {
+            i += 1;
+        }
+        self.idx = i;
+        self.virtual_time = if i < self.ticks.len() {
+            self.ticks[i].virtual_ms()
+        } else {
+            target_ms
+        };
+        self.step_once = false;
+    }
+
+    pub fn set_loop(&mut self, on: bool) {
+        self.looping = on;
+    }
+
+    pub fn looping(&self) -> bool {
+        self.looping
+    }
+
     pub fn finished(&self) -> bool {
         self.idx >= self.ticks.len()
     }
@@ -327,7 +358,14 @@ impl Playback {
     /// ticks are returned in file order, never reordered.
     pub fn poll(&mut self, now: Instant) -> Vec<Tick> {
         if self.finished() {
-            return Vec::new();
+            if !self.looping || self.ticks.is_empty() {
+                return Vec::new();
+            }
+            // loop restart: re-anchor both the stream position and the
+            // wall-clock baseline so the next pass paces normally
+            self.idx = 0;
+            self.virtual_time = self.ticks[0].virtual_ms();
+            self.started = Some(now);
         }
         let start = *self.started.get_or_insert(now);
         let mut due = Vec::new();

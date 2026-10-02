@@ -1,0 +1,68 @@
+{
+  "accounts": [
+    {
+      "balance": 800000.0,
+      "investor": "dsl001"
+    },
+    {
+      "balance": 400000.0,
+      "investor": "dsl002"
+    }
+  ],
+  "assertions": [
+    {
+      "after_ms": 90000.0,
+      "investor": "dsl001",
+      "metric": "orders_filled",
+      "op": ">=",
+      "value": 1.0
+    },
+    {
+      "after_ms": 90000.0,
+      "investor": "dsl001",
+      "metric": "balance",
+      "op": ">",
+      "value": 0.0
+    },
+    {
+      "after_ms": 240000.0,
+      "investor": "dsl001",
+      "metric": "fills",
+      "op": ">=",
+      "value": 2.0
+    },
+    {
+      "after_ms": 90000.0,
+      "investor": "dsl002",
+      "metric": "orders_filled",
+      "op": ">=",
+      "value": 1.0
+    }
+  ],
+  "clock": {
+    "start_ms": 34200000.0,
+    "time_scale": 0.0
+  },
+  "name": "dsl-pipeline-demo",
+  "source": {
+    "kind": "csv",
+    "path": "ticks.csv"
+  },
+  "transforms": [
+    {
+      "at_ms": 34320000.0,
+      "duration_ms": 30000.0,
+      "kind": "freeze"
+    },
+    {
+      "from_ms": 34260000.0,
+      "kind": "liquidity",
+      "scale": 0.5
+    },
+    {
+      "at_ms": 34380000.0,
+      "kind": "gap",
+      "shift": 2.0
+    }
+  ]
+}
