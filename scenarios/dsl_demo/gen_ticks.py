@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """One-shot generator for scenarios/dsl_demo/ticks.csv (M2-2 demo stream).
 
-12 rb2610 (SHFE) ticks, 30s apart, 09:30:00 -> 09:35:30. Prices drift +1 per
+12 rb2601 (SHFE) ticks, 30s apart, 09:30:00 -> 09:35:30. Prices drift +1 per
 tick; the five-level book is bid1=last-2/ask1=last+2 with static depth.
 
 The scenario.yaml on top applies: freeze 09:32:00+30s (drops one tick),
@@ -27,7 +27,7 @@ def main() -> int:
         last = 3500 + i
         row = {c: "" for c in CANONICAL_COLUMNS}
         row.update(
-            instrument="rb2610",
+            instrument="rb2601",
             exchange="SHFE",
             trading_day="20261002",
             update_time=t,

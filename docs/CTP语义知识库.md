@@ -339,6 +339,8 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 9. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别 TODO（§8）。**`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁未做**（已登记为可落地缺口）。
 10. **错误码全集对账** ✅（#42 落地）：error.xml 299 条逐条标注 → **19 已实现**（推送面全部对齐）/ **51 可落地**（语义在范围内但无代码路径发出，缺口清单见 [`docs/错误码全集.md`](错误码全集.md)）/ **229 暂不可达**（业务域未实现）。状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成，改代码后重跑。
 11. **LEDGER 扩展**：MarginPriceType 配置、平今/平昨费率、FrozenCommission TODO；期权权利金（§6）。
+12. **费率查询接口** ✅（M3-3 落地，2026-10-03）：`ReqQryInstrumentMarginRate` / `ReqQryInstrumentCommissionRate` / `ReqQryInstrumentOrderCommRate` / `ReqQryBrokerTradingParams` 四张由 `unsupported` 转为实装，官方语义逐字复刻——**`InstrumentID` 留空 = 返回该投资者持仓对应合约的费率（不是全市场，「目前无法通过一次查询得到所有合约保证金率」）**，`BrokerID`/`InvestorID`（及 `CurrencyID`）必填、「不填则返回值为空」。定位上四张表与账本计算**共用同一份 `RefData`**，客户端交叉核对 `ReqQryInstrumentMarginRate` 与 `ReqQryTradingAccount.CurrMargin` 时数字必然一致（§9、DESIGN §6.4/§8.6.1）。
+13. **保证金/手续费公式落地** ✅（M3-2 落地，2026-10-03）：保证金 `(MarginRatioByVolume + MarginRatioByMoney × Price × VolumeMultiple) × Volume`，**用公司费率**（`ReqQryInstrumentMarginRate` 口径），`ReqQryInstrument` 的交易所费率仅展示；`MarginPriceType` 四值（'1' 昨结算/'2' 最新价/'3' 成交均价/'4' 开仓价），**昨仓恒用昨结算价**不受该设置影响、只有 '2'/'3' 下今仓保证金随行情波动；手续费 `数量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`（两项**相加**非取 max），开仓/平昨/平今各一套，一笔 `Close` 吃掉 2 手昨仓 + 1 手今仓时**按两腿分别计价**；冻结按昨结算价（与该挂单限价无关），平仓释放按**开仓价**算（§9、DESIGN §8.6）。
 12. LocalCTP 对账基准：OrderRef 生成规则、撮合规则、结算字段重置清单可直接抄（§9）。
 
 ### 10.3 其他 TODO

@@ -287,17 +287,11 @@ int TraderApi::ReqQryTradingCode(CThostFtdcQryTradingCodeField *pQryTradingCode,
 }
 
 int TraderApi::ReqQryInstrumentMarginRate(CThostFtdcQryInstrumentMarginRateField *pQryInstrumentMarginRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInstrumentMarginRate");
-    return 0;
+    return send_req<CThostFtdcQryInstrumentMarginRateField>(msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE, pQryInstrumentMarginRate, nRequestID);
 }
 
 int TraderApi::ReqQryInstrumentCommissionRate(CThostFtdcQryInstrumentCommissionRateField *pQryInstrumentCommissionRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInstrumentCommissionRate");
-    return 0;
+    return send_req<CThostFtdcQryInstrumentCommissionRateField>(msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE, pQryInstrumentCommissionRate, nRequestID);
 }
 
 int TraderApi::ReqQryUserSession(CThostFtdcQryUserSessionField *pQryUserSession, int nRequestID) {
@@ -459,10 +453,7 @@ int TraderApi::ReqQryMMOptionInstrCommRate(CThostFtdcQryMMOptionInstrCommRateFie
 }
 
 int TraderApi::ReqQryInstrumentOrderCommRate(CThostFtdcQryInstrumentOrderCommRateField *pQryInstrumentOrderCommRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInstrumentOrderCommRate");
-    return 0;
+    return send_req<CThostFtdcQryInstrumentOrderCommRateField>(msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE, pQryInstrumentOrderCommRate, nRequestID);
 }
 
 int TraderApi::ReqQrySecAgentTradingAccount(CThostFtdcQryTradingAccountField *pQryTradingAccount, int nRequestID) {
@@ -592,10 +583,7 @@ int TraderApi::ReqQryTradingNotice(CThostFtdcQryTradingNoticeField *pQryTradingN
 }
 
 int TraderApi::ReqQryBrokerTradingParams(CThostFtdcQryBrokerTradingParamsField *pQryBrokerTradingParams, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryBrokerTradingParams");
-    return 0;
+    return send_req<CThostFtdcQryBrokerTradingParamsField>(msgs::REQ_QRY_BROKER_TRADING_PARAMS, pQryBrokerTradingParams, nRequestID);
 }
 
 int TraderApi::ReqQryBrokerTradingAlgos(CThostFtdcQryBrokerTradingAlgosField *pQryBrokerTradingAlgos, int nRequestID) {

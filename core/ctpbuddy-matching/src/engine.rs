@@ -277,8 +277,29 @@ impl MatchingEngine {
         self.last_md.get(instrument_id).map(|t| t.last_price)
     }
 
+    /// 每合约的昨结算价, straight off the tick stream. The ledger needs it
+    /// because 昨仓保证金 is **always** charged against it and `MarginPriceType
+    /// == '1'` charges 今仓 against it too (notes/04 C2) — a position that
+    /// never sees this would be margined at zero.
+    pub fn pre_settlement(&self, instrument_id: &str) -> Option<f64> {
+        self.last_md
+            .get(instrument_id)
+            .map(|t| t.pre_settlement_price)
+            .filter(|p| *p > 0.0)
+    }
+
     pub fn last_prices(&self) -> HashMap<String, f64> {
         self.last_md.iter().map(|(k, t)| (k.clone(), t.last_price)).collect()
+    }
+
+    /// 每合约的昨结算价, straight off the tick stream. The ledger needs it
+    /// because 昨仓保证金 is always charged against it (notes/04 C2) — a
+    /// position that never sees this would be margined at zero.
+    pub fn pre_settlements(&self) -> HashMap<String, f64> {
+        self.last_md
+            .iter()
+            .map(|(k, t)| (k.clone(), t.pre_settlement_price))
+            .collect()
     }
 
     pub fn open_order_count(&self) -> usize {
@@ -1287,7 +1308,7 @@ mod tests {
             time_condition: b'1',
             volume_condition: b'1',
             request_id: 2,
-            ..maker("rb2610", "SHFE", 0.0, 0)
+            ..maker("rb2601", "SHFE", 0.0, 0)
         }
     }
 
@@ -1318,7 +1339,7 @@ mod tests {
     /// shape scenarios 8/9/10 describe. `submit` returns **both** sides of
     /// the match, so keep only the taker's rows (maker uses OrderRef `M1`).
     fn fak_scenario(instrument: &str, exchange: &str, price: f64) -> Vec<EngineEvent> {
-        let mut e = MatchingEngine::new(Catalog::builtin());
+        let mut e = MatchingEngine::new(Catalog::bundled());
         let rest = e.submit(&maker(instrument, exchange, price, 3), &ctx());
         assert!(matches!(rest, SubmitOutcome::Accepted { .. }));
         let mut taker = fak_taker("T1", 13);
@@ -1344,7 +1365,7 @@ mod tests {
     // 成交回报，且每笔成交只有一行 '5'（状态已终态，不重复推前态）。无 '3'、无 '1'。
     #[test]
     fn fak_shfe_puts_cancel_before_trades() {
-        let ev = fak_scenario("rb2610", "SHFE", 3500.0);
+        let ev = fak_scenario("rb2601", "SHFE", 3500.0);
         assert_eq!(
             statuses(&ev),
             vec![(b'a', false), (b'5', false), (b'5', false), (b'T', true)],
@@ -1364,7 +1385,7 @@ mod tests {
     // '1'（不重复前态），最后一行 '5'。与郑商所形状不同（场景 10）。
     #[test]
     fn fak_dce_synthesizes_one_partial_row_per_trade() {
-        let ev = fak_scenario("m2609", "DCE", 3000.0);
+        let ev = fak_scenario("jd2602", "DCE", 900.0);
         assert_eq!(
             statuses(&ev),
             vec![(b'a', false), (b'3', false), (b'1', false), (b'T', true), (b'5', false)],
@@ -1376,7 +1397,7 @@ mod tests {
     // 新态（'3' → '1'），最后一行 '5'。
     #[test]
     fn fak_czce_repeats_previous_state() {
-        let ev = fak_scenario("TA609", "CZCE", 4000.0);
+        let ev = fak_scenario("SM602", "CZCE", 4000.0);
         assert_eq!(
             statuses(&ev),
             vec![
@@ -1395,10 +1416,10 @@ mod tests {
     // 或按 '1' 累加成交的下游代码，在其中两组上会静默算错。
     #[test]
     fn the_three_exchange_groups_do_not_agree() {
-        let shfe = statuses(&fak_scenario("rb2610", "SHFE", 3500.0));
-        let dce = statuses(&fak_scenario("m2609", "DCE", 3000.0));
-        let czce = statuses(&fak_scenario("TA609", "CZCE", 4000.0));
-        let gfex = statuses(&fak_scenario("si2610", "GFEX", 5000.0));
+        let shfe = statuses(&fak_scenario("rb2601", "SHFE", 3500.0));
+        let dce = statuses(&fak_scenario("jd2602", "DCE", 900.0));
+        let czce = statuses(&fak_scenario("SM602", "CZCE", 4000.0));
+        let gfex = statuses(&fak_scenario("si2602", "GFEX", 5000.0));
         assert_ne!(shfe, dce);
         assert_ne!(dce, czce);
         assert_ne!(shfe, czce);
@@ -1409,7 +1430,7 @@ mod tests {
     // 回报一致，不能把成交又算一遍。
     #[test]
     fn fak_shfe_cancel_row_does_not_double_count() {
-        let ev = fak_scenario("rb2610", "SHFE", 3500.0);
+        let ev = fak_scenario("rb2601", "SHFE", 3500.0);
         let rows = shape(&ev);
         // rows[0] 是初始 'a'，rows[1] 才是那条带成交量的撤单行
         assert_eq!(rows[1].2, 3, "cancel row VolumeTraded");
@@ -1425,9 +1446,9 @@ mod tests {
     // FAK 一手都没成交：交易所主动撤单，三个所都是**一行**终态，不带前态重复。
     #[test]
     fn fak_with_no_fill_is_a_single_cancel_row() {
-        let mut e = MatchingEngine::new(Catalog::builtin());
+        let mut e = MatchingEngine::new(Catalog::bundled());
         let mut taker = fak_taker("T1", 3);
-        taker.instrument_id = "au2612".into();
+        taker.instrument_id = "au2602".into();
         taker.exchange_id = "SHFE".into();
         taker.limit_price = 100.0; // 空簿 → 无成交
         let SubmitOutcome::Accepted { events } = e.submit(&taker, &ctx()) else {
@@ -1439,8 +1460,8 @@ mod tests {
     /// FAK 全成：官方无形状可依，退回一般前态+新态+Trade（§8.9 场景 2）。
     #[test]
     fn fak_full_fill_falls_back_to_general_trio() {
-        let mut e = MatchingEngine::new(Catalog::builtin());
-        let rest = e.submit(&maker("rb2610", "SHFE", 3500.0, 5), &ctx());
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        let rest = e.submit(&maker("rb2601", "SHFE", 3500.0, 5), &ctx());
         assert!(matches!(rest, SubmitOutcome::Accepted { .. }));
         let mut taker = fak_taker("T1", 5);
         taker.limit_price = 3500.0;

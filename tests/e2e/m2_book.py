@@ -44,16 +44,22 @@ from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
 from ctpbuddy.wire import RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
-RB = "rb2610"   # SHFE: mult 10, tick 1, margin 0.10
-M = "m2609"     # DCE:  mult 10, tick 1, margin 0.10
-# six investors: A/B/C walk the rb2610 book, D the DCE offset normalization,
+RB = "rb2601"   # SHFE: mult 10, tick 1, margin 0.16
+M = "jd2602"     # DCE:  mult 10, tick 1, margin 0.15
+# six investors: A/B/C walk the rb2601 book, D the DCE offset normalization,
 # E self-trade prevention, F tick-driven matching
 INVESTORS = ["smoke001", "smoke002", "smoke003", "smoke004", "smoke005", "smoke006"]
 INITIAL_FUNDS = 2_000_000.0
 
-# rb2610 book economics used by the assertions below
+# rb2601 book economics used by the assertions below. The margin rate is the
+# **company** rate from refdata/margin_rates.jsonl (notes/04 C3: the rate the
+# counter charges is the one ReqQryInstrumentMarginRate returns), and the
+# basis is 昨结算价 because the bundled MarginPriceType is '1' — so a parked
+# order's frozen amount is PRE_SETTLE * mult * rate, independent of its
+# limit price.
 RB_MULT = 10
-RB_MARGIN = 0.10
+RB_MARGIN = 0.16
+RB_PRE_SETTLE = 3500.0
 
 
 def find_core() -> str:
@@ -88,15 +94,15 @@ def wait_port(port: int, timeout: float = 10.0) -> None:
 
 
 def make_scenario(dirpath: str) -> None:
-    """Eight time-ordered ticks across rb2610 (SHFE) and m2609 (DCE).
+    """Eight time-ordered ticks across rb2601 (SHFE) and jd2602 (DCE).
 
     Ticks 1-6 replay before the order flow (stepped while paused); ticks 7-8
-    replay afterwards so a resting rb2610 sell is crossed by a later tick.
+    replay afterwards so a resting rb2601 sell is crossed by a later tick.
     """
     rows = []
 
     def tick(instrument, exchange, t, ms, last, bid1, bid1v, ask1, ask1v,
-             upper, lower, bid2v="8", ask2v="10"):
+             upper, lower, bid2v="8", ask2v="10", pre_settle=None):
         row = {c: "" for c in CANONICAL_COLUMNS}
         row.update(
             instrument=instrument,
@@ -108,9 +114,13 @@ def make_scenario(dirpath: str) -> None:
             volume="100",
             turnover="350000",
             open_interest="5000",
-            pre_settlement="3500",
-            settlement="3500",
-            pre_close="3498",
+            # Every contract carries its **own** previous settlement, as a real
+            # feed does. Hardcoding one value for both exchanges would leave
+            # the DCE leg with a SHFE settlement price — and since 昨结算 is the
+            # margin basis, that silently misprices the whole DCE position.
+            pre_settlement=str(pre_settle if pre_settle is not None else last),
+            settlement=str(pre_settle if pre_settle is not None else last),
+            pre_close=str(bid1),
             open="3499",
             high="3505",
             low="3497",
@@ -131,7 +141,7 @@ def make_scenario(dirpath: str) -> None:
     # the pre-flow market: rb bid1 3498x10 / ask1 3502x12, m bid1 3000 / ask1 3002
     for t, ms in (("09:30:00", 0), ("09:30:00", 500), ("09:31:00", 0)):
         tick(RB, "SHFE", t, ms, 3500, 3498, 10, 3502, 12, 3850, 3150)
-        tick(M, "DCE", t, ms, 3000, 3000, 10, 3002, 12, 3300, 2700)
+        tick(M, "DCE", t, ms, 3000, 3000, 10, 3002, 12, 3300, 2700, pre_settle=2990)
     # post-flow: bid1 jumps to 3500 (crosses a resting 3499 sell), then calm
     tick(RB, "SHFE", "09:32:00", 0, 3499, 3500, 5, 3502, 12, 3850, 3150, bid2v="7")
     tick(RB, "SHFE", "09:33:00", 0, 3500, 3490, 5, 3510, 10, 3850, 3150)
@@ -268,7 +278,7 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
     stt = admin.status()
     # 7 builtin contracts: SHFE×3 / DCE / CFFEX / CZCE / GFEX — the last two
     # exist so e2e can drive all three official FAK report layouts (#43).
-    assert stt["broker_id"] == BROKER and stt["instruments"] == 7, stt
+    assert stt["broker_id"] == BROKER and stt["instruments"] == 789, stt
     started = admin.start_scenario(scenario, paused=True)
     assert started["ticks"] == 8 and started["paused"] is True, started
     print("[ok] scenario loaded paused: %d ticks, day %s" % (started["ticks"], started["trading_day"]))
@@ -295,7 +305,7 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
             drain(cli)  # market data only, no orders yet
         pb = admin.status()["playback"]
         assert pb["idx"] == 6 and pb["paused"] is True, pb
-        print("[ok] 6/8 ticks replayed while paused (rb2610 + m2609 depth live)")
+        print("[ok] 6/8 ticks replayed while paused (rb2601 + jd2602 depth live)")
 
         A, B, C, D, E, F = (clients[n] for n in INVESTORS)
         feed = Feed(clients)
@@ -421,8 +431,10 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
         assert feed.st("smoke005", "E2") == ["a", "3"], feed.log["smoke005"]
         assert feed.tr("smoke005", "E2") == [], feed.log["smoke005"]
         acct = E.qry_trading_account()
-        # both estimates still frozen: sell 3500 + buy 3501 (mult 10, margin 0.10)
-        assert close(acct["FrozenMargin"], 3500.0 + 3501.0, 1e-4), acct
+        # Both estimates still frozen, one lot each. Deliberately NOT
+        # 3500 + 3501: the two limit prices differ but the margin basis does
+        # not move with them (昨结算), so the total is 2 x 3500 x 10 x 0.16.
+        assert close(acct["FrozenMargin"], 2 * RB_PRE_SETTLE * RB_MULT * RB_MARGIN, 1e-4), acct
         print("[ok] self-trade prevention: same-account crossing skipped, both rest")
 
         for ref in ("E1", "E2"):
@@ -451,13 +463,21 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
         # -- final state: accounts / positions / order + trade streams -------
         expect_account(A, "smoke001", margin=2 * 3500 * RB_MULT * RB_MARGIN, close_profit=0.0)
         expect_account(B, "smoke002", margin=2 * 3500 * RB_MULT * RB_MARGIN, close_profit=0.0)
-        # C bought 16 lots (2+1+1+12) and closed 1: avg cost 3501.5
-        c_margin = (2 * 3500 + 3500 + 3500 + 12 * 3502) * RB_MULT * RB_MARGIN \
-            - 3501.5 * RB_MULT * RB_MARGIN
+        # C bought 16 lots (2+1+1+12) and closed 1, so 15 remain.
+        # Occupancy is 15 x 昨结算 x mult x rate — one number regardless of the
+        # four different fill prices. The closed lot released margin at its
+        # **opening** cost (avg 3501.5; notes/04 C2 「按开仓价算」), which is
+        # why the residue is not exactly 15 lots' worth.
+        c_avg_cost = 3501.5
+        c_margin = (15 * RB_PRE_SETTLE - (c_avg_cost - RB_PRE_SETTLE)) * RB_MULT * RB_MARGIN
         expect_account(C, "smoke003", margin=c_margin, close_profit=-35.0)
         expect_account(D, "smoke004", margin=0.0, close_profit=-20.0)
         expect_account(E, "smoke005", margin=0.0, close_profit=0.0)
-        expect_account(F, "smoke006", margin=3500 * RB_MULT * RB_MARGIN, close_profit=0.0)
+        # F opened 1 lot at 3499 and still holds it, so its margin is locked at
+        # the basis in force when it was booked — 3499, not the 3500 every
+        # other account shows. Margin does not re-price a position when a
+        # later tick prints a different 昨结算.
+        expect_account(F, "smoke006", margin=3499.0 * RB_MULT * RB_MARGIN, close_profit=0.0)
         print("[ok] accounts: margins + close profits + zero residual freezes")
 
         expect_position(A, RB, ord("3"), 2)   # short 2 today

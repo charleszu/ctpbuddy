@@ -55,6 +55,7 @@ python tests/e2e/m2_journal.py   # journal 录制/重放与确定性 core hash
 python tests/e2e/m2_flow.py      # 报单流控 + 订单状态机（双服务器）
 python tests/e2e/m2_surface.py   # 错单双推送面 + 流控面（--order-freq 2）
 python tests/e2e/m2_ioc.py       # FAK 部成部撤的三所分流回报（官方场景 8/9/10）
+python tests/e2e/m3_refdata.py    # 四张费率查询 + 与账本 CurrMargin/Commission 交叉核对
 
 # 4. 手动起一套玩玩（示例场景 rb_demo）
 ctpbuddy serve --scenario scenarios/rb_demo --data-dir ./data
@@ -62,6 +63,23 @@ ctpbuddy status                  # 另开一个终端
 ```
 
 核心支持 `--qry-freq <n>`（env `CTPBUDDY_QRY_FREQ`）调前置每秒查询预算：超过即回 `OnRspError[90]`「CTP：查询未就绪，请稍后重试」，与真实 CTP 前置一致（DESIGN §8.8）。
+
+## 参考数据（合约 / 保证金 / 手续费）
+
+费率与合约参数**一律由使用者提供，核心不内置编造值**。字段集合直接以官方查询返回结构体为依据（`ReqQryInstrument` + 三张费率表 + `ReqQryBrokerTradingParams`），核心用同一份数据既算账也应答查询——客户端拿 `ReqQryInstrumentMarginRate` 与自己的 `ReqQryTradingAccount.CurrMargin` 交叉核对时，数字必然一致。
+
+```bash
+# 内置快照：789 个真实期货合约（六所全覆盖）+ 公司保证金率
+ctpbuddy refdata show refdata
+
+# 从你自己的数据导出（厂商表格 → CTP 词汇，编码/列名由 provider 负责翻译）
+ctpbuddy refdata export --kind csv --path ./desk_export --out ./myrefdata
+ctpbuddy serve --scenario scenarios/rb_demo --refdata ./myrefdata --data-dir ./data
+```
+
+provider 是鸭子类型的：实现任意子集表方法即可，**没实现的方法视为「本 desk 无此规则」而非错误**（没配手续费就是零手续费，这是合法柜台配置）。随包快照**刻意不含手续费表**——编造的手续费比没有更糟。
+
+取用优先级：`--refdata` / `CTPBUDDY_REFDATA` > `<scenario>/refdata/` > 随包快照。口径详见 DESIGN §8.6.1。
 
 ## 结构
 

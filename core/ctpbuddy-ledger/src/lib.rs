@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcInvestorPositionField, CThostFtdcTradingAccountField};
 
-use ctpbuddy_matching::{Catalog, Direction, Fill, OffsetFlag};
+use ctpbuddy_matching::{Catalog, CommissionKind, Direction, Fill, MarginPrice, OffsetFlag};
 
 pub const INITIAL_FUNDS: f64 = 2_000_000.0;
 
@@ -490,15 +490,22 @@ impl Ledger {
 
     /// Settle a fill: release the pro-rata freeze, pay commission, move margin
     /// and volume, realize close PnL.
-    pub fn on_fill(&mut self, fill: &Fill, catalog: &Catalog) {
+    ///
+    /// Commission is priced **per position leg**, not per fill: a `Close` that
+    /// eats 2 lots of yesterday and 1 of today pays 平昨 for two and 平今 for
+    /// one (notes/04 B3/D1). notes/04 B3 is explicit that even 大商所 — which
+    /// does not split positions into 今/昨 — still prices the two with
+    /// different rates, so a single blended rate is visibly wrong.
+    ///
+    /// `pre_settlement` is the instrument's 昨结算价 **as the engine currently
+    /// sees it**. It is a parameter rather than a lookup because the first
+    /// fill of a session lands before the ledger has ever been marked to
+    /// market, and `MarginPriceType == '1'` (the default) charges 今仓 against
+    /// 昨结算 — reading the position's own copy there would margin the opening
+    /// fill at zero.
+    pub fn on_fill(&mut self, fill: &Fill, catalog: &Catalog, pre_settlement: f64) {
         let instr = catalog.get(&fill.instrument_id);
         let mult = instr.map(|i| i.volume_multiple).unwrap_or(1);
-        let commission = instr
-            .map(|i| i.commission(fill.price, fill.volume))
-            .unwrap_or(fill.volume as f64);
-        let margin_ratio = |d: Direction| {
-            instr.map(|i| i.margin_ratio(d)).unwrap_or(0.10)
-        };
 
         // ---- release pro-rata frozen estimate for this order ----
         // The fraction is of the ORIGINAL estimate (not of what is left), so
@@ -528,8 +535,6 @@ impl Ledger {
                 .expect("account must exist: login auto-opens it");
             a.frozen_margin = (a.frozen_margin - rel_margin).max(0.0);
             a.frozen_commission = (a.frozen_commission - rel_comm).max(0.0);
-            a.balance -= commission;
-            a.commission += commission;
         }
 
         // An open fill creates/increases a position on the order's side; a
@@ -544,11 +549,26 @@ impl Ledger {
             .entry((key.clone(), fill.instrument_id.clone(), side))
             .or_insert_with(|| Position::new(&fill.instrument_id, side));
 
-        pos.commission += commission;
         let turnover = fill.price * fill.volume as f64 * mult as f64;
         if fill.offset == OffsetFlag::Open {
-            let margin_actual =
-                fill.price * fill.volume as f64 * mult as f64 * margin_ratio(fill.direction);
+            // 昨结算价 comes from the tick stream, not from the position: on
+            // the very first fill of a session the position has none yet, and
+            // `MarginPriceType == '1'` prices 今仓 against it.
+            if pos.pre_settlement_price <= 0.0 && pre_settlement > 0.0 {
+                pos.pre_settlement_price = pre_settlement;
+            }
+            // 今仓保证金 follows `MarginPriceType`; the fill price is the
+            // 开仓价 leg of that choice (notes/04 C2).
+            let price = catalog.margin_price_for(true, pos.pre_settlement_price, fill.price);
+            let margin_actual = catalog.margin(
+                &fill.instrument_id,
+                fill.direction,
+                price,
+                fill.volume,
+            );
+            let commission =
+                catalog.commission(&fill.instrument_id, CommissionKind::Open, fill.price, fill.volume);
+            pos.commission += commission;
             pos.today_position += fill.volume;
             pos.open_amount += turnover;
             pos.open_volume += fill.volume;
@@ -556,6 +576,8 @@ impl Ledger {
             pos.open_cost += commission;
             pos.margin += margin_actual;
             let a = self.accounts.get_mut(&key).expect("account exists");
+            a.balance -= commission;
+            a.commission += commission;
             a.used_margin += margin_actual;
         } else {
             // ---- close: today first, then yd (consumes reservations) ----
@@ -586,13 +608,41 @@ impl Ledger {
             pos.open_amount = (pos.open_amount - closed_amount).max(0.0);
             pos.open_volume = (pos.open_volume - closed).max(0);
             pos.position_cost = (pos.position_cost - closed_amount).max(0.0);
+
+            // Commission is charged per leg: the 平今 portion at today's rate,
+            // the 平昨 portion at yesterday's. Summing two legs is the whole
+            // point — a blended single rate is what notes/04 B3 warns about.
+            let comm_today = catalog.commission(
+                &fill.instrument_id,
+                CommissionKind::CloseToday,
+                fill.price,
+                today_take,
+            );
+            let comm_yd = catalog.commission(
+                &fill.instrument_id,
+                CommissionKind::CloseYesterday,
+                fill.price,
+                yd_take,
+            );
+            let commission = comm_today + comm_yd;
+            pos.commission += commission;
             pos.open_cost += commission;
-            let margin_released =
-                cost * closed as f64 * mult as f64 * margin_ratio(fill.direction);
+
+            // Margin is released at the *opening* cost basis, not the fill
+            // price: the position was margined when it was opened, so that is
+            // the amount being freed (notes/04 C2 「按开仓价算」).
+            let margin_released = catalog.margin(
+                &fill.instrument_id,
+                fill.direction,
+                MarginPrice::Open(cost),
+                closed,
+            );
             pos.margin = (pos.margin - margin_released).max(0.0);
             pos.close_profit += pnl;
 
             let a = self.accounts.get_mut(&key).expect("account exists");
+            a.balance -= commission;
+            a.commission += commission;
             a.used_margin = (a.used_margin - margin_released).max(0.0);
             a.balance += pnl;
             a.close_profit += pnl;
@@ -607,7 +657,18 @@ impl Ledger {
 
     /// Recompute unrealized PnL for every position from `prices`
     /// (`instrument -> last price`).
-    pub fn mark_to_market(&mut self, catalog: &Catalog, prices: &HashMap<String, f64>) {
+    ///
+    /// `pre_settlements` carries each instrument's **昨结算价** from the tick
+    /// stream. It is not optional decoration: 昨仓保证金 is *always* computed
+    /// against the previous settlement price (notes/04 C2), so a position that
+    /// never learns it would be margined at 0. Same for the 逐日盯市 close-PnL
+    /// basis, where a 昨仓 detail is marked to 昨结算 rather than to its entry.
+    pub fn mark_to_market(
+        &mut self,
+        catalog: &Catalog,
+        prices: &HashMap<String, f64>,
+        pre_settlements: &HashMap<String, f64>,
+    ) {
         for pos in self.positions.values_mut() {
             let mult = catalog
                 .get(&pos.instrument_id)
@@ -617,6 +678,14 @@ impl Ledger {
                 .get(&pos.instrument_id)
                 .copied()
                 .unwrap_or(pos.settlement_price);
+            // The tick stream is the only authority for 昨结算价; a position
+            // opened before the first print of the day keeps 0 until then,
+            // which is also what an un-seeded desk sees.
+            if let Some(ps) = pre_settlements.get(&pos.instrument_id) {
+                if *ps > 0.0 {
+                    pos.pre_settlement_price = *ps;
+                }
+            }
             let cost = pos.avg_cost(mult);
             let vol = pos.volume();
             pos.position_profit = match pos.side {

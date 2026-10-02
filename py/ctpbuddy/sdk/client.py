@@ -34,7 +34,11 @@ from ..wire import (
     QRY_LAST,
     REQ_ORDER_ACTION,
     REQ_ORDER_INSERT,
+    REQ_QRY_BROKER_TRADING_PARAMS,
     REQ_QRY_INSTRUMENT,
+    REQ_QRY_INSTRUMENT_COMMISSION_RATE,
+    REQ_QRY_INSTRUMENT_MARGIN_RATE,
+    REQ_QRY_INSTRUMENT_ORDER_COMM_RATE,
     REQ_QRY_INVESTOR_POSITION,
     REQ_QRY_ORDER,
     REQ_QRY_TRADE,
@@ -45,7 +49,11 @@ from ..wire import (
     RSP_ERROR,
     RSP_ORDER_ACTION,
     RSP_ORDER_INSERT,
+    RSP_QRY_BROKER_TRADING_PARAMS,
     RSP_QRY_INSTRUMENT,
+    RSP_QRY_INSTRUMENT_COMMISSION_RATE,
+    RSP_QRY_INSTRUMENT_MARGIN_RATE,
+    RSP_QRY_INSTRUMENT_ORDER_COMM_RATE,
     RSP_QRY_INVESTOR_POSITION,
     RSP_QRY_ORDER,
     RSP_QRY_TRADE,
@@ -62,6 +70,10 @@ from ..wire import (
     UNSUB_MD,
     Frame,
 )
+
+#: `THOST_FTDC_HF_Speculation` — rate queries are conventionally sent with
+#: 投机套保标志; the core answers with the row it stores for this flag.
+HEDGE_FLAG_SPECULATION = ord("1")
 
 DEFAULT_TIMEOUT = 10.0
 #: Sentinel pushed into every wait queue when the connection dies.
@@ -481,6 +493,77 @@ class Client:
             generated.pack("CThostFtdcQryTradeField", BrokerID=self.broker_id, InvestorID=self.investor_id, InstrumentID=instrument),
         )
         return [generated.unpack("CThostFtdcTradeField", r) for r in rows]
+
+    # ---- reference data (notes/04 G) ----
+    #
+    # These answer from the same rows the ledger charges with, so
+    # `qry_instrument_margin_rate` cross-checks against
+    # `qry_trading_account()["CurrMargin"]` the way it does on a real desk.
+    #
+    # Official behaviour worth knowing (6.7.13 API docs):
+    #   * an empty `instrument` does **not** mean "every contract" — the core
+    #     answers with the rates of the contracts this investor holds, because
+    #     "目前无法通过一次查询得到所有合约保证金率". Walk the whole market by
+    #     calling once per instrument.
+    #   * `BrokerID` / `InvestorID` are mandatory; omitting them yields an empty
+    #     stream, which is why these methods always fill them in.
+
+    def qry_instrument_margin_rate(self, instrument: str = "") -> List[Dict[str, Any]]:
+        """公司保证金率 — the rate the counter actually freezes with."""
+        rows = self._query_stream(
+            REQ_QRY_INSTRUMENT_MARGIN_RATE,
+            RSP_QRY_INSTRUMENT_MARGIN_RATE,
+            generated.pack(
+                "CThostFtdcQryInstrumentMarginRateField",
+                BrokerID=self.broker_id,
+                InvestorID=self.investor_id,
+                InstrumentID=instrument,
+                HedgeFlag=HEDGE_FLAG_SPECULATION,
+            ),
+        )
+        return [generated.unpack("CThostFtdcInstrumentMarginRateField", r) for r in rows]
+
+    def qry_instrument_commission_rate(self, instrument: str = "") -> List[Dict[str, Any]]:
+        """手续费率 — 开仓 / 平昨 / 平今, each ByMoney and ByVolume."""
+        rows = self._query_stream(
+            REQ_QRY_INSTRUMENT_COMMISSION_RATE,
+            RSP_QRY_INSTRUMENT_COMMISSION_RATE,
+            generated.pack(
+                "CThostFtdcQryInstrumentCommissionRateField",
+                BrokerID=self.broker_id,
+                InvestorID=self.investor_id,
+                InstrumentID=instrument,
+            ),
+        )
+        return [generated.unpack("CThostFtdcInstrumentCommissionRateField", r) for r in rows]
+
+    def qry_instrument_order_comm_rate(self, instrument: str = "") -> List[Dict[str, Any]]:
+        """报单/撤单费 (中金所 only; an empty stream elsewhere is correct)."""
+        rows = self._query_stream(
+            REQ_QRY_INSTRUMENT_ORDER_COMM_RATE,
+            RSP_QRY_INSTRUMENT_ORDER_COMM_RATE,
+            generated.pack(
+                "CThostFtdcQryInstrumentOrderCommRateField",
+                BrokerID=self.broker_id,
+                InvestorID=self.investor_id,
+                InstrumentID=instrument,
+            ),
+        )
+        return [generated.unpack("CThostFtdcInstrumentOrderCommRateField", r) for r in rows]
+
+    def qry_broker_trading_params(self, currency: str = "CNY") -> List[Dict[str, Any]]:
+        """交易参数 — `MarginPriceType` decides how 今仓 margin is priced."""
+        rows = self._query_stream(
+            REQ_QRY_BROKER_TRADING_PARAMS,
+            RSP_QRY_BROKER_TRADING_PARAMS,
+            generated.pack(
+                "CThostFtdcQryBrokerTradingParamsField",
+                BrokerID=self.broker_id,
+                InvestorID=self.investor_id,
+                CurrencyID=currency,
+            ),
+        )
+        return [generated.unpack("CThostFtdcBrokerTradingParamsField", r) for r in rows]
 
     # ---- pushes -----------------------------------------------------------
 

@@ -232,6 +232,10 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 | SUB_MD / UNSUB_MD | SubscribeMarketData / UnSubscribeMarketData |
 | QRY | 所有 ReqQry* 按 struct id 泛化 |
 
+已分配的 QRY type id：`0x1040` Instrument / `0x1042` TradingAccount / `0x1044` InvestorPosition / `0x1046` Order / `0x1048` Trade；参考数据查询 `0x1051` InstrumentMarginRate / `0x1053` InstrumentCommissionRate / `0x1055` InstrumentOrderCommRate / `0x1057` BrokerTradingParams；`0x1050` QRY_LAST 终结查询流。四处（`core/ctpbuddy-wire/src/msgs.rs`、`shim/src/api_core.hpp`、`py/ctpbuddy/wire.py`、`shim/codegen/gen_shim.py`）必须同步。
+
+**费率查询的官方语义**（6.7.13 接口描述逐字复刻，notes/04 G）：`InstrumentID` 留空表示「返回该投资者**持仓对应**合约的费率」，**不是全市场**——「目前无法通过一次查询得到所有合约保证金率，如果要查询所有，则需要通过多次查询得到」；`BrokerID`/`InvestorID`（及 `BrokerTradingParams` 的 `CurrencyID`）为必填，「不填的话返回值就为空」。这两条写反是最常见的实现错误，故直接固化为 e2e 断言。
+
 **Core → Client（DEALER 响应 / PUB 推送）**
 
 | 通道 | topic | 内容 |
@@ -431,6 +435,26 @@ assertions:             # 可选：场景内断言（CI 用）
 - 手续费：`成交量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`，开仓/平仓/平今各一套费率；**申报费**（OrderCommRate，中金所特有）：报单+撤单都计，FAK/FOK 的自动撤单也计（一次 FAK/FOK = 2 次信息量），盘中实时资金不含申报费、只体现在结算单；
 - 浮动盈亏、风险度（CurMargin/Balance）随行情实时更新（mark-on-read，见 §8.8）；
 - 出入金 / 账户重置经 Web 后台与 ADMIN 帧操作，全部入审计日志。
+
+#### 8.6.1 参考数据来源与「一份数据、两处消费」（M3 落地，2026-10-03）
+
+上述所有费率与合约参数的取值**一律来自使用者提供的数据，核心不内置任何编造值**。字段集合不自行设计，而是直接以官方查询返回结构体为建模依据：
+
+| 表 | 对应 CTP 查询 | 记账必需性 |
+|---|---|---|
+| `Instrument` | `ReqQryInstrument` | 必需（合约乘数、最小变动价位、大单边标志…） |
+| `MarginRate` | `ReqQryInstrumentMarginRate` | **公司保证金率 = 实际冻结/占用所用** |
+| `CommissionRate` | `ReqQryInstrumentCommissionRate` | 开仓/平昨/平今 各一套 ByMoney + ByVolume |
+| `OrderCommRate` | `ReqQryInstrumentOrderCommRate` | 申报费：报单 + 撤单各一笔 |
+| `TradingParams` | `ReqQryBrokerTradingParams` | `MarginPriceType`（今仓保证金基准） |
+
+**核心决策：查询面与计算面共用同一份 `RefData`。** 若把费率表劈成「核心算账用」与「客户端查询用」两份，二者必然漂移，且漂移在客户端拿 `ReqQryInstrumentMarginRate` 与自己的 `CurrMargin` 交叉核对之前不可见。因此账本计算与四个 `ReqQry*Rate` 处理器读取同一张表——`tests/e2e/m3_refdata.py` 把这条性质固化为断言（查到的费率 × 昨结算 ×乘数 × 手数 == `CurrMargin`；查到的开仓费率 × 成交额 == `Commission`）。
+
+**供给机制（与 §7.3 行情插件同构）**：插件在 Python 侧运行，导出规范化 JSONL 目录，核心直接读文件——热路径不进解释器。协议是鸭子类型的 provider（`py/ctpbuddy/refdata`），实现任意子集表方法即可，**缺省方法视为「本desk 无此规则」而非错误**（没配手续费就是零手续费，这是合法柜台配置）。核心侧三级取用优先级：`--refdata` / `CTPBUDDY_REFDATA` > `<scenario>/refdata/` > 随包 bundled 数据；显式 `--refdata` 加载失败是硬错误，不用编造费率兜底。
+
+**随包数据（`refdata/`）**：789 个真实期货合约（六所全覆盖）+ 公司费率快照，源自 LocalCTP 参考实现的 `instrument.csv`。**刻意不随包分发手续费表与申报费表**——一个看起来合理但编造的手续费比没有更糟，会让断言变得不诚实；需要手续费的 desk 自带 `commission_rates.jsonl`。查询这三张表返回空流是**正确答案**，不是「未实现」。
+
+**两个易错点已用类型固化**：① `MarginPriceType` 只影响今仓，昨仓恒用昨结算价（`MarginPrice::PreSettlement` 在昨仓分支无条件返回，账本无法悄悄改成最新价）；② 一笔 `Close` 成交若吃掉 2 手昨仓 + 1 手今仓，手续费按**两腿分别计价**（`CommissionKind::{CloseYesterday, CloseToday}`），而非按 offset flag 取单一费率。
 
 ### 8.7 结算
 
@@ -852,6 +876,14 @@ CREATE TABLE audit_log (
 | M2-4 报单流控规则表 + 订单状态机与回报时序 | ✅ 2026-10-03 | `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq`，墙钟 1s 窗口，超限 116「CTP:下单频率限制」）；OSS 七态细化（journal submit_status '0'/'3'/'4'/'5' 指令级闭环）；大商所自补全部成交特例 + 进簿必返 '3' + ExchangeID 回填保按所规则；官方错误码全集对账（error.xml 299 条，核心 12 常量 11 个修正 + 新增 148）；`m2_flow.py` 双服务器 18 断言全绿 + 全量回归（cargo 9 测 + m1/m2 四套件）；口径入 §8.11 |
 | #42 错单双推送面与错误码全集对账 | ✅ 2026-10-03 | 报单拒绝按层分流（CTP 层仅 `OnRspOrderInsert(NULL)`；交易所层 163/164/165 先成功响应再 `OnErrRtnOrderInsert`；撤单拒绝双面）；composite 载荷（input ++ RspInfo）；py SDK `_Pending` 修一请求多帧竞态；error.xml 299 条逐条标注（已实现 19 / 可落地 51 / 暂不可达 229，状态列由 `tools/fill_errorcode_status.py` 幂等生成）；`m2_surface.py` 五段全绿；口径入 §8.12 + notes/09 |
 | #43 FAK 回报按交易所分流 | ✅ 2026-10-03 | 官方《报单回调规则》场景 8/9/10 三所形状（`CancelFirst` / `TradeDriven` / `StatusDriven`）；taker 成交按 `FakFill` 缓冲后由 `emit_fak_reports` 按 leftover 铺开；catalog 补 CZCE `TA609`（3 位 `YMM`）+ GFEX `si2610`（合约数 5→7）；engine 单测 7 项 + 新增 `m2_ioc.py` 四所并排全绿；`m2_book` C3 断言改 `a,5,5,5`；口径入 §8.13 + notes/10 |
+
+**M3 子项进度**（2026-10-03 起跟踪）：
+
+| 子项 | 状态 | 交付物 / 出口标准 |
+|---|---|---|
+| M3-1 参考数据 provider 机制 | ✅ 2026-10-03 | `py/ctpbuddy/refdata/`：鸭子类型 provider 协议（实现任意子集表方法，缺省 = 本desk 无此规则）+ 五张规范 JSONL 表 + `validate`/`write_jsonl`/`load_provider`；`--refdata`/`CTPBUDDY_REFDATA` + `<scenario>/refdata/` 三级优先，显式加载失败为硬错误；CLI `refdata export|show`；端到端验证：GBK 中文列名的期货公司导出表 → provider → 核心加载（`m3_refdata.py`） |
+| M3-2 核心费率建模与按真实公式算账 | ✅ 2026-10-03 | `refdata.rs` 按四张官方查询结构体 + `TradingParams` 建模；保证金两项相加、手续费六费率按开仓/平昨/平今分腿、申报费报单撤单各一笔；`MarginPrice` 枚举把「昨仓恒昨结」做成类型级规则；`on_fill` 接受引擎权威昨结算价（首笔成交早于 mark-to-market，从持仓副本读会得 0）；平仓按开仓成本释放保证金；随包 789 个真实合约 + 公司费率快照（LocalCTP `instrument.csv` 导出）；refdata 单测 8 项 |
+| M3-3 四张费率查询接线 | ✅ 2026-10-03 | `ReqQryInstrumentMarginRate`/`CommissionRate`/`OrderCommRate`/`BrokerTradingParams` 四张查询从 `unsupported` 转为实装（shim 生成器 + 四处msg id 同步 + 查询在途闸门白名单）；官方语义逐字复刻（留空 = 持仓合约、必填项缺失 = 空流）；查询与账本共用同一张表并以 e2e 交叉核对；`m3_refdata.py` 八项断言，两种配置（随包 / `--refdata` 带费率）均绿 |
 
 ### 12.3 后续
 

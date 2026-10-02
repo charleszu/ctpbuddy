@@ -357,6 +357,10 @@ bool ApiCore::is_query_msg(uint16_t msg) {
         case msgs::REQ_QRY_INVESTOR_POSITION:
         case msgs::REQ_QRY_ORDER:
         case msgs::REQ_QRY_TRADE:
+        case msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE:
+        case msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE:
+        case msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE:
+        case msgs::REQ_QRY_BROKER_TRADING_PARAMS:
             return true;
         default:
             return false;

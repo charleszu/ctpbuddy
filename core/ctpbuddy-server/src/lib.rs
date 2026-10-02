@@ -49,6 +49,11 @@ pub struct Config {
     /// The only BrokerID this core instance serves (DESIGN.md §6.4).
     pub broker_id: String,
     pub scenario_dir: Option<String>,
+    /// Reference-data directory (canonical JSONL from a ref-data provider).
+    /// `None` falls back to the built-in **demo** fixture, whose rates are
+    /// invented — a real deployment points this at the desk's own contract
+    /// and rate data (see `core/ctpbuddy-matching/src/refdata.rs`).
+    pub refdata_dir: Option<String>,
     pub initial_funds: f64,
     /// Playback speed multiplier; `None` = unspecified (a scenario's
     /// `clock.time_scale` or the as-fast-as-possible default applies).
@@ -76,6 +81,7 @@ impl Default for Config {
             admin_endpoint: "127.0.0.1:5561".into(),
             broker_id: "8888".into(),
             scenario_dir: None,
+            refdata_dir: None,
             initial_funds: 2_000_000.0,
             playback_speed: None,
             data_dir: String::new(),
@@ -230,22 +236,46 @@ fn load_startup_spec(dir: &str) -> Option<scenario::Spec> {
     }
 }
 
+/// Load the contract directory + rate tables.
+///
+/// Precedence, most specific first:
+/// 1. `refdata_dir` from `--refdata` (canonical JSONL from a provider) — the
+///    authoritative path, and what a real deployment uses;
+/// 2. `<scenario>/refdata.jsonl` or a `refdata` subdirectory, so a scenario
+///    can be self-contained;
+/// 3. [`Catalog::bundled`] — the 789-contract snapshot shipped with CTPBuddy,
+///    so a bare `ctpbuddy up` has something real to trade.
+///
+/// An explicit `--refdata` that fails to load is a hard error: silently
+/// falling back to made-up rates would make a misconfigured desk believe it
+/// is repriced.
+fn load_refdata(explicit: Option<&str>, scenario_dir: Option<&str>) -> Result<Catalog, String> {
+    if let Some(dir) = explicit {
+        return Catalog::load_refdata_dir(dir).map_err(|e| format!("--refdata {dir}: {e}"));
+    }
+    if let Some(sdir) = scenario_dir {
+        let candidates = [
+            format!("{sdir}/refdata"),
+            sdir.to_string(),
+        ];
+        for cand in candidates {
+            if std::path::Path::new(&format!("{cand}/instruments.jsonl")).exists() {
+                return Catalog::load_refdata_dir(&cand);
+            }
+        }
+    }
+    Ok(Catalog::bundled())
+}
+
 /// Resolve a scenario directory into (catalog, transformed tick stream).
 /// Shared by startup and the admin `start_scenario` command so both paths
 /// apply the pipeline identically (DESIGN §7.4: source → transforms → clock).
 fn build_scenario(
     dir: &str,
     spec: Option<&scenario::Spec>,
+    refdata_dir: Option<&str>,
 ) -> Result<(Catalog, Vec<Tick>), String> {
-    let instruments = format!("{dir}/instruments.csv");
-    let mut catalog = Catalog::builtin();
-    if std::path::Path::new(&instruments).exists() {
-        match Catalog::load_csv(&instruments) {
-            Ok(c) if !c.is_empty() => catalog = c,
-            Ok(_) => {}
-            Err(e) => return Err(format!("instruments.csv: {e}")),
-        }
-    }
+    let catalog = load_refdata(refdata_dir, Some(dir))?;
     let ticks_path = match spec.and_then(|s| s.source_path.as_deref()) {
         Some(p) => format!("{dir}/{p}"),
         None => format!("{dir}/ticks.csv"),
@@ -307,7 +337,22 @@ impl World {
             }
         };
 
-        let mut engine_catalog = Catalog::builtin();
+        // Ref data resolution order: explicit --refdata > a `refdata/`
+        // directory inside the scenario > the bundled contract snapshot.
+        // `World::new` cannot return a Result, so a hard failure here is
+        // reported loudly and degraded to an empty catalog — an explicit
+        // --refdata that is broken must not be papered over with invented
+        // contracts, and the operator sees why on stderr.
+        let mut engine_catalog = match load_refdata(
+            cfg.refdata_dir.as_deref(),
+            cfg.scenario_dir.as_deref(),
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[ctpbuddy] {e}");
+                Catalog::new()
+            }
+        };
         let mut playback = None;
         let mut vt_day = dtime::today_trading_day();
         // Before any scenario clock exists there is no virtual time: 0.0 is
@@ -324,7 +369,7 @@ impl World {
             // scenario.json is the compiled form of scenario.yaml (written by
             // `ctpbuddy scenario compile`); no file = legacy ticks.csv-only.
             let spec = load_startup_spec(dir);
-            match build_scenario(dir, spec.as_ref()) {
+            match build_scenario(dir, spec.as_ref(), cfg.refdata_dir.as_deref()) {
                 Ok((catalog, ticks)) => {
                     engine_catalog = catalog;
                     if let Some(first) = ticks.first() {
@@ -402,7 +447,7 @@ impl World {
         paused: bool,
         speed: Option<f64>,
     ) -> Result<(usize, String, String), String> {
-        let (catalog, ticks) = build_scenario(dir, spec)?;
+        let (catalog, ticks) = build_scenario(dir, spec, self.cfg.refdata_dir.as_deref())?;
         if ticks.is_empty() {
             return Err("场景没有任何 tick（transforms / clock.start 之后为空）".to_string());
         }
@@ -647,7 +692,9 @@ impl World {
         }
         // mark to market (unrealized PnL drives account queries)
         let prices = self.engine.last_prices();
-        self.ledger.mark_to_market(self.engine.catalog(), &prices);
+        let pre_settlements = self.engine.pre_settlements();
+        self.ledger
+            .mark_to_market(self.engine.catalog(), &prices, &pre_settlements);
         if let Some(j) = self.journal.as_mut() {
             j.flush_if_due(now);
         }
@@ -695,7 +742,8 @@ impl World {
                 self.journal_record_order_update(&day, now, &field);
             }
             EngineEvent::Trade { field, fill } => {
-                self.ledger.on_fill(&fill, self.engine.catalog());
+                let pre_settle = self.engine.pre_settlement(&fill.instrument_id).unwrap_or(0.0);
+                self.ledger.on_fill(&fill, self.engine.catalog(), pre_settle);
                 self.trades_today.push(field.clone());
                 let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
                 let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));

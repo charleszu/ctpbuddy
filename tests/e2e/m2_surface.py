@@ -62,7 +62,7 @@ from ctpbuddy.wire import (  # noqa: E402
     RSP_ORDER_INSERT,
 )
 
-RB = INSTRUMENT  # rb2610: SHFE, mult 10, tick 1, limits 3150..3850
+RB = INSTRUMENT  # rb2601: SHFE, mult 10, tick 1, limits 3150..3850
 ERR_FREQ = 116       # ORDER_FREQ_LIMIT      CTP:下单频率限制
 ERR_FUNDS = 31       # INSUFFICIENT_MONEY    CTP:资金不足
 ERR_UNKNOWN_INSTR = 16   # INSTRUMENT_NOT_FOUND CTP:找不到合约
@@ -196,7 +196,7 @@ def run(td_port: int, admin_port: int, scenario: str) -> None:
         # -- B. exchange refuse (非最小变动价位): success Rsp THEN rtn --------
         new_window()
         cli.clear_late()
-        off_tick = 3497.5  # rb2610 tick = 1: 3497.5 is not a tick multiple
+        off_tick = 3497.5  # rb2601 tick = 1: 3497.5 is not a tick multiple
         f = cli.order_insert(RB, direction="0", offset="0", volume=1, limit_price=off_tick,
                              exchange="SHFE", order_ref="X1")
         assert f.msg_type == RSP_ORDER_INSERT, f  # OnRspOrderInsert{0}: accepted

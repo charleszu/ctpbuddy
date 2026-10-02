@@ -27,12 +27,14 @@ use ctpbuddy_ledger::{
 use ctpbuddy_matching::{
     CancelQuery, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome, ERR_BAD_FIELD,
     ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
-    ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ,
+    ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ, HEDGE_FLAG_SPECULATION,
 };
 use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
-    CThostFtdcQryInstrumentField, CThostFtdcQryInvestorPositionField, CThostFtdcQryOrderField,
-    CThostFtdcQryTradeField, CThostFtdcReqUserLoginField,
+    CThostFtdcQryBrokerTradingParamsField, CThostFtdcQryInstrumentCommissionRateField,
+    CThostFtdcQryInstrumentField, CThostFtdcQryInstrumentMarginRateField,
+    CThostFtdcQryInstrumentOrderCommRateField, CThostFtdcQryInvestorPositionField,
+    CThostFtdcQryOrderField, CThostFtdcQryTradeField, CThostFtdcReqUserLoginField,
     CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
     CThostFtdcSpecificInstrumentField, CThostFtdcUserLogoutField,
 };
@@ -69,6 +71,18 @@ impl World {
             msgs::REQ_QRY_INVESTOR_POSITION => self.on_qry_investor_position(conn_id, &frame),
             msgs::REQ_QRY_ORDER => self.on_qry_order(conn_id, &frame),
             msgs::REQ_QRY_TRADE => self.on_qry_trade(conn_id, &frame),
+            msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE => {
+                self.on_qry_instrument_margin_rate(conn_id, &frame)
+            }
+            msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE => {
+                self.on_qry_instrument_commission_rate(conn_id, &frame)
+            }
+            msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE => {
+                self.on_qry_instrument_order_comm_rate(conn_id, &frame)
+            }
+            msgs::REQ_QRY_BROKER_TRADING_PARAMS => {
+                self.on_qry_broker_trading_params(conn_id, &frame)
+            }
             other => {
                 eprintln!("[ctpbuddy] conn {conn_id}: unsupported msg 0x{other:04x}");
                 self.send_error(conn_id, frame.req_id, -1, "不支持的消息类型")
@@ -501,24 +515,35 @@ impl World {
                 return self.send_error(conn_id, frame.req_id, code, &msg);
             }
         }
-        let (est_margin, est_comm) = if offset == OffsetFlag::Open {
-            let info = self.engine.catalog().get(&instrument);
-            let m = info
-                .map(|i| i.margin(direction, price_est, input.VolumeTotalOriginal))
-                .unwrap_or(0.0);
-            let c = info
-                .map(|i| i.commission(price_est, input.VolumeTotalOriginal))
-                .unwrap_or(input.VolumeTotalOriginal as f64);
-            (m, c)
-        } else {
-            let c = self
+        // Funds frozen at insert time. A close order reserves **no** margin —
+        // it consumes an existing position, and the margin it will release is
+        // only known once the fill tells us the leg (notes/04 附表: 平仓冻结的
+        // 是持仓量，不是资金). Commission is estimated at the dearer of
+        // 开仓 / 平今 so the freeze is never short; the release path stays
+        // symmetric because it is pro-rata on this same number.
+        let catalog = self.engine.catalog();
+        let est_margin = if offset == OffsetFlag::Open {
+            // The freeze must be priced on the **昨结算价**, which is the
+            // `MarginPriceType == '1'` basis (notes/04 C2). Using the latest
+            // print here instead would make the frozen amount drift with the
+            // market, and the drift would not match what the position is
+            // actually charged once it fills. Before the first tick of a
+            // session there is no 昨结算 to be had, so the quote stands in.
+            let basis = self
                 .engine
-                .catalog()
-                .get(&instrument)
-                .map(|i| i.commission(price_est, input.VolumeTotalOriginal))
-                .unwrap_or(input.VolumeTotalOriginal as f64);
-            (0.0, c)
+                .pre_settlement(&instrument)
+                .or_else(|| self.engine.last_price(&instrument))
+                .unwrap_or(price_est);
+            catalog.margin(
+                &instrument,
+                direction,
+                catalog.margin_price_for(true, basis, price_est),
+                input.VolumeTotalOriginal,
+            )
+        } else {
+            0.0
         };
+        let est_comm = catalog.estimated_commission(&instrument, price_est, input.VolumeTotalOriginal);
         if let Err(code) = self
             .ledger
             .freeze(&order_key, &broker, &investor, est_margin, est_comm)
@@ -841,7 +866,9 @@ impl World {
     /// `Balance` is dynamic equity, so a stale mark leaks straight into it.
     fn mark_to_market_now(&mut self) {
         let prices = self.engine.last_prices();
-        self.ledger.mark_to_market(self.engine.catalog(), &prices);
+        let pre_settlements = self.engine.pre_settlements();
+        self.ledger
+            .mark_to_market(self.engine.catalog(), &prices, &pre_settlements);
     }
 
     /// 报单流控 (DESIGN §8.3, docs: 报单流控、查询流控和会话数控制):
@@ -1050,6 +1077,217 @@ impl World {
             );
         }
         self.send_frame(conn_id, Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()));
+    }
+
+    // ---- reference-data queries (notes/04 G) ----
+    //
+    // These four read the *same* rows the ledger computes from. That is the
+    // whole point: a client that cross-checks `ReqQryInstrumentMarginRate`
+    // against `ReqQryTradingAccount.CurrMargin` must see numbers that agree,
+    // and on a real desk they do because there is only one rate table.
+    //
+    // Two official behaviours are reproduced deliberately (6.7.13 API docs,
+    // "请求查询合约保证金率"):
+    //
+    //   1. `InstrumentID` empty → return the rates of the contracts the
+    //      investor **currently holds**, not the whole market. The docs are
+    //      explicit: "目前无法通过一次查询得到所有合约保证金率，如果要查询
+    //      所有，则需要通过多次查询得到". A client that walks all contracts
+    //      must issue one query per contract — so answering with all 789
+    //      bundled contracts here would be wrong, not generous.
+    //   2. `BrokerID` / `InvestorID` are mandatory and "不填的话返回值就为空".
+    //
+    /// The set of instruments a rate query may return, applying (1).
+    fn rate_query_scope(
+        &self,
+        broker: &str,
+        investor: &str,
+        instrument_filter: &str,
+    ) -> Vec<String> {
+        if !instrument_filter.is_empty() {
+            return vec![instrument_filter.to_string()];
+        }
+        // empty InstrumentID == "持仓对应的合约", deduplicated and ordered so
+        // the row stream is reproducible across runs.
+        let mut ids: Vec<String> = self
+            .ledger
+            .positions_of(broker, investor)
+            .into_iter()
+            .map(|p| p.instrument_id.clone())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    }
+
+/// Empty result set: still a well-formed query stream — the client learns
+    /// "nothing matched" from a clean QRY_LAST, not from a timeout. This is a
+    /// distinct path because `Vec::new()` cannot infer the row type, and
+    /// because it is genuinely the common case (no positions → no rows).
+    fn send_qry_empty(&mut self, conn_id: u64, req_id: u32) {
+        self.send_frame(conn_id, Frame::new(msgs::QRY_LAST, req_id, Vec::new()));
+    }
+
+    /// Common tail of the four reference-data queries: emit one frame per row,
+    /// then terminate the stream. Generic because each query answers with its own
+    /// CTP response struct — the shared part really is only "rows then QRY_LAST".
+    fn send_rate_rows<T: Copy>(
+        &mut self,
+        conn_id: u64,
+        req_id: u32,
+        rsp_msg: u16,
+        rows: Vec<T>,
+    ) {
+        for f in &rows {
+            self.send_frame(conn_id, Frame::new(rsp_msg, req_id, struct_to_bytes(f)));
+        }
+        self.send_frame(conn_id, Frame::new(msgs::QRY_LAST, req_id, Vec::new()));
+    }
+
+    fn on_qry_instrument_margin_rate(&mut self, conn_id: u64, frame: &Frame) {
+        if !self.qry_gate(conn_id, frame.req_id) {
+            return;
+        }
+        let (broker, investor) = match self.session(conn_id) {
+            Some(v) => (v.0, v.1),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        };
+        let q: CThostFtdcQryInstrumentMarginRateField = struct_from_bytes(&frame.payload)
+            .unwrap_or_else(CThostFtdcQryInstrumentMarginRateField::zeroed);
+        // (2) mandatory fields empty → empty result, not an error.
+        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
+            return self.send_qry_empty(conn_id, frame.req_id);
+        }
+        let filter = cstr(&q.InstrumentID);
+        let hedge = if q.HedgeFlag == 0 {
+            HEDGE_FLAG_SPECULATION
+        } else {
+            q.HedgeFlag
+        };
+        let scope = self.rate_query_scope(&broker, &investor, &filter);
+        let catalog = self.engine.catalog();
+        let rows: Vec<_> = scope
+            .iter()
+            .filter_map(|id| catalog.margin_rate(id))
+            .map(|r| {
+                let mut f = r.to_field();
+                // Echo the session's identity and the requested hedge flag:
+                // the client asked with its own account, not ours.
+                set_cstr(&mut f.BrokerID, &broker);
+                set_cstr(&mut f.InvestorID, &investor);
+                set_cstr(&mut f.InstrumentID, &r.instrument_id);
+                f.HedgeFlag = hedge;
+                f
+            })
+            .collect();
+        self.send_rate_rows(conn_id, frame.req_id, msgs::RSP_QRY_INSTRUMENT_MARGIN_RATE, rows);
+    }
+
+    fn on_qry_instrument_commission_rate(&mut self, conn_id: u64, frame: &Frame) {
+        if !self.qry_gate(conn_id, frame.req_id) {
+            return;
+        }
+        let (broker, investor) = match self.session(conn_id) {
+            Some(v) => (v.0, v.1),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        };
+        let q: CThostFtdcQryInstrumentCommissionRateField = struct_from_bytes(&frame.payload)
+            .unwrap_or_else(CThostFtdcQryInstrumentCommissionRateField::zeroed);
+        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
+            return self.send_qry_empty(conn_id, frame.req_id);
+        }
+        let filter = cstr(&q.InstrumentID);
+        let scope = self.rate_query_scope(&broker, &investor, &filter);
+        let catalog = self.engine.catalog();
+        let rows: Vec<_> = scope
+            .iter()
+            .filter_map(|id| catalog.commission_rate(id))
+            .map(|r| {
+                let mut f = r.to_field();
+                set_cstr(&mut f.BrokerID, &broker);
+                set_cstr(&mut f.InvestorID, &investor);
+                set_cstr(&mut f.InstrumentID, &r.instrument_id);
+                f
+            })
+            .collect();
+        self.send_rate_rows(
+            conn_id,
+            frame.req_id,
+            msgs::RSP_QRY_INSTRUMENT_COMMISSION_RATE,
+            rows,
+        );
+    }
+
+    fn on_qry_instrument_order_comm_rate(&mut self, conn_id: u64, frame: &Frame) {
+        if !self.qry_gate(conn_id, frame.req_id) {
+            return;
+        }
+        let (broker, investor) = match self.session(conn_id) {
+            Some(v) => (v.0, v.1),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        };
+        let q: CThostFtdcQryInstrumentOrderCommRateField = struct_from_bytes(&frame.payload)
+            .unwrap_or_else(CThostFtdcQryInstrumentOrderCommRateField::zeroed);
+        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
+            return self.send_qry_empty(conn_id, frame.req_id);
+        }
+        let filter = cstr(&q.InstrumentID);
+        let scope = self.rate_query_scope(&broker, &investor, &filter);
+        let catalog = self.engine.catalog();
+        // 申报费 (报单 + 撤单各一笔). P4 calls it 中金所特有, but the rule
+        // here is deliberately **not** an exchange whitelist: a row exists
+        // exactly when the supplied `order_comm_rates.jsonl` has one for that
+        // instrument. So a desk that does charge 申报费 on SHFE gets SHFE
+        // rows, and one that doesn't gets an empty stream — both correct.
+        // An empty result is a real answer here, not "unimplemented".
+        let rows: Vec<_> = scope
+            .iter()
+            .filter_map(|id| catalog.order_comm_rate(id))
+            .map(|r| {
+                let mut f = r.to_field();
+                set_cstr(&mut f.BrokerID, &broker);
+                set_cstr(&mut f.InvestorID, &investor);
+                set_cstr(&mut f.InstrumentID, &r.instrument_id);
+                f
+            })
+            .collect();
+        self.send_rate_rows(
+            conn_id,
+            frame.req_id,
+            msgs::RSP_QRY_INSTRUMENT_ORDER_COMM_RATE,
+            rows,
+        );
+    }
+
+    fn on_qry_broker_trading_params(&mut self, conn_id: u64, frame: &Frame) {
+        if !self.qry_gate(conn_id, frame.req_id) {
+            return;
+        }
+        let (broker, investor) = match self.session(conn_id) {
+            Some(v) => (v.0, v.1),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        };
+        let q: CThostFtdcQryBrokerTradingParamsField = struct_from_bytes(&frame.payload)
+            .unwrap_or_else(CThostFtdcQryBrokerTradingParamsField::zeroed);
+        // BrokerID / InvestorID / CurrencyID are all mandatory here.
+        let currency = cstr(&q.CurrencyID);
+        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() || currency.is_empty() {
+            return self.send_qry_empty(conn_id, frame.req_id);
+        }
+        // One row per broker — this is where MarginPriceType comes from, and it
+        // is the field the whole margin calculation hangs on.
+        let catalog = self.engine.catalog();
+        let p = catalog.trading_params().clone();
+        let mut f = p.to_field();
+        set_cstr(&mut f.BrokerID, &broker);
+        set_cstr(&mut f.InvestorID, &investor);
+        set_cstr(&mut f.CurrencyID, &currency);
+        self.send_rate_rows(
+            conn_id,
+            frame.req_id,
+            msgs::RSP_QRY_BROKER_TRADING_PARAMS,
+            vec![f],
+        );
     }
 }
 

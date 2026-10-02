@@ -52,6 +52,14 @@ MSG = {
     "REQ_QRY_INVESTOR_POSITION": 0x1044, "RSP_QRY_INVESTOR_POSITION": 0x1045,
     "REQ_QRY_ORDER": 0x1046, "RSP_QRY_ORDER": 0x1047,
     "REQ_QRY_TRADE": 0x1048, "RSP_QRY_TRADE": 0x1049,
+    # Reference-data queries. These answer from the *same* tables the ledger
+    # computes from, so a client that cross-checks ReqQryInstrumentMarginRate
+    # against ReqQryTradingAccount.CurrMargin sees consistent numbers
+    # (notes/04 G).
+    "REQ_QRY_INSTRUMENT_MARGIN_RATE": 0x1051, "RSP_QRY_INSTRUMENT_MARGIN_RATE": 0x1052,
+    "REQ_QRY_INSTRUMENT_COMMISSION_RATE": 0x1053, "RSP_QRY_INSTRUMENT_COMMISSION_RATE": 0x1054,
+    "REQ_QRY_INSTRUMENT_ORDER_COMM_RATE": 0x1055, "RSP_QRY_INSTRUMENT_ORDER_COMM_RATE": 0x1056,
+    "REQ_QRY_BROKER_TRADING_PARAMS": 0x1057, "RSP_QRY_BROKER_TRADING_PARAMS": 0x1058,
     "QRY_LAST": 0x1050,
 }
 
@@ -68,6 +76,10 @@ TD_REQUESTS = {
     "ReqQryInvestorPosition": ("REQ_QRY_INVESTOR_POSITION", "CThostFtdcQryInvestorPositionField"),
     "ReqQryOrder": ("REQ_QRY_ORDER", "CThostFtdcQryOrderField"),
     "ReqQryTrade": ("REQ_QRY_TRADE", "CThostFtdcQryTradeField"),
+    "ReqQryInstrumentMarginRate": ("REQ_QRY_INSTRUMENT_MARGIN_RATE", "CThostFtdcQryInstrumentMarginRateField"),
+    "ReqQryInstrumentCommissionRate": ("REQ_QRY_INSTRUMENT_COMMISSION_RATE", "CThostFtdcQryInstrumentCommissionRateField"),
+    "ReqQryInstrumentOrderCommRate": ("REQ_QRY_INSTRUMENT_ORDER_COMM_RATE", "CThostFtdcQryInstrumentOrderCommRateField"),
+    "ReqQryBrokerTradingParams": ("REQ_QRY_BROKER_TRADING_PARAMS", "CThostFtdcQryBrokerTradingParamsField"),
 }
 MD_REQUESTS = {
     "ReqUserLogin": ("REQ_USER_LOGIN", "CThostFtdcReqUserLoginField"),
@@ -89,6 +101,10 @@ REQ_OF_RSP = {
     "RSP_QRY_INVESTOR_POSITION": "REQ_QRY_INVESTOR_POSITION",
     "RSP_QRY_TRADING_ACCOUNT": "REQ_QRY_TRADING_ACCOUNT",
     "RSP_QRY_INSTRUMENT": "REQ_QRY_INSTRUMENT",
+    "RSP_QRY_INSTRUMENT_MARGIN_RATE": "REQ_QRY_INSTRUMENT_MARGIN_RATE",
+    "RSP_QRY_INSTRUMENT_COMMISSION_RATE": "REQ_QRY_INSTRUMENT_COMMISSION_RATE",
+    "RSP_QRY_INSTRUMENT_ORDER_COMM_RATE": "REQ_QRY_INSTRUMENT_ORDER_COMM_RATE",
+    "RSP_QRY_BROKER_TRADING_PARAMS": "REQ_QRY_BROKER_TRADING_PARAMS",
     "RSP_SUB_MD": "SUB_MD",
     "RSP_UNSUB_MD": "UNSUB_MD",
 }
@@ -124,6 +140,10 @@ TD_DISPATCH = [
     ("qry", "RSP_QRY_INVESTOR_POSITION", "CThostFtdcInvestorPositionField", "OnRspQryInvestorPosition", {}),
     ("qry", "RSP_QRY_TRADING_ACCOUNT", "CThostFtdcTradingAccountField", "OnRspQryTradingAccount", {}),
     ("qry", "RSP_QRY_INSTRUMENT", "CThostFtdcInstrumentField", "OnRspQryInstrument", {}),
+    ("qry", "RSP_QRY_INSTRUMENT_MARGIN_RATE", "CThostFtdcInstrumentMarginRateField", "OnRspQryInstrumentMarginRate", {}),
+    ("qry", "RSP_QRY_INSTRUMENT_COMMISSION_RATE", "CThostFtdcInstrumentCommissionRateField", "OnRspQryInstrumentCommissionRate", {}),
+    ("qry", "RSP_QRY_INSTRUMENT_ORDER_COMM_RATE", "CThostFtdcInstrumentOrderCommRateField", "OnRspQryInstrumentOrderCommRate", {}),
+    ("qry", "RSP_QRY_BROKER_TRADING_PARAMS", "CThostFtdcBrokerTradingParamsField", "OnRspQryBrokerTradingParams", {}),
     ("push", "RTN_ORDER", "CThostFtdcOrderField", "OnRtnOrder", {}),
     ("push", "RTN_TRADE", "CThostFtdcTradeField", "OnRtnTrade", {}),
 ]

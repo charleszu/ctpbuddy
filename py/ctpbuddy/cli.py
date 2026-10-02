@@ -28,11 +28,64 @@ import shutil
 import signal
 import subprocess
 import sys
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from . import __version__
 from .replay import find_core
 from .sdk import Admin
+
+
+def cmd_refdata_export(args: argparse.Namespace) -> int:
+    """Materialize a ref-data provider to the canonical JSONL directory.
+
+    This is the bridge in the plugin protocol: a provider may read anything
+    (a spreadsheet, a Parquet dump, an exchange settlement file), but the core
+    only ever sees the normalized JSONL this writes — no interpreter in the
+    hot path, the same split as the market-data plugin (DESIGN §7.3).
+    """
+    from . import refdata
+
+    spec: Dict[str, Any] = {"kind": args.kind, "provider": args.provider}
+    if args.path:
+        spec["path"] = args.path
+    if args.options:
+        for item in args.options:
+            if "=" not in item:
+                print("error: --options expects key=value, got %r" % item, file=sys.stderr)
+                return 1
+            k, v = item.split("=", 1)
+            spec.setdefault("options", {})[k] = v
+    try:
+        provider = refdata.load_provider(spec)
+        written = refdata.write_jsonl(provider, args.out)
+    except (ValueError, ImportError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    for path in written:
+        n = sum(1 for _ in open(path, encoding="utf-8"))
+        print("wrote %-22s %5d rows  %s" % (os.path.basename(path), n, path))
+    print("\n[ctpbuddy] pass it to the core with:  ctpbuddy serve --refdata %s" % args.out)
+    return 0
+
+
+def cmd_refdata_show(args: argparse.Namespace) -> int:
+    """Validate a ref-data directory and summarize each table."""
+    from . import refdata
+
+    provider = refdata.jsonl_dir(args.dir)
+    problems = refdata.validate(provider)
+    for name, rows in refdata.iter_tables(provider):
+        print("%-22s %5d rows" % (name, len(rows)))
+        if args.verbose:
+            for row in rows[: args.limit]:
+                print("    " + ", ".join("%s=%s" % kv for kv in sorted(row.items())))
+    if problems:
+        print("\nproblems:", file=sys.stderr)
+        for p in problems:
+            print("  - %s" % p, file=sys.stderr)
+        return 1
+    print("\nok: %s" % args.dir)
+    return 0
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -54,6 +107,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if jpath:
             print("[ctpbuddy] compiled scenario spec: %s" % jpath)
         cmd += ["--scenario", args.scenario]
+    if args.refdata:
+        # A ref-data directory is a plain directory of JSONL the core reads
+        # directly; nothing is compiled here (unlike a scenario's YAML).
+        cmd += ["--refdata", args.refdata]
     if args.speed is not None:
         cmd += ["--speed", str(args.speed)]
     if args.initial_funds is not None:
@@ -321,7 +378,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("serve", help="start the Rust core (front + admin endpoints)")
-    sp.add_argument("--scenario", help="scenario dir (instruments.csv optional, ticks.csv required)")
+    sp.add_argument("--scenario", help="scenario dir (refdata/ optional, ticks.csv required)")
+    sp.add_argument("--refdata", help="contracts + margin/commission rates (JSONL dir from `refdata export`)")
     sp.add_argument("--td", default="127.0.0.1:5560", help="CTP td front endpoint")
     sp.add_argument("--admin", default="127.0.0.1:5561", help="admin control endpoint")
     sp.add_argument("--broker-id", default="8888", help="the only BrokerID this core serves")
@@ -333,6 +391,25 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("status", help="core admin status")
     sp.add_argument("--admin", default="127.0.0.1:5561")
     sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser(
+        "refdata",
+        help="reference data (contracts + rates): export a provider to the core's format",
+    )
+    rsub = sp.add_subparsers(dest="refdata_cmd", required=True)
+    ep = rsub.add_parser("export", help="run a provider and write canonical JSONL")
+    ep.add_argument("--kind", choices=("csv", "jsonl", "plugin"), default="csv")
+    ep.add_argument("--provider", help="package.module:Attribute (kind=plugin)")
+    ep.add_argument("--path", help="source directory (kind=csv / jsonl)")
+    ep.add_argument("--options", action="append", metavar="K=V",
+                    help="extra provider options, repeatable")
+    ep.add_argument("--out", required=True, help="output directory for the JSONL tables")
+    ep.set_defaults(func=cmd_refdata_export)
+    vp = rsub.add_parser("show", help="validate and summarize a ref-data directory")
+    vp.add_argument("dir")
+    vp.add_argument("-v", "--verbose", action="store_true", help="print sample rows")
+    vp.add_argument("--limit", type=int, default=3)
+    vp.set_defaults(func=cmd_refdata_show)
 
     sp = sub.add_parser("scenario", help="scenario utilities")
     ssub = sp.add_subparsers(dest="scenario_cmd", required=True)

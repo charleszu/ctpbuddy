@@ -43,7 +43,7 @@ from ctpbuddy.sdk import Admin, Client  # noqa: E402
 from ctpbuddy.wire import RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
-RB = "rb2610"  # SHFE: mult 10, tick 1, margin 0.10
+RB = "rb2601"  # SHFE: mult 10, tick 1, margin 0.16
 SCENARIO_NAME = "dsl-pipeline-demo"
 TOTAL_TICKS = 11  # 12 written ticks, one dropped by the freeze
 DEFAULT_FUNDS = 1_000_000.0
@@ -374,7 +374,9 @@ def run_scenario(td_port: int, admin_port: int, data_dir: str, scenario: str) ->
 
         # -- final ledger state ----------------------------------------------
         a = clients[D1].qry_trading_account()
-        assert close(a["CurrMargin"], (2 * 3504 + 2 * 3510) * 10 * 0.10, 1e-4), a
+        # 4 lots, margined at 昨结算 3500 x mult 10 x company rate 0.16 — the two
+        # fill prices (3504 / 3510) do not enter the margin basis.
+        assert close(a["CurrMargin"], 4 * 3500 * 10 * 0.16, 1e-4), a
         assert close(a["FrozenMargin"], 0.0, 1e-6) and close(a["FrozenCommission"], 0.0, 1e-6), a
         pos = clients[D1].qry_investor_position(RB)
         assert len(pos) == 1 and pos[0]["PosiDirection"] == ord("2"), pos

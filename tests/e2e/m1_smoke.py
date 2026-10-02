@@ -30,17 +30,27 @@ from ctpbuddy.wire import RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
 INVESTOR = "smoke001"
-INSTRUMENT = "rb2610"
+INSTRUMENT = "rb2601"
 INITIAL_FUNDS = 2_000_000.0
 
-# rb2610: SHFE, mult 10, tick 1, margin 0.10, comm max(rate*turnover, 1.0/lot)
+# rb2601: SHFE, mult 10, tick 1, margin 0.16 (真实合约，随包 refdata 快照)
 BUY_PRICE = 3502.0   # = ask1: crosses on insert
 SELL_PRICE = 3498.0  # = bid1: crosses on insert
 REST_PRICE = 3480.0  # deep below the book: parks
-# commission = max(turnover*rate, per_lot*volume); rate*0.805 < 1.0 -> per-lot wins
-COMM_BUY = 1.0
-COMM_SELL = 1.0
-MARGIN_OPEN = BUY_PRICE * 10 * 0.10            # 3502.0
+# The bundled ref-data snapshot ships no commission table (a made-up fee
+# would be worse than none — see `Catalog::bundled`), so fills are free and
+# this suite asserts the fee-free path end to end. A desk supplying
+# `commission_rates.jsonl` gets the full 开仓/平昨/平今 split instead.
+COMM_BUY = 0.0
+COMM_SELL = 0.0
+# 保证金 = (ByVolume + ByMoney x Price x Mult) x Volume, priced at 昨结算价
+# because the bundled MarginPriceType is '1' (notes/04 C2). Company rate
+# 0.16 comes from refdata/margin_rates.jsonl, not from the exchange-rate
+# fallback, so this number is the one a client cross-checks against
+# ReqQryInstrumentMarginRate.
+PRE_SETTLEMENT = 3500.0
+MARGIN_PER_LOT = PRE_SETTLEMENT * 10 * 0.16   # 5600.0
+MARGIN_OPEN = MARGIN_PER_LOT
 LAST_TICK_PRICE = 3501.0                        # scenario's final tick last price
 # CTP Balance is dynamic equity: while the position is open it carries the
 # unrealized loss against the last tick (3501 vs the 3502 entry).
@@ -169,7 +179,7 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
     assert st["broker_id"] == BROKER, st
     # builtin catalog: SHFE×3 / DCE / CFFEX / CZCE / GFEX (the last two exist
     # so the per-exchange FAK report layouts of 官方场景 8/9/10 are drivable)
-    assert st["instruments"] == 7, st  # builtin catalog
+    assert st["instruments"] == 789, st  # bundled ref data snapshot (all six CTP groups)
     assert st["playback"]["loaded"] is False, st
     print("[ok] admin ping/status (broker %s, %d instruments, no scenario)" % (st["broker_id"], st["instruments"]))
 
@@ -255,6 +265,7 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
         assert close(acct["CurrMargin"], MARGIN_OPEN, 1e-4), acct
         assert close(acct["Available"], INITIAL_FUNDS - COMM_BUY + UNREALIZED_OPEN - MARGIN_OPEN, 1e-4), acct
         print("[ok] after open: balance=%.4f margin=%.2f available=%.4f" % (acct["Balance"], acct["CurrMargin"], acct["Available"]))
+        available_after_open = acct["Available"]
 
         positions = cli.qry_investor_position(INSTRUMENT)
         assert len(positions) == 1, positions
@@ -264,8 +275,15 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
         print("[ok] position: %s dir=long pos=%d today=%d" % (p["InstrumentID"], p["Position"], p["TodayPosition"]))
 
         # -- insufficient funds: park orders until frozen margin eats equity ---
-        cli.order_insert(INSTRUMENT, direction="0", offset="0", volume=500, limit_price=REST_PRICE,
-                         exchange="SHFE", order_ref="900")
+        # The parked size is derived, not magic: it takes exactly as much as the
+        # remaining equity can carry, leaving less than one lot's margin so
+        # the next insert must fail. Computing it keeps the case honest when
+        # the ref data (and therefore the per-lot margin) changes.
+        park_lots = int(available_after_open // MARGIN_PER_LOT)
+        assert available_after_open - park_lots * MARGIN_PER_LOT < MARGIN_PER_LOT, (
+            available_after_open, park_lots)
+        cli.order_insert(INSTRUMENT, direction="0", offset="0", volume=park_lots,
+                         limit_price=REST_PRICE, exchange="SHFE", order_ref="900")
         parked = None
         for kind, field in cli.events(timeout=5.0):
             # §8.9: the first push is the unknown ('a') order; the queueing
@@ -275,15 +293,20 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
                 break
         assert parked is not None and parked["OrderStatus"] == ord("3"), parked
         frozen = cli.qry_trading_account()
-        assert close(frozen["FrozenMargin"], 500 * REST_PRICE * 10 * 0.10, 1e-4), frozen
-        print("[ok] parked 500 lots: frozen_margin=%.2f available=%.2f" % (frozen["FrozenMargin"], frozen["Available"]))
+        # Frozen at 昨结算价 x 乘数 x 公司费率 x 手数 — the LimitPrice is
+        # deliberately NOT the basis (notes/04 C2: 期货公司算法不一, and the
+        # bundled MarginPriceType '1' means 昨结算). A client that assumes the
+        # quote price is used would compute a different number here.
+        assert close(frozen["FrozenMargin"], park_lots * MARGIN_PER_LOT, 1e-4), frozen
+        print("[ok] parked %d lots: frozen_margin=%.2f available=%.2f"
+              % (park_lots, frozen["FrozenMargin"], frozen["Available"]))
 
         try:
-            cli.order_insert(INSTRUMENT, direction="0", offset="0", volume=100, limit_price=REST_PRICE, exchange="SHFE")
+            cli.order_insert(INSTRUMENT, direction="0", offset="0", volume=1, limit_price=REST_PRICE, exchange="SHFE")
             raise AssertionError("underserved order accepted")
         except CTPError as e:
             assert e.error_id == 31, e  # ERR_FUNDS: frozen + new > available
-        print("[ok] next 100 lots rejected (ErrorID 31, insufficient funds)")
+        print("[ok] next 1 lot rejected (ErrorID 31, insufficient funds)")
 
         cli.order_action(INSTRUMENT, order_ref="900")
         for kind, field in cli.events(timeout=5.0):

@@ -7,8 +7,14 @@
 
 pub mod catalog;
 pub mod engine;
+pub mod refdata;
 
-pub use catalog::{Catalog, InstrumentInfo};
+pub use catalog::Catalog;
+pub use refdata::{
+    CommissionKind, CommissionRate, Instrument, MarginPrice, MarginRate, OrderCommRate, RefData,
+    TradingParams, HEDGE_FLAG_SPECULATION, MPT_AVERAGE, MPT_OPEN_PRICE, MPT_PRE_SETTLEMENT,
+    MPT_SETTLEMENT,
+};
 pub use engine::{
     CancelQuery, ClockCtx, EngineEvent, MatchingEngine, OrderRecord, SubmitOutcome, ERR_BAD_FIELD,
     ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,

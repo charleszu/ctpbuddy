@@ -68,4 +68,16 @@ pub const REQ_QRY_ORDER: u16 = 0x1046;
 pub const RSP_QRY_ORDER: u16 = 0x1047;
 pub const REQ_QRY_TRADE: u16 = 0x1048;
 pub const RSP_QRY_TRADE: u16 = 0x1049;
+// Reference-data queries. Each one answers from the *same* tables the ledger
+// computes from (notes/04 G), so a client can cross-check a query response
+// against its own margin total — the numbers agree by construction.
+pub const REQ_QRY_INSTRUMENT_MARGIN_RATE: u16 = 0x1051;
+pub const RSP_QRY_INSTRUMENT_MARGIN_RATE: u16 = 0x1052;
+pub const REQ_QRY_INSTRUMENT_COMMISSION_RATE: u16 = 0x1053;
+pub const RSP_QRY_INSTRUMENT_COMMISSION_RATE: u16 = 0x1054;
+pub const REQ_QRY_INSTRUMENT_ORDER_COMM_RATE: u16 = 0x1055;
+pub const RSP_QRY_INSTRUMENT_ORDER_COMM_RATE: u16 = 0x1056;
+pub const REQ_QRY_BROKER_TRADING_PARAMS: u16 = 0x1057;
+pub const RSP_QRY_BROKER_TRADING_PARAMS: u16 = 0x1058;
+/// Terminates every query stream (CTP's `bIsLast`).
 pub const QRY_LAST: u16 = 0x1050;

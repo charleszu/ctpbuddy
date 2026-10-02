@@ -52,15 +52,23 @@ namespace {
 constexpr int STEP_TIMEOUT_SEC = 20;
 
 // Scenario constants -- keep in sync with tests/e2e/m1_shim_e2e.py.
-constexpr const char* INSTRUMENT = "rb2610";
+constexpr const char* INSTRUMENT = "rb2601";
 constexpr const char* EXCHANGE = "SHFE";
 constexpr double BUY_PRICE = 3502.0;   // = ask1: crosses on insert
 constexpr double REST_PRICE = 3480.0;  // deep below the book: parks
 constexpr double SELL_PRICE = 3498.0;  // = bid1: crosses on insert
 constexpr int LOTS = 1;
-constexpr double COMMISSION = 1.0;  // per-lot floor wins for 1 lot of rb
+// The bundled ref-data snapshot ships no commission table (see
+// `Catalog::bundled` in the core), so fills are free. A desk that supplies
+// `commission_rates.jsonl` gets the full 开仓 / 平昨 / 平今 split instead.
+constexpr double COMMISSION = 0.0;
 constexpr double LAST_TICK_PRICE = 3501.0;  // scenario's final tick last price
-constexpr int VOLUME_MULTIPLE = 10;      // rb2610 contract multiplier
+constexpr int VOLUME_MULTIPLE = 10;      // rb2601 contract multiplier
+// 保证金 = (ByVolume + ByMoney x Price x Mult) x Volume, priced at 昨结算价
+// because the bundled MarginPriceType is '1' (notes/04 C2). The fill price
+// (3502) is deliberately not the basis.
+constexpr double PRE_SETTLEMENT = 3500.0;
+constexpr double MARGIN_RATE = 0.16;     // refdata/margin_rates.jsonl 公司费率
 constexpr int SCENARIO_TICKS = 3;        // ticks.csv rows (m1_shim_e2e.paused scenario)
 
 struct DemoFail : std::runtime_error {
@@ -563,7 +571,7 @@ void run(const char* front, const char* broker, const char* investor) {
         // tick (3501) sits one point under the 3502 entry, so Balance
         // carries the unrealized loss and Available follows it down.
         const double unrealized_open = (LAST_TICK_PRICE - BUY_PRICE) * LOTS * VOLUME_MULTIPLE;
-        const double margin_open = BUY_PRICE * VOLUME_MULTIPLE * 0.10;
+        const double margin_open = PRE_SETTLEMENT * VOLUME_MULTIPLE * MARGIN_RATE;
         if (!close_double(a.Balance, 2000000.0 - COMMISSION + unrealized_open) ||
             !close_double(a.CurrMargin, margin_open) ||
             !close_double(a.Available, 2000000.0 - COMMISSION + unrealized_open - margin_open)) {
@@ -618,6 +626,12 @@ void run(const char* front, const char* broker, const char* investor) {
 
     // -- a request the M1 core does not implement: the shim must answer
     //    OnRspError(-1) locally instead of leaving the app hanging ------------
+    // ReqQryInvestor is the sample: still unimplemented (notes/04 lists
+    // Investor query results as a v2 item). It used to be
+    // ReqQryInstrumentCommissionRate, until the reference-data queries landed
+    // and that one started answering for real -- which is exactly the point:
+    // a "this is unsupported" probe must name a request that stays
+    // unsupported, or the demo silently stops testing anything.
     {
         int rid;
         {
@@ -626,11 +640,8 @@ void run(const char* front, const char* broker, const char* investor) {
             td_spi.got_error = false;
             rid = ++g_req_seq;
         }
-        CThostFtdcQryInstrumentCommissionRateField q{};
-        put_cstr(q.BrokerID, sizeof(q.BrokerID), broker);
-        put_cstr(q.InvestorID, sizeof(q.InvestorID), investor);
-        put_cstr(q.InstrumentID, sizeof(q.InstrumentID), INSTRUMENT);
-        td->ReqQryInstrumentCommissionRate(&q, rid);
+        CThostFtdcQryTradingCodeField tq{};
+        td->ReqQryTradingCode(&tq, rid);
         td_spi.sync.wait([&] { return td_spi.got_error; }, "OnRspError for an unsupported request");
         std::lock_guard<std::mutex> g(td_spi.sync.mu);
         td_spi.expect_error = false;

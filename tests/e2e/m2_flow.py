@@ -54,8 +54,8 @@ from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
 from ctpbuddy.wire import RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
-RB = "rb2610"   # SHFE: mult 10, tick 1, margin 0.10
-M = "m2609"     # DCE:  mult 10, tick 1, margin 0.10
+RB = "rb2601"   # SHFE: mult 10, tick 1, margin 0.16
+M = "jd2602"     # DCE:  mult 10, tick 1, margin 0.15
 INITIAL_FUNDS = 2_000_000.0
 
 ERR_FREQ = 116            # ORDER_FREQ_LIMIT
@@ -98,8 +98,8 @@ def wait_port(port: int, timeout: float = 10.0) -> None:
 
 
 def make_scenario(dirpath: str) -> None:
-    """Four time-ordered ticks: three pre-flow (rb2610 + m2609 depth live),
-    one post-flow where the m2609 bid1 3002 crosses a resting 3001 sell.
+    """Four time-ordered ticks: three pre-flow (rb2601 + jd2602 depth live),
+    one post-flow where the jd2602 bid1 3002 crosses a resting 3001 sell.
     """
     rows = []
 
@@ -140,7 +140,7 @@ def make_scenario(dirpath: str) -> None:
     for t, ms in (("09:30:00", 0), ("09:30:00", 500), ("09:31:00", 0)):
         tick(RB, "SHFE", t, ms, 3500, 3498, 10, 3502, 12, 3850, 3150)
         tick(M, "DCE", t, ms, 3000, 3000, 10, 3002, 12, 3300, 2700)
-    # post-flow: the m2609 bid jumps to 3002 (crosses a resting 3001 sell)
+    # post-flow: the jd2602 bid jumps to 3002 (crosses a resting 3001 sell)
     tick(M, "DCE", "09:32:00", 0, 3002, 3002, 5, 3003, 8, 3300, 2700)
     write_canonical(dirpath, rows)
 

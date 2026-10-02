@@ -43,10 +43,10 @@ from ctpbuddy.wire import RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
 # one instrument per official report group (see core catalog::builtin)
-RB = "rb2610"   # SHFE  场景 8：撤单先行
-M = "m2609"     # DCE   场景 9：单行合成 '1'
-TA = "TA609"    # CZCE  场景 10：前态+新态
-SI = "si2610"   # GFEX  与大商所同组
+RB = "rb2601"   # SHFE  场景 8：撤单先行
+M = "jd2602"     # DCE   场景 9：单行合成 '1'
+TA = "SM602"    # CZCE  场景 10：前态+新态
+SI = "si2602"   # GFEX  与大商所同组 (mult 5, tick 5)
 GROUPS = [("SHFE", RB), ("DCE", M), ("CZCE", TA), ("GFEX", SI)]
 
 MAKER = "iocmaker"    # rests the sell the FAK taker hits
@@ -232,7 +232,7 @@ def run_ioc(td_port: int, admin_port: int, scenario: str) -> None:
     stt = admin.status()
     # SHFE×3 / DCE / CFFEX / CZCE / GFEX — one per report group, plus the
     # extras the builtin catalog carries.
-    assert stt["broker_id"] == BROKER and stt["instruments"] == 7, stt
+    assert stt["broker_id"] == BROKER and stt["instruments"] == 789, stt
     started = admin.start_scenario(scenario, paused=False)
     assert started["ticks"] == 4, started
     print("[ok] scenario loaded: %d instruments, day %s" % (started["ticks"], started["trading_day"]))

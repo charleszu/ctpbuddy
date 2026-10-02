@@ -63,6 +63,16 @@ constexpr uint16_t RSP_QRY_ORDER = 0x1047;
 constexpr uint16_t REQ_QRY_TRADE = 0x1048;
 constexpr uint16_t RSP_QRY_TRADE = 0x1049;
 constexpr uint16_t QRY_LAST = 0x1050;
+// Reference-data queries (notes/04 G). Kept in lockstep with the core's
+// msgs.rs and codegen/gen_shim.py — three places, same numbers.
+constexpr uint16_t REQ_QRY_INSTRUMENT_MARGIN_RATE = 0x1051;
+constexpr uint16_t RSP_QRY_INSTRUMENT_MARGIN_RATE = 0x1052;
+constexpr uint16_t REQ_QRY_INSTRUMENT_COMMISSION_RATE = 0x1053;
+constexpr uint16_t RSP_QRY_INSTRUMENT_COMMISSION_RATE = 0x1054;
+constexpr uint16_t REQ_QRY_INSTRUMENT_ORDER_COMM_RATE = 0x1055;
+constexpr uint16_t RSP_QRY_INSTRUMENT_ORDER_COMM_RATE = 0x1056;
+constexpr uint16_t REQ_QRY_BROKER_TRADING_PARAMS = 0x1057;
+constexpr uint16_t RSP_QRY_BROKER_TRADING_PARAMS = 0x1058;
 }  // namespace msgs
 
 class ApiCore;  // completed at the bottom of this header

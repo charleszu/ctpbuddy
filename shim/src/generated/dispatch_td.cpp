@@ -172,6 +172,78 @@ static void row_OnRspQryInstrument_last(ApiCore& c, int nrid) {
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrument(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
+static void row_OnRspQryInstrumentMarginRate(ApiCore& c, const Frame& f) {
+    CThostFtdcInstrumentMarginRateField fld{};
+    const CThostFtdcInstrumentMarginRateField* p = nullptr;
+    int nrid = 0;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        Pending* pd = c.find_pending(f.req_id);
+        if (!pd) return;
+        nrid = pd->n_request_id;
+        p = payload_as(f, fld);
+    }
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentMarginRate(const_cast<CThostFtdcInstrumentMarginRateField*>(p), &c.zero_rsp_info(), nrid, false);
+}
+
+static void row_OnRspQryInstrumentMarginRate_last(ApiCore& c, int nrid) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentMarginRate(nullptr, &c.zero_rsp_info(), nrid, true);
+}
+
+static void row_OnRspQryInstrumentCommissionRate(ApiCore& c, const Frame& f) {
+    CThostFtdcInstrumentCommissionRateField fld{};
+    const CThostFtdcInstrumentCommissionRateField* p = nullptr;
+    int nrid = 0;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        Pending* pd = c.find_pending(f.req_id);
+        if (!pd) return;
+        nrid = pd->n_request_id;
+        p = payload_as(f, fld);
+    }
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentCommissionRate(const_cast<CThostFtdcInstrumentCommissionRateField*>(p), &c.zero_rsp_info(), nrid, false);
+}
+
+static void row_OnRspQryInstrumentCommissionRate_last(ApiCore& c, int nrid) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentCommissionRate(nullptr, &c.zero_rsp_info(), nrid, true);
+}
+
+static void row_OnRspQryInstrumentOrderCommRate(ApiCore& c, const Frame& f) {
+    CThostFtdcInstrumentOrderCommRateField fld{};
+    const CThostFtdcInstrumentOrderCommRateField* p = nullptr;
+    int nrid = 0;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        Pending* pd = c.find_pending(f.req_id);
+        if (!pd) return;
+        nrid = pd->n_request_id;
+        p = payload_as(f, fld);
+    }
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentOrderCommRate(const_cast<CThostFtdcInstrumentOrderCommRateField*>(p), &c.zero_rsp_info(), nrid, false);
+}
+
+static void row_OnRspQryInstrumentOrderCommRate_last(ApiCore& c, int nrid) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentOrderCommRate(nullptr, &c.zero_rsp_info(), nrid, true);
+}
+
+static void row_OnRspQryBrokerTradingParams(ApiCore& c, const Frame& f) {
+    CThostFtdcBrokerTradingParamsField fld{};
+    const CThostFtdcBrokerTradingParamsField* p = nullptr;
+    int nrid = 0;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        Pending* pd = c.find_pending(f.req_id);
+        if (!pd) return;
+        nrid = pd->n_request_id;
+        p = payload_as(f, fld);
+    }
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryBrokerTradingParams(const_cast<CThostFtdcBrokerTradingParamsField*>(p), &c.zero_rsp_info(), nrid, false);
+}
+
+static void row_OnRspQryBrokerTradingParams_last(ApiCore& c, int nrid) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryBrokerTradingParams(nullptr, &c.zero_rsp_info(), nrid, true);
+}
+
 static void row_OnRtnOrder(ApiCore& c, const Frame& f) {
     CThostFtdcOrderField fld{};
     const CThostFtdcOrderField* p = payload_as(f, fld);
@@ -224,6 +296,22 @@ static void row_OnRspQryInstrument_err(ApiCore& c, const CThostFtdcRspInfoField&
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrument(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
+static void row_OnRspQryInstrumentMarginRate_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentMarginRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+}
+
+static void row_OnRspQryInstrumentCommissionRate_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentCommissionRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+}
+
+static void row_OnRspQryInstrumentOrderCommRate_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentOrderCommRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+}
+
+static void row_OnRspQryBrokerTradingParams_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryBrokerTradingParams(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+}
+
 }  // namespace
 
 const DispatchRow kTdDispatch[] = {
@@ -239,6 +327,10 @@ const DispatchRow kTdDispatch[] = {
     {msgs::RSP_QRY_INVESTOR_POSITION, &row_OnRspQryInvestorPosition, &row_OnRspQryInvestorPosition_last, &row_OnRspQryInvestorPosition_err, msgs::REQ_QRY_INVESTOR_POSITION},
     {msgs::RSP_QRY_TRADING_ACCOUNT, &row_OnRspQryTradingAccount, &row_OnRspQryTradingAccount_last, &row_OnRspQryTradingAccount_err, msgs::REQ_QRY_TRADING_ACCOUNT},
     {msgs::RSP_QRY_INSTRUMENT, &row_OnRspQryInstrument, &row_OnRspQryInstrument_last, &row_OnRspQryInstrument_err, msgs::REQ_QRY_INSTRUMENT},
+    {msgs::RSP_QRY_INSTRUMENT_MARGIN_RATE, &row_OnRspQryInstrumentMarginRate, &row_OnRspQryInstrumentMarginRate_last, &row_OnRspQryInstrumentMarginRate_err, msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE},
+    {msgs::RSP_QRY_INSTRUMENT_COMMISSION_RATE, &row_OnRspQryInstrumentCommissionRate, &row_OnRspQryInstrumentCommissionRate_last, &row_OnRspQryInstrumentCommissionRate_err, msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE},
+    {msgs::RSP_QRY_INSTRUMENT_ORDER_COMM_RATE, &row_OnRspQryInstrumentOrderCommRate, &row_OnRspQryInstrumentOrderCommRate_last, &row_OnRspQryInstrumentOrderCommRate_err, msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE},
+    {msgs::RSP_QRY_BROKER_TRADING_PARAMS, &row_OnRspQryBrokerTradingParams, &row_OnRspQryBrokerTradingParams_last, &row_OnRspQryBrokerTradingParams_err, msgs::REQ_QRY_BROKER_TRADING_PARAMS},
     {msgs::RTN_ORDER, &row_OnRtnOrder, nullptr, nullptr, 0},
     {msgs::RTN_TRADE, &row_OnRtnTrade, nullptr, nullptr, 0},
     {0, nullptr, nullptr, nullptr, 0},

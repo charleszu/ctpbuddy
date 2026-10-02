@@ -21,7 +21,11 @@ options:
       --qry-freq <n>     ReqQry* budget per second     (default 2)
       --order-freq <n>   order insert+cancel budget per
                           second, per investor          (default 20)
-      --scenario <dir>   scenario dir with instruments.csv + ticks.csv
+      --refdata <dir>   contracts + margin / commission
+                          rates (JSONL from a ref-data
+                          provider; default = bundled
+                          snapshot)
+      --scenario <dir>   scenario dir with refdata/ + ticks.csv
       --speed <n>        playback speed multiplier    (0 = as fast as possible)
       --td <addr>        CTP td front endpoint        (default 127.0.0.1:5560)
   -v, --version          show version
@@ -71,6 +75,11 @@ fn apply_env(cfg: &mut Config) {
             cfg.scenario_dir = Some(v);
         }
     }
+    if let Ok(v) = std::env::var("CTPBUDDY_REFDATA") {
+        if !v.is_empty() {
+            cfg.refdata_dir = Some(v);
+        }
+    }
 }
 
 /// Parse CLI flags on top of `base` (which already carries env/defaults).
@@ -92,6 +101,7 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                     .map_err(|_| format!("invalid --initial-funds: {v}"))?;
             }
             "--scenario" => cfg.scenario_dir = Some(take("--scenario")?),
+            "--refdata" => cfg.refdata_dir = Some(take("--refdata")?),
             "--qry-freq" => {
                 let v = take("--qry-freq")?;
                 cfg.qry_freq = v
