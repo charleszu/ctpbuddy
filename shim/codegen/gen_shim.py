@@ -60,6 +60,7 @@ MSG = {
     "REQ_QRY_INSTRUMENT_COMMISSION_RATE": 0x1053, "RSP_QRY_INSTRUMENT_COMMISSION_RATE": 0x1054,
     "REQ_QRY_INSTRUMENT_ORDER_COMM_RATE": 0x1055, "RSP_QRY_INSTRUMENT_ORDER_COMM_RATE": 0x1056,
     "REQ_QRY_BROKER_TRADING_PARAMS": 0x1057, "RSP_QRY_BROKER_TRADING_PARAMS": 0x1058,
+    "REQ_QRY_INVESTOR_POSITION_DETAIL": 0x1059, "RSP_QRY_INVESTOR_POSITION_DETAIL": 0x105A,
     "QRY_LAST": 0x1050,
 }
 
@@ -74,6 +75,7 @@ TD_REQUESTS = {
     "ReqQryInstrument": ("REQ_QRY_INSTRUMENT", "CThostFtdcQryInstrumentField"),
     "ReqQryTradingAccount": ("REQ_QRY_TRADING_ACCOUNT", "CThostFtdcQryTradingAccountField"),
     "ReqQryInvestorPosition": ("REQ_QRY_INVESTOR_POSITION", "CThostFtdcQryInvestorPositionField"),
+    "ReqQryInvestorPositionDetail": ("REQ_QRY_INVESTOR_POSITION_DETAIL", "CThostFtdcQryInvestorPositionDetailField"),
     "ReqQryOrder": ("REQ_QRY_ORDER", "CThostFtdcQryOrderField"),
     "ReqQryTrade": ("REQ_QRY_TRADE", "CThostFtdcQryTradeField"),
     "ReqQryInstrumentMarginRate": ("REQ_QRY_INSTRUMENT_MARGIN_RATE", "CThostFtdcQryInstrumentMarginRateField"),
@@ -99,6 +101,7 @@ REQ_OF_RSP = {
     "RSP_QRY_ORDER": "REQ_QRY_ORDER",
     "RSP_QRY_TRADE": "REQ_QRY_TRADE",
     "RSP_QRY_INVESTOR_POSITION": "REQ_QRY_INVESTOR_POSITION",
+    "RSP_QRY_INVESTOR_POSITION_DETAIL": "REQ_QRY_INVESTOR_POSITION_DETAIL",
     "RSP_QRY_TRADING_ACCOUNT": "REQ_QRY_TRADING_ACCOUNT",
     "RSP_QRY_INSTRUMENT": "REQ_QRY_INSTRUMENT",
     "RSP_QRY_INSTRUMENT_MARGIN_RATE": "REQ_QRY_INSTRUMENT_MARGIN_RATE",
@@ -138,6 +141,7 @@ TD_DISPATCH = [
     ("qry", "RSP_QRY_ORDER", "CThostFtdcOrderField", "OnRspQryOrder", {}),
     ("qry", "RSP_QRY_TRADE", "CThostFtdcTradeField", "OnRspQryTrade", {}),
     ("qry", "RSP_QRY_INVESTOR_POSITION", "CThostFtdcInvestorPositionField", "OnRspQryInvestorPosition", {}),
+    ("qry", "RSP_QRY_INVESTOR_POSITION_DETAIL", "CThostFtdcInvestorPositionDetailField", "OnRspQryInvestorPositionDetail", {}),
     ("qry", "RSP_QRY_TRADING_ACCOUNT", "CThostFtdcTradingAccountField", "OnRspQryTradingAccount", {}),
     ("qry", "RSP_QRY_INSTRUMENT", "CThostFtdcInstrumentField", "OnRspQryInstrument", {}),
     ("qry", "RSP_QRY_INSTRUMENT_MARGIN_RATE", "CThostFtdcInstrumentMarginRateField", "OnRspQryInstrumentMarginRate", {}),

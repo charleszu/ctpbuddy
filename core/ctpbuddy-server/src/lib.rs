@@ -743,7 +743,8 @@ impl World {
             }
             EngineEvent::Trade { field, fill } => {
                 let pre_settle = self.engine.pre_settlement(&fill.instrument_id).unwrap_or(0.0);
-                self.ledger.on_fill(&fill, self.engine.catalog(), pre_settle);
+                self.ledger
+                    .on_fill(&fill, self.engine.catalog(), pre_settle, &self.vt_trading_day);
                 self.trades_today.push(field.clone());
                 let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
                 let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));

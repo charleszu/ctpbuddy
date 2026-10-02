@@ -465,12 +465,18 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
         expect_account(B, "smoke002", margin=2 * 3500 * RB_MULT * RB_MARGIN, close_profit=0.0)
         # C bought 16 lots (2+1+1+12) and closed 1, so 15 remain.
         # Occupancy is 15 x 昨结算 x mult x rate — one number regardless of the
-        # four different fill prices. The closed lot released margin at its
-        # **opening** cost (avg 3501.5; notes/04 C2 「按开仓价算」), which is
-        # why the residue is not exactly 15 lots' worth.
-        c_avg_cost = 3501.5
-        c_margin = (15 * RB_PRE_SETTLE - (c_avg_cost - RB_PRE_SETTLE)) * RB_MULT * RB_MARGIN
-        expect_account(C, "smoke003", margin=c_margin, close_profit=-35.0)
+        # four different fill prices, because `MarginPriceType == '1'` always
+        # margined 今仓 against 昨结算 (notes/04 C2).
+        #
+        # The closed lot released the margin **its own detail was charged**
+        # (a pro-rata slice of the 5600/lot booked at open), so the residue is
+        # exactly 15 lots. The previous average-cost formula left a 2.4
+        # residue; with per-lot details there is nothing left to round away.
+        c_margin = 15 * RB_PRE_SETTLE * RB_MULT * RB_MARGIN
+        # 先开先平 takes the oldest detail (C1's lot @3500), and it is 今仓, so
+        # the basis is its own entry — not the 3501.5 average of all four fills.
+        c_close_profit = (3498.0 - 3500.0) * RB_MULT
+        expect_account(C, "smoke003", margin=c_margin, close_profit=c_close_profit)
         expect_account(D, "smoke004", margin=0.0, close_profit=-20.0)
         expect_account(E, "smoke005", margin=0.0, close_profit=0.0)
         # F opened 1 lot at 3499 and still holds it, so its margin is locked at

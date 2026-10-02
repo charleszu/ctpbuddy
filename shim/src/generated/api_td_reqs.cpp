@@ -348,10 +348,7 @@ int TraderApi::ReqQryTransferBank(CThostFtdcQryTransferBankField *pQryTransferBa
 }
 
 int TraderApi::ReqQryInvestorPositionDetail(CThostFtdcQryInvestorPositionDetailField *pQryInvestorPositionDetail, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorPositionDetail");
-    return 0;
+    return send_req<CThostFtdcQryInvestorPositionDetailField>(msgs::REQ_QRY_INVESTOR_POSITION_DETAIL, pQryInvestorPositionDetail, nRequestID);
 }
 
 int TraderApi::ReqQryNotice(CThostFtdcQryNoticeField *pQryNotice, int nRequestID) {

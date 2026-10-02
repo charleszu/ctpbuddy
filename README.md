@@ -56,11 +56,23 @@ python tests/e2e/m2_flow.py      # 报单流控 + 订单状态机（双服务器
 python tests/e2e/m2_surface.py   # 错单双推送面 + 流控面（--order-freq 2）
 python tests/e2e/m2_ioc.py       # FAK 部成部撤的三所分流回报（官方场景 8/9/10）
 python tests/e2e/m3_refdata.py    # 四张费率查询 + 与账本 CurrMargin/Commission 交叉核对
+python tests/e2e/m3_detail.py     # 持仓明细：逐笔盈亏 + 先开先平
 
 # 4. 手动起一套玩玩（示例场景 rb_demo）
 ctpbuddy serve --scenario scenarios/rb_demo --data-dir ./data
 ctpbuddy status                  # 另开一个终端
 ```
+
+真实柜台数据对账（可选，需自行提供导出目录）：
+
+```
+python tools/audit_real_accounts.py    # 资金恒等式逐项核对真实账户日与结算单
+```
+
+读取期货公司的账户导出（order/trade/account 三表）与盯市结算单，逐项核对
+`Balance` / `Available` / 结算单权益恒等式、盯市盈亏的逐笔求和、平今平昨盈亏口径。
+目录可用 `CTPBUDDY_EXPORT_DIR` / `CTPBUDDY_SETTLEMENT_DIR` 指定；未提供则跳过，
+不影响上面的回归。口径细节见 DESIGN §8.7.1。
 
 核心支持 `--qry-freq <n>`（env `CTPBUDDY_QRY_FREQ`）调前置每秒查询预算：超过即回 `OnRspError[90]`「CTP：查询未就绪，请稍后重试」，与真实 CTP 前置一致（DESIGN §8.8）。
 

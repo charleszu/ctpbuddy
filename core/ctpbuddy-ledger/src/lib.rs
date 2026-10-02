@@ -18,7 +18,10 @@
 
 use std::collections::HashMap;
 
-use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcInvestorPositionField, CThostFtdcTradingAccountField};
+use ctpbuddy_wire::generated::{
+    cstr, set_cstr, CThostFtdcInvestorPositionDetailField, CThostFtdcInvestorPositionField,
+    CThostFtdcTradingAccountField,
+};
 
 use ctpbuddy_matching::{Catalog, CommissionKind, Direction, Fill, MarginPrice, OffsetFlag};
 
@@ -135,7 +138,7 @@ impl Account {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PositionSide {
     Long,
     Short,
@@ -165,6 +168,137 @@ impl PositionSide {
     }
 }
 
+/// One open-lot record — the unit CTP actually settles.
+///
+/// notes/04 B2: a detail appears on every opening fill and is keyed by
+/// `(OpenDate, TradeID)`. It is not decoration: under 逐日盯市 the **close PnL
+/// of a lot is priced off its own basis**, which differs by age (E2):
+///
+/// - 昨仓 detail (`OpenDate != today`) → basis = **昨结算价**
+/// - 今仓 detail (`OpenDate == today`) → basis = **开仓价**
+///
+/// Getting the order of consumption wrong therefore changes the PnL number a
+/// client sees, which is exactly the failure mode notes/04 E2 warns about
+/// ("如果顺序错了，那么算出来的平仓盈亏也就会和实际值不相符了").
+///
+/// Verified against real broker statements (`ctp_settlement/`, 山金期货
+/// 盯市单): IH2501 买 1 手 opened 20250102, closed 20250103 at 2616.4 with
+/// 昨结算 2607.2 → (2607.2 − 2616.4) × 300 = −2760.00, matching the
+/// statement's 平仓盈亏 exactly. The open price 2626.2 would have given
+/// −2940 — the detail's age, not its entry, sets the basis.
+#[derive(Clone, Debug)]
+pub struct PositionDetail {
+    /// 开仓日期 — the trading day this lot was opened.
+    pub open_date: String,
+    /// 成交编号 — within a day, orders time in sequence; the tiebreaker that
+    /// makes 先开先平 total.
+    pub trade_id: String,
+    pub open_price: f64,
+    /// Remaining lots on this detail.
+    pub volume: i32,
+    /// Margin charged to this detail when it was opened.
+    pub margin: f64,
+    /// Lots this detail originally had. Margin release is pro-rata against
+    /// this, not against the (shrinking) remainder, so closing the last lot
+    /// releases exactly what was charged.
+    pub open_volume: i32,
+    /// 昨结算价 of the day this lot became 昨仓 (0 while it is 今仓).
+    pub last_settlement_price: f64,
+    /// Realized PnL attributed to this detail so far.
+    pub close_profit: f64,
+    /// Lots of this detail already closed.
+    pub close_volume: i32,
+    /// Turnover of the closes attributed to this detail.
+    pub close_amount: f64,
+}
+
+impl PositionDetail {
+    pub fn new(open_date: &str, trade_id: &str, open_price: f64, volume: i32, margin: f64) -> Self {
+        PositionDetail {
+            open_date: open_date.to_string(),
+            trade_id: trade_id.to_string(),
+            open_price,
+            volume,
+            margin,
+            open_volume: volume,
+            last_settlement_price: 0.0,
+            close_profit: 0.0,
+            close_volume: 0,
+            close_amount: 0.0,
+        }
+    }
+
+    pub fn is_today(&self, trading_day: &str) -> bool {
+        self.open_date == trading_day
+    }
+
+    /// 逐日盯市 basis for this detail (notes/04 E2). A lot opened today is
+    /// marked against its entry; anything older against 昨结算.
+    pub fn mark_basis(&self, trading_day: &str) -> f64 {
+        if self.is_today(trading_day) {
+            self.open_price
+        } else {
+            self.last_settlement_price
+        }
+    }
+
+    /// 浮动盈亏 of this detail at `price`, per notes/04 E1.
+    pub fn profit(&self, side: PositionSide, price: f64, multiple: i32) -> f64 {
+        let sign = match side {
+            PositionSide::Long => 1.0,
+            PositionSide::Short => -1.0,
+        };
+        (price - self.open_price) * sign * self.volume as f64 * multiple as f64
+    }
+
+    /// `CThostFtdcInvestorPositionDetailField` mirror.
+    #[allow(clippy::too_many_arguments)]
+    pub fn to_field(
+        &self,
+        broker_id: &str,
+        investor_id: &str,
+        exchange_id: &str,
+        trading_day: &str,
+        side: PositionSide,
+        instrument_id: &str,
+        settlement_price: f64,
+        last_price: f64,
+        multiple: i32,
+    ) -> CThostFtdcInvestorPositionDetailField {
+        let mut f = CThostFtdcInvestorPositionDetailField::zeroed();
+        set_cstr(&mut f.BrokerID, broker_id);
+        set_cstr(&mut f.InvestorID, investor_id);
+        set_cstr(&mut f.InstrumentID, instrument_id);
+        set_cstr(&mut f.OpenDate, &self.open_date);
+        set_cstr(&mut f.TradeID, &self.trade_id);
+        set_cstr(&mut f.TradingDay, trading_day);
+        f.ExchangeID.fill(0);
+        set_cstr(&mut f.ExchangeID, exchange_id);
+        f.HedgeFlag = b'1';
+        f.Direction = match side {
+            PositionSide::Long => b'0',
+            PositionSide::Short => b'1',
+        };
+        f.TradeType = b'0';
+        f.Volume = self.volume;
+        f.OpenPrice = self.open_price;
+        f.SettlementID = 1;
+        f.CloseVolume = self.close_volume;
+        f.CloseAmount = self.close_amount;
+        f.Margin = self.margin;
+        f.LastSettlementPrice = self.last_settlement_price;
+        f.SettlementPrice = settlement_price;
+        f.PositionProfitByDate = self.profit(side, last_price, multiple);
+        f.PositionProfitByTrade = f.PositionProfitByDate;
+        f.CloseProfitByDate = self.close_profit;
+        f.CloseProfitByTrade = self.close_profit;
+        // 先开先平剩余数量: the lots of this detail still open, which for a
+        // detail consumed from the front equals its own remainder.
+        f.TimeFirstVolume = self.volume;
+        f
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Position {
     pub instrument_id: String,
@@ -188,6 +322,9 @@ pub struct Position {
     pub position_profit: f64,
     pub pre_settlement_price: f64,
     pub settlement_price: f64,
+    /// Per-lot records backing this aggregate, ordered oldest-first so
+    /// 先开先平 is a straight walk (notes/04 B2).
+    pub details: Vec<PositionDetail>,
 }
 
 impl Position {
@@ -209,7 +346,68 @@ impl Position {
             position_profit: 0.0,
             pre_settlement_price: 0.0,
             settlement_price: 0.0,
+            details: Vec::new(),
         }
+    }
+
+    /// Record an opening fill as its own detail (notes/04 B2: a detail is
+    /// created per opening fill, keyed by `(OpenDate, TradeID)`).
+    pub fn add_detail(&mut self, open_date: &str, trade_id: &str, price: f64, volume: i32, margin: f64) {
+        self.details
+            .push(PositionDetail::new(open_date, trade_id, price, volume, margin));
+    }
+
+    /// 先开先平: consume `volume` lots from the **oldest** details, returning
+    /// the per-detail breakdown the caller needs to price PnL and commission.
+    ///
+    /// 先开先平 and 今/昨 are two different axes and must not be conflated:
+    /// the walk order is by opening time, full stop. `today_only` /
+    /// `yd_only` say *which age bucket* may be touched (上期所/能源中心 split
+    /// the offset flags), never that the walk may skip ahead to the newest
+    /// lot — that would realize PnL against the wrong basis and break the
+    /// 先开先平 guarantee clients rely on to reproduce a desk's positions.
+    pub fn take_details_filtered(
+        &mut self,
+        volume: i32,
+        today_only: bool,
+        yd_only: bool,
+        trading_day: &str,
+    ) -> Vec<(usize, i32)> {
+        let mut taken = Vec::new();
+        let mut left = volume;
+        for idx in 0..self.details.len() {
+            if left <= 0 {
+                break;
+            }
+            let is_today = self.details[idx].is_today(trading_day);
+            if (today_only && !is_today) || (yd_only && is_today) {
+                continue;
+            }
+            let n = left.min(self.details[idx].volume);
+            if n <= 0 {
+                continue;
+            }
+            self.details[idx].volume -= n;
+            self.details[idx].close_volume += n;
+            taken.push((idx, n));
+            left -= n;
+        }
+        taken
+    }
+
+    /// 逐日盯市 close PnL for one consumed detail (notes/04 E2).
+    ///
+    /// `basis` comes from [`PositionDetail::mark_basis`] — 昨结算 for 昨仓,
+    /// 开仓价 for 今仓. Pricing every lot off the position's average cost
+    /// (what this ledger did before details existed) is wrong whenever a
+    /// position mixes lots of different ages, which is the normal case after
+    /// the first partial close.
+    pub fn detail_pnl(side: PositionSide, basis: f64, price: f64, n: i32, multiple: i32) -> f64 {
+        let sign = match side {
+            PositionSide::Long => 1.0,
+            PositionSide::Short => -1.0,
+        };
+        (price - basis) * sign * n as f64 * multiple as f64
     }
 
     pub fn volume(&self) -> i32 {
@@ -243,7 +441,14 @@ impl Position {
         set_cstr(&mut f.TradingDay, trading_day);
         f.PosiDirection = self.side.posi_direction();
         f.HedgeFlag = b'1';
-        f.PositionDate = b'2'; // M1 never crosses a settlement boundary
+        // `PositionDate` is per aggregate, not per detail: a position holding
+        // both ages reports the 昨仓 marker, matching how CTP collapses a
+        // multi-lot aggregate into one row.
+        f.PositionDate = if self.today_position > 0 && self.yd_position == 0 {
+            b'1' // THOST_FTDC_PSD_Today
+        } else {
+            b'2' // THOST_FTDC_PSD_InHistory
+        };
         f.YdPosition = self.yd_position;
         f.Position = self.volume();
         f.TodayPosition = self.today_position;
@@ -381,6 +586,36 @@ impl Ledger {
             .collect()
     }
 
+    /// Positions in a **stable order** — by instrument, then by side.
+    ///
+    /// The query surfaces must be reproducible: the backing store is a
+    /// `HashMap`, so iterating it directly hands clients a different row order
+    /// on every run. That is not cosmetic — a client diffing two snapshots, or
+    /// a journal hash covering a query stream, would see spurious diffs.
+    pub fn positions_of_ordered(
+        &self,
+        broker_id: &str,
+        investor_id: &str,
+    ) -> Vec<(&Position, &PositionDetail)> {
+        let key = AccountKey::new(broker_id, investor_id);
+        let mut out: Vec<(&Position, &PositionDetail)> = self
+            .positions
+            .iter()
+            .filter(|((k, _, _), _)| *k == key)
+            .flat_map(|(_, p)| p.details.iter().map(move |d| (p, d)))
+            .collect();
+        out.sort_by(|a, b| {
+            a.0.instrument_id
+                .cmp(&b.0.instrument_id)
+                .then(a.0.side.cmp(&b.0.side))
+                // Within a position, 先开先平 order is the meaningful one: it
+                // is the order a client will consume them in.
+                .then(a.1.open_date.cmp(&b.1.open_date))
+                .then(a.1.trade_id.cmp(&b.1.trade_id))
+        });
+        out
+    }
+
     /// Freeze estimated margin + commission for a new order. Fails with
     /// [`ERR_FUNDS`] when availability is insufficient.
     pub fn freeze(
@@ -410,8 +645,15 @@ impl Ledger {
         Ok(())
     }
 
-    /// Reserve closeable volume for a close order (today/yd split preference:
-    /// `Close` takes today first, matching the fill accounting in `on_fill`).
+    /// Reserve closeable volume for a close order.
+    ///
+    /// A plain `Close` reserves **昨仓 first**, i.e. 先开先平: notes/04 B3
+    /// ("平仓一般是按先开先平来处理，即先平昨仓再平今仓") and the P1 worked
+    /// example (2 昨 + 2 今, close 3 → 2 昨 + 1 今). Taking 今仓 first would
+    /// price those three lots off a different basis and misstate the PnL.
+    /// `CloseToday` / `CloseYesterday` are the client saying which one it
+    /// means — that is the whole point of 上期所 splitting the flags — and are
+    /// honoured literally.
     pub fn freeze_close_position(
         &mut self,
         order_key: &str,
@@ -443,12 +685,12 @@ impl Ledger {
             (0, volume)
         }
             _ => {
-                let t = volume.min(avail_today);
-                let rest = volume - t;
-                if rest > avail_yd {
+                let y = volume.min(avail_yd);
+                let rest = volume - y;
+                if rest > avail_today {
                     return Err(ERR_POSITION);
                 }
-                (t, rest)
+                (rest, y)
             }
         };
         pos.frozen_today += from_today;
@@ -503,7 +745,19 @@ impl Ledger {
     /// market, and `MarginPriceType == '1'` (the default) charges 今仓 against
     /// 昨结算 — reading the position's own copy there would margin the opening
     /// fill at zero.
-    pub fn on_fill(&mut self, fill: &Fill, catalog: &Catalog, pre_settlement: f64) {
+    ///
+    /// `trading_day` decides each lot's 逐日盯市 basis (notes/04 E2): a detail
+    /// opened today is marked against its entry, anything older against 昨结算.
+    /// Passing it in rather than storing a day on the ledger keeps a single
+    /// source of truth — the world loop's virtual clock, which scenario replay
+    /// rewinds.
+    pub fn on_fill(
+        &mut self,
+        fill: &Fill,
+        catalog: &Catalog,
+        pre_settlement: f64,
+        trading_day: &str,
+    ) {
         let instr = catalog.get(&fill.instrument_id);
         let mult = instr.map(|i| i.volume_multiple).unwrap_or(1);
 
@@ -575,39 +829,78 @@ impl Ledger {
             pos.position_cost += turnover;
             pos.open_cost += commission;
             pos.margin += margin_actual;
+            // notes/04 B2: an opening fill creates its own detail, keyed by
+            // (OpenDate, TradeID). The margin travels with the lot so a later
+            // close can release exactly what was charged, and so
+            // `ReqQryInvestorPositionDetail` has rows to return.
+            pos.add_detail(
+                trading_day,
+                &cstr(&fill.trade_id),
+                fill.price,
+                fill.volume,
+                margin_actual,
+            );
             let a = self.accounts.get_mut(&key).expect("account exists");
             a.balance -= commission;
             a.commission += commission;
             a.used_margin += margin_actual;
         } else {
-            // ---- close: today first, then yd (consumes reservations) ----
-            let mut to_close = fill.volume;
-            let today_take = if matches!(fill.offset, OffsetFlag::CloseYesterday) {
-                0
-            } else {
-                to_close.min(pos.today_position)
-            };
-            pos.today_position -= today_take;
+            // ---- close: consume details oldest-first (先开先平) ----
+            //
+            // An explicit 平今/平昨 says *which age bucket* to touch; a plain
+            // `Close` takes whatever comes first. Either way the walk order is
+            // by opening time, so the lots and their PnL stay consistent.
+            let want_today_only = matches!(fill.offset, OffsetFlag::CloseToday);
+            let want_yd_only = matches!(fill.offset, OffsetFlag::CloseYesterday);
+
+            // 逐日盯市 PnL, priced per detail (notes/04 E2). 昨仓 lots are
+            // marked against 昨结算, 今仓 lots against their own entry — so
+            // one fill can span two bases, and pricing every lot off the
+            // aggregate average cost (what this ledger did before details
+            // existed) is wrong by exactly the age mix.
+            let mut pnl = 0.0;
+            let mut closed_amount = 0.0;
+            let mut margin_released = 0.0;
+            let mut today_take = 0;
+            let mut yd_take = 0;
+            for (idx, n) in pos.take_details_filtered(fill.volume, want_today_only, want_yd_only, trading_day) {
+                let d = &mut pos.details[idx];
+                let is_today = d.is_today(trading_day);
+                if is_today {
+                    today_take += n;
+                } else {
+                    yd_take += n;
+                }
+                let basis = d.mark_basis(trading_day);
+                let leg_pnl = Position::detail_pnl(side, basis, fill.price, n, mult);
+                pnl += leg_pnl;
+                closed_amount += d.open_price * n as f64 * mult as f64;
+                d.close_amount += fill.price * n as f64 * mult as f64;
+                // Margin travels with the lot: release the pro-rata share of
+                // what this detail was charged, not a recomputed figure.
+                margin_released += d.margin * n as f64 / d.open_volume.max(1) as f64;
+                d.close_profit += leg_pnl;
+            }
+            let closed = today_take + yd_take;
+            pos.today_position = (pos.today_position - today_take).max(0);
+            pos.yd_position = (pos.yd_position - yd_take).max(0);
             pos.frozen_today = (pos.frozen_today - today_take).max(0);
-            to_close -= today_take;
-            let yd_take = to_close.min(pos.yd_position);
-            pos.yd_position -= yd_take;
             pos.frozen_yd = (pos.frozen_yd - yd_take).max(0);
-            to_close -= yd_take;
-            let closed = fill.volume - to_close;
             // `closed < fill.volume` is unreachable: freeze_close_position
             // reserved the volume at insert time (single-writer ledger).
-            let _ = closed;
+            debug_assert_eq!(closed, fill.volume);
 
-            let cost = pos.avg_cost(mult);
-            let pnl = match side {
-                PositionSide::Long => (fill.price - cost) * closed as f64 * mult as f64,
-                PositionSide::Short => (cost - fill.price) * closed as f64 * mult as f64,
-            };
-            let closed_amount = cost * closed as f64 * mult as f64;
             pos.open_amount = (pos.open_amount - closed_amount).max(0.0);
             pos.open_volume = (pos.open_volume - closed).max(0);
-            pos.position_cost = (pos.position_cost - closed_amount).max(0.0);
+            // 持仓成本 follows the **持仓价** basis (notes/04 B1), not the open
+            // price: a 昨仓 lot is carried at 昨结算 until it is closed. Sum it
+            // off the surviving details rather than subtracting, so a carried
+            // lot keeps being valued at settlement instead of at its entry.
+            pos.position_cost = pos
+                .details
+                .iter()
+                .map(|d| d.mark_basis(trading_day) * d.volume as f64 * mult as f64)
+                .sum();
 
             // Commission is charged per leg: the 平今 portion at today's rate,
             // the 平昨 portion at yesterday's. Summing two legs is the whole
@@ -628,15 +921,6 @@ impl Ledger {
             pos.commission += commission;
             pos.open_cost += commission;
 
-            // Margin is released at the *opening* cost basis, not the fill
-            // price: the position was margined when it was opened, so that is
-            // the amount being freed (notes/04 C2 「按开仓价算」).
-            let margin_released = catalog.margin(
-                &fill.instrument_id,
-                fill.direction,
-                MarginPrice::Open(cost),
-                closed,
-            );
             pos.margin = (pos.margin - margin_released).max(0.0);
             pos.close_profit += pnl;
 
@@ -647,6 +931,9 @@ impl Ledger {
             a.balance += pnl;
             a.close_profit += pnl;
 
+            // Exhausted details leave the query surface; CTP does not return
+            // a 明细 with zero remaining volume.
+            pos.details.retain(|d| d.volume > 0);
             // drop flat positions from the query surface (CTP does not return them)
             if pos.volume() == 0 && pos.frozen_today == 0 && pos.frozen_yd == 0 {
                 let k = (key.clone(), fill.instrument_id.clone(), side);
@@ -684,6 +971,13 @@ impl Ledger {
             if let Some(ps) = pre_settlements.get(&pos.instrument_id) {
                 if *ps > 0.0 {
                     pos.pre_settlement_price = *ps;
+                    // Every 昨仓 detail is marked against 昨结算 (notes/04
+                    // E2), so the lots need the same figure. Without this a
+                    // carried lot would be marked against its own entry and
+                    // its close PnL would come out wrong by the price drift.
+                    for d in pos.details.iter_mut() {
+                        d.last_settlement_price = *ps;
+                    }
                 }
             }
             let cost = pos.avg_cost(mult);

@@ -33,6 +33,7 @@ use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
     CThostFtdcQryBrokerTradingParamsField, CThostFtdcQryInstrumentCommissionRateField,
     CThostFtdcQryInstrumentField, CThostFtdcQryInstrumentMarginRateField,
+    CThostFtdcQryInvestorPositionDetailField,
     CThostFtdcQryInstrumentOrderCommRateField, CThostFtdcQryInvestorPositionField,
     CThostFtdcQryOrderField, CThostFtdcQryTradeField, CThostFtdcReqUserLoginField,
     CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
@@ -82,6 +83,9 @@ impl World {
             }
             msgs::REQ_QRY_BROKER_TRADING_PARAMS => {
                 self.on_qry_broker_trading_params(conn_id, &frame)
+            }
+            msgs::REQ_QRY_INVESTOR_POSITION_DETAIL => {
+                self.on_qry_investor_position_detail(conn_id, &frame)
             }
             other => {
                 eprintln!("[ctpbuddy] conn {conn_id}: unsupported msg 0x{other:04x}");
@@ -1003,6 +1007,62 @@ impl World {
             self.send_frame(
                 conn_id,
                 Frame::new(msgs::RSP_QRY_INVESTOR_POSITION, frame.req_id, struct_to_bytes(f)),
+            );
+        }
+        self.send_frame(conn_id, Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()));
+    }
+
+    /// `ReqQryInvestorPositionDetail` — one row per open lot (notes/04 B2).
+    ///
+    /// This is the surface a client uses to check the core's 逐日盯市
+    /// arithmetic: each row carries its own `OpenPrice`, `LastSettlementPrice`
+    /// and `CloseProfitByDate`, so 昨仓 and 今仓 lots are visibly priced on
+    /// different bases. Rows come out oldest-first per position (先开先平
+    /// order), which is the order a client consumes them in.
+    fn on_qry_investor_position_detail(&mut self, conn_id: u64, frame: &Frame) {
+        if !self.qry_gate(conn_id, frame.req_id) {
+            return;
+        }
+        self.mark_to_market_now();
+        let (broker, investor) = match self.session(conn_id) {
+            Some(v) => (v.0, v.1),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        };
+        let q: CThostFtdcQryInvestorPositionDetailField =
+            struct_from_bytes(&frame.payload).unwrap_or_else(CThostFtdcQryInvestorPositionDetailField::zeroed);
+        let filter = cstr(&q.InstrumentID);
+        let day = self.vt_day();
+        let catalog = self.engine.catalog();
+        let rows: Vec<_> = self
+            .ledger
+            .positions_of_ordered(&broker, &investor)
+            .into_iter()
+            .filter(|(p, _)| filter.is_empty() || p.instrument_id == filter)
+            .map(|(p, d)| {
+                let inst = catalog.get(&p.instrument_id);
+                let ex = inst.map(|i| i.exchange_id.clone()).unwrap_or_default();
+                let mult = inst.map(|i| i.volume_multiple).unwrap_or(1);
+                let last = self
+                    .engine
+                    .last_price(&p.instrument_id)
+                    .unwrap_or(p.settlement_price);
+                d.to_field(
+                    &broker,
+                    &investor,
+                    &ex,
+                    &day,
+                    p.side,
+                    &p.instrument_id,
+                    p.settlement_price,
+                    last,
+                    mult,
+                )
+            })
+            .collect();
+        for f in &rows {
+            self.send_frame(
+                conn_id,
+                Frame::new(msgs::RSP_QRY_INVESTOR_POSITION_DETAIL, frame.req_id, struct_to_bytes(f)),
             );
         }
         self.send_frame(conn_id, Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()));

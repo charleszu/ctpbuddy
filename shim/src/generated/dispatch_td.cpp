@@ -136,6 +136,24 @@ static void row_OnRspQryInvestorPosition_last(ApiCore& c, int nrid) {
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPosition(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
+static void row_OnRspQryInvestorPositionDetail(ApiCore& c, const Frame& f) {
+    CThostFtdcInvestorPositionDetailField fld{};
+    const CThostFtdcInvestorPositionDetailField* p = nullptr;
+    int nrid = 0;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        Pending* pd = c.find_pending(f.req_id);
+        if (!pd) return;
+        nrid = pd->n_request_id;
+        p = payload_as(f, fld);
+    }
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPositionDetail(const_cast<CThostFtdcInvestorPositionDetailField*>(p), &c.zero_rsp_info(), nrid, false);
+}
+
+static void row_OnRspQryInvestorPositionDetail_last(ApiCore& c, int nrid) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPositionDetail(nullptr, &c.zero_rsp_info(), nrid, true);
+}
+
 static void row_OnRspQryTradingAccount(ApiCore& c, const Frame& f) {
     CThostFtdcTradingAccountField fld{};
     const CThostFtdcTradingAccountField* p = nullptr;
@@ -288,6 +306,10 @@ static void row_OnRspQryInvestorPosition_err(ApiCore& c, const CThostFtdcRspInfo
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPosition(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
+static void row_OnRspQryInvestorPositionDetail_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPositionDetail(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+}
+
 static void row_OnRspQryTradingAccount_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryTradingAccount(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
@@ -325,6 +347,7 @@ const DispatchRow kTdDispatch[] = {
     {msgs::RSP_QRY_ORDER, &row_OnRspQryOrder, &row_OnRspQryOrder_last, &row_OnRspQryOrder_err, msgs::REQ_QRY_ORDER},
     {msgs::RSP_QRY_TRADE, &row_OnRspQryTrade, &row_OnRspQryTrade_last, &row_OnRspQryTrade_err, msgs::REQ_QRY_TRADE},
     {msgs::RSP_QRY_INVESTOR_POSITION, &row_OnRspQryInvestorPosition, &row_OnRspQryInvestorPosition_last, &row_OnRspQryInvestorPosition_err, msgs::REQ_QRY_INVESTOR_POSITION},
+    {msgs::RSP_QRY_INVESTOR_POSITION_DETAIL, &row_OnRspQryInvestorPositionDetail, &row_OnRspQryInvestorPositionDetail_last, &row_OnRspQryInvestorPositionDetail_err, msgs::REQ_QRY_INVESTOR_POSITION_DETAIL},
     {msgs::RSP_QRY_TRADING_ACCOUNT, &row_OnRspQryTradingAccount, &row_OnRspQryTradingAccount_last, &row_OnRspQryTradingAccount_err, msgs::REQ_QRY_TRADING_ACCOUNT},
     {msgs::RSP_QRY_INSTRUMENT, &row_OnRspQryInstrument, &row_OnRspQryInstrument_last, &row_OnRspQryInstrument_err, msgs::REQ_QRY_INSTRUMENT},
     {msgs::RSP_QRY_INSTRUMENT_MARGIN_RATE, &row_OnRspQryInstrumentMarginRate, &row_OnRspQryInstrumentMarginRate_last, &row_OnRspQryInstrumentMarginRate_err, msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE},

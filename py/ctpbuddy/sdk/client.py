@@ -40,6 +40,7 @@ from ..wire import (
     REQ_QRY_INSTRUMENT_MARGIN_RATE,
     REQ_QRY_INSTRUMENT_ORDER_COMM_RATE,
     REQ_QRY_INVESTOR_POSITION,
+    REQ_QRY_INVESTOR_POSITION_DETAIL,
     REQ_QRY_ORDER,
     REQ_QRY_TRADE,
     REQ_QRY_TRADING_ACCOUNT,
@@ -55,6 +56,7 @@ from ..wire import (
     RSP_QRY_INSTRUMENT_MARGIN_RATE,
     RSP_QRY_INSTRUMENT_ORDER_COMM_RATE,
     RSP_QRY_INVESTOR_POSITION,
+    RSP_QRY_INVESTOR_POSITION_DETAIL,
     RSP_QRY_ORDER,
     RSP_QRY_TRADE,
     RSP_QRY_TRADING_ACCOUNT,
@@ -477,6 +479,25 @@ class Client:
             generated.pack("CThostFtdcQryInvestorPositionField", BrokerID=self.broker_id, InvestorID=self.investor_id, InstrumentID=instrument),
         )
         return [generated.unpack("CThostFtdcInvestorPositionField", r) for r in rows]
+
+    def qry_investor_position_detail(self, instrument: str = "") -> List[Dict[str, Any]]:
+        """One row per open lot (notes/04 B2).
+
+        Each row is an independent 逐日盯市 unit: `OpenPrice` for a lot opened
+        today, `LastSettlementPrice` for a carried one, and
+        `PositionProfitByDate` computed from whichever applies. Summing those
+        per-row PnL must equal the aggregate `PositionProfit` from
+        `qry_investor_position` -- the property a client uses to verify the
+        core is not blending lots of different ages.
+
+        Rows arrive oldest-first within a position (先开先平 order).
+        """
+        rows = self._query_stream(
+            REQ_QRY_INVESTOR_POSITION_DETAIL,
+            RSP_QRY_INVESTOR_POSITION_DETAIL,
+            generated.pack("CThostFtdcQryInvestorPositionDetailField", BrokerID=self.broker_id, InvestorID=self.investor_id, InstrumentID=instrument),
+        )
+        return [generated.unpack("CThostFtdcInvestorPositionDetailField", r) for r in rows]
 
     def qry_order(self, instrument: str = "") -> List[Dict[str, Any]]:
         rows = self._query_stream(
