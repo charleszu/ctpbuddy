@@ -59,13 +59,17 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561"):
             authorities = {f"127.0.0.1:{port}", f"localhost:{port}"} if bind == "127.0.0.1" else {f"[{bind}]:{port}"}
             hosts = self.headers.get_all("Host", [])
             origin = self.headers.get("Origin")
+            # Browsers and local preview proxies may resolve the same loopback
+            # server through either localhost or 127.0.0.1. Treat those two
+            # authorities as equivalent, but never accept a non-loopback host.
             if len(hosts) != 1 or hosts[0] not in authorities:
                 return False
-            if origin is not None and origin != "http://" + hosts[0]:
+            expected_origins = {"http://" + authority for authority in authorities}
+            if origin is not None and origin not in expected_origins:
                 return False
             if self.headers.get("Sec-Fetch-Site") not in (None, "same-origin", "none"):
                 return False
-            if write and (origin != "http://" + hosts[0] or not secrets.compare_digest(self.headers.get("X-CSRF-Token", ""), token)):
+            if write and (origin not in expected_origins or not secrets.compare_digest(self.headers.get("X-CSRF-Token", ""), token)):
                 return False
             return True
 
