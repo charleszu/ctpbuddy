@@ -52,10 +52,13 @@ What is checked
 8. **保证金优惠 (large-side, notes/04 C4)**: for a hedged instrument the
    statement charges `max(多头保证金, 空头保证金)`, not the sum — 56 of 64
    real futures rows are hedged, and all 56 hit that identity exactly. The
-   ledger does **not** implement this yet (it sums per-lot margin), so on a 1:1
-   lock CTPBuddy reports twice the counter's `CurrMargin`. This assertion is
-   the yardstick for closing that gap, and it is why "no failures" below must
-   not be read as "the margin model matches the counter".
+   ledger now uses the user-supplied `MaxMarginSideAlgorithm` and this audit
+   remains the production-data yardstick; it does not claim support for
+   cross-product, strategy, warehouse-receipt, or hedge-dimension rules.
+9. **结算单 JSON/TXT 配对元数据**: when both broker exports exist, date,
+   client ID, and account ID in the structured JSON must occur in the paired
+   statement text. This is a source integrity check only; it is not a claim
+   that the modeled ledger reproduces every free-form statement line.
 
 The export is not part of the repository (it is broker data, tens of MB and
 somebody else's), so this script is opt-in: point `CTPBUDDY_EXPORT_DIR` /
@@ -75,6 +78,7 @@ import csv
 import io
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -108,6 +112,66 @@ def settlement_files(settlement_dir):
 def load_statement(settlement_dir, rel):
     with open(os.path.join(settlement_dir, rel), encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def load_statement_text(settlement_dir, rel):
+    """Load the paired broker text statement without normalizing its GBK text.
+
+    This audit only checks stable metadata that is independently represented in
+    the JSON export. It deliberately does not try to reconstruct the broker's
+    full bilingual layout from free-form text.
+    """
+    txt = os.path.splitext(rel)[0] + ".txt"
+    path = os.path.join(settlement_dir, txt)
+    if not os.path.isfile(path):
+        return None
+    raw = open(path, "rb").read()
+    for enc in ("gbk", "utf-8-sig", "utf-8"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def audit_statement_pairs(settlement_dir):
+    """Check JSON/TXT statement pairs for stable header/account metadata.
+
+    This is a source-data integrity audit, not a claim that CTPBuddy's modeled
+    ledger reproduces the broker's entire statement. The JSON is the structured
+    source used for the existing money identities; the paired TXT is checked
+    only for date, client and account/currency headers.
+    """
+    if not os.path.isdir(settlement_dir):
+        return None
+    checked = missing = mismatches = incomplete = 0
+    samples = []
+    for rel in settlement_files(settlement_dir):
+        doc = load_statement(settlement_dir, rel)
+        text = load_statement_text(settlement_dir, rel)
+        if text is None:
+            missing += 1
+            continue
+        meta = doc.get("meta_info") or {}
+        date = str(meta.get("结算日期") or "")
+        client = str(meta.get("客户号") or "")
+        account = str(meta.get("资金账号") or "")
+        if not date or not client or not account:
+            incomplete += 1
+            continue
+        patterns = {
+            "date": (r"(?:日期|Date)\s*[:：]?\s*" + re.escape(date), date),
+            "client": (r"(?:客户号|Client ID)\s*[:：]?\s*" + re.escape(client), client),
+            "account": (r"(?:资金账号|AccountID)\s*[:：]?\s*" + re.escape(account), account),
+        }
+        bad = [name for name, (pattern, _) in patterns.items() if not re.search(pattern, text)]
+        if bad:
+            mismatches += 1
+            if len(samples) < 10:
+                samples.append((rel, bad))
+        else:
+            checked += 1
+    return checked, missing, mismatches, samples, incomplete
 
 
 def read_table(path):
@@ -390,6 +454,7 @@ def main():
     detail = audit_detail_pnl(SETTLEMENT_DIR)
     settled = audit_statements(SETTLEMENT_DIR)
     hedged = audit_hedged_margin(SETTLEMENT_DIR)
+    pairs = audit_statement_pairs(SETTLEMENT_DIR)
 
     if export is None:
         print("[skip] %s not found — set CTPBUDDY_EXPORT_DIR" % EXPORT_DIR)
@@ -418,6 +483,15 @@ def main():
             print("FAIL: %s — %d rows disagree" % (label, len(failures)))
             for f in failures[:10]:
                 print("   %s %s: reported %.4f, identity says %.4f" % f)
+    if pairs is not None:
+        checked, missing, mismatches, samples, incomplete = pairs
+        label = "FAIL" if mismatches else "ok"
+        print("[%s] statement JSON/TXT metadata: %d matched, %d missing/undecodable, %d mismatched, %d incomplete metadata skipped" % (label, checked, missing, mismatches, incomplete))
+        print("[scope] source integrity only; not modeled-ledger replay or full statement-field reconciliation")
+        if mismatches:
+            failed = True
+            for rel, fields in samples:
+                print("   %s: header fields %s disagree" % (rel, ",".join(fields)))
     return 1 if failed else 0
 
 
