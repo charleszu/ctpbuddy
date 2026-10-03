@@ -44,6 +44,7 @@ from ..wire import (
     REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN,
     REQ_QRY_ORDER,
     REQ_QRY_TRADE,
+    REQ_QRY_SETTLEMENT_INFO,
     REQ_QRY_TRADING_ACCOUNT,
     REQ_SETTLE_CONFIRM,
     REQ_USER_LOGIN,
@@ -61,6 +62,7 @@ from ..wire import (
     RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN,
     RSP_QRY_ORDER,
     RSP_QRY_TRADE,
+    RSP_QRY_SETTLEMENT_INFO,
     RSP_QRY_TRADING_ACCOUNT,
     RSP_SETTLE_CONFIRM,
     RSP_SUB_MD,
@@ -467,6 +469,16 @@ class Client:
             generated.pack("CThostFtdcQryInstrumentField", InstrumentID=instrument),
         )
         return [generated.unpack("CThostFtdcInstrumentField", r) for r in rows]
+
+    def qry_settlement_info(self, trading_day: str = "", account_id: str = "", currency_id: str = "") -> List[Dict[str, Any]]:
+        rows = self._query_stream(
+            REQ_QRY_SETTLEMENT_INFO, RSP_QRY_SETTLEMENT_INFO,
+            generated.pack("CThostFtdcQrySettlementInfoField", BrokerID=self.broker_id, InvestorID=self.investor_id, TradingDay=trading_day, AccountID=account_id, CurrencyID=currency_id),
+        )
+        out = [generated.unpack("CThostFtdcSettlementInfoField", r) for r in rows]
+        for row in out:
+            row["Content"] = bytes(row["Content"]).split(b"\x00", 1)[0]
+        return out
 
     def qry_trading_account(self) -> Dict[str, Any]:
         rows = self._query_stream(

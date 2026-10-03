@@ -31487,19 +31487,24 @@
       "struct": "CThostFtdcRspUserLoginField",
       "payload": "raw-struct"
     },
-    "RSP_USER_LOGOUT": {
+    "REQ_USER_LOGOUT": {
       "id": 4099,
-      "struct": "CThostFtdcRspInfoField",
+      "struct": "CThostFtdcUserLogoutField",
+      "payload": "raw-struct"
+    },
+    "RSP_USER_LOGOUT": {
+      "id": 4100,
+      "struct": "CThostFtdcUserLogoutField",
       "payload": "raw-struct"
     },
     "REQ_SETTLE_CONFIRM": {
-      "id": 4100,
+      "id": 4101,
       "struct": "CThostFtdcSettlementInfoConfirmField",
       "payload": "raw-struct"
     },
     "RSP_SETTLE_CONFIRM": {
-      "id": 4101,
-      "struct": "CThostFtdcRspInfoField",
+      "id": 4102,
+      "struct": "CThostFtdcSettlementInfoConfirmField",
       "payload": "raw-struct"
     },
     "REQ_ORDER_INSERT": {
@@ -31560,6 +31565,16 @@
     "RSP_ERROR": {
       "id": 4144,
       "struct": "CThostFtdcRspInfoField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_SETTLEMENT_INFO": {
+      "id": 4145,
+      "struct": "CThostFtdcQrySettlementInfoField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_SETTLEMENT_INFO": {
+      "id": 4146,
+      "struct": "CThostFtdcSettlementInfoField",
       "payload": "raw-struct"
     }
   },

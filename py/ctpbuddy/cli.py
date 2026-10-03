@@ -9,6 +9,7 @@ M2 scenario DSL surface:
   ctpbuddy scenario ticks DIR            summarize a scenario's tick stream
   ctpbuddy scenario compile DIR          scenario.yaml -> scenario.json (core format)
   ctpbuddy replay status|pause|resume|step|seek|loop|speed   playback control
+  ctpbuddy assertions check [--admin ADDR] [--total N]      检查场景断言
 
 M2-3 journal surface:
   ctpbuddy journal hash FILE [--core] [--only ...] [--skip ...]
@@ -33,6 +34,25 @@ from typing import Any, Dict, List, Optional
 from . import __version__
 from .replay import find_core
 from .sdk import Admin
+
+
+def cmd_calendar_validate(args: argparse.Namespace) -> int:
+    from .calendar import CalendarError, TradingCalendar
+
+    try:
+        calendar = TradingCalendar.from_file(args.file, expected_sha256=args.sha256)
+    except (CalendarError, OSError) as exc:
+        print("INVALID: %s" % exc, file=sys.stderr)
+        return 1
+    print("OK: %s" % args.file)
+    print("version      %s" % calendar.metadata["version"])
+    print("source       %s@%s (%s)" % (
+        calendar.metadata["source"]["name"],
+        calendar.metadata["source"]["revision"],
+        calendar.metadata["source"]["license"],
+    ))
+    print("sha256       %s" % calendar.sha256)
+    return 0
 
 
 def cmd_refdata_export(args: argparse.Namespace) -> int:
@@ -130,7 +150,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_web(args: argparse.Namespace) -> int:
     from .web import serve
-    return serve(args.host, args.port, args.admin)
+    return serve(args.host, args.port, args.admin, args.db)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -180,6 +200,31 @@ def _fmt_ms(ms: object) -> str:
         return "%.0fs" % (float(ms) / 1000.0)
     except (TypeError, ValueError):
         return str(ms)
+
+
+def cmd_assertions_check(args: argparse.Namespace) -> int:
+    try:
+        with Admin(args.admin) as admin:
+            status = admin.status()
+    except (OSError, RuntimeError, ValueError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    assertions = status.get("assertions")
+    if not isinstance(assertions, dict) or not assertions.get("total", 0):
+        print("INVALID: no scenario assertions installed")
+        return 1
+    _print_assertions(assertions)
+    total = assertions.get("total", 0)
+    evaluated = assertions.get("evaluated", 0)
+    failed = assertions.get("failed", 0)
+    if args.total is not None and total != args.total:
+        print("INVALID: expected total=%d, got %s" % (args.total, total))
+        return 1
+    if evaluated != total or failed:
+        print("INVALID: assertions are not all passing")
+        return 1
+    print("OK: %d assertions passed" % total)
+    return 0
 
 
 def cmd_replay(args: argparse.Namespace) -> int:
@@ -350,6 +395,38 @@ def cmd_journal_verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_journal_rebuild(args: argparse.Namespace) -> int:
+    import sqlite3
+    from .journal import JournalError
+    from .store import rebuild
+
+    database = args.db or os.path.join(
+        os.path.dirname(os.path.abspath(args.file.rstrip("/\\"))), "ctpbuddy.db")
+    try:
+        result = rebuild(args.file, database)
+    except (JournalError, OSError, sqlite3.Error, ValueError, KeyError, TypeError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print(json.dumps(dict(result, database=database), ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+def cmd_journal_query(args: argparse.Namespace) -> int:
+    import sqlite3
+    from .journal import JournalError
+    from .store import Projection
+
+    try:
+        with Projection(args.db) as projection:
+            rows = projection.query(args.table, broker=args.broker, investor=args.investor,
+                                    trading_day=args.trading_day, limit=args.limit, offset=args.offset)
+    except (JournalError, OSError, sqlite3.Error, ValueError) as e:
+        print("error: %s" % e, file=sys.stderr)
+        return 1
+    print(json.dumps(rows, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def cmd_journal_replay(args: argparse.Namespace) -> int:
     from .replay import ReplayError, format_result, replay_journal
 
@@ -397,11 +474,19 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--host", default="loopback", help="loopback or an explicit loopback IP")
     sp.add_argument("--port", type=int, default=8080)
     sp.add_argument("--admin", default="127.0.0.1:5561")
+    sp.add_argument("--db", default=None, help="SQLite journal 投影路径，启用只读查询 API")
     sp.set_defaults(func=cmd_web)
 
     sp = sub.add_parser("status", help="core admin status")
     sp.add_argument("--admin", default="127.0.0.1:5561")
     sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("calendar", help="离线期货交易日历")
+    csub = sp.add_subparsers(dest="calendar_cmd", required=True)
+    cv = csub.add_parser("validate", help="校验 JSON 快照并输出固定版本和 SHA256")
+    cv.add_argument("file")
+    cv.add_argument("--sha256", help="期望的快照 SHA256")
+    cv.set_defaults(func=cmd_calendar_validate)
 
     sp = sub.add_parser(
         "refdata",
@@ -436,6 +521,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("journal", help="journal utilities (hash / show / verify / replay)")
     jsub = sp.add_subparsers(dest="journal_cmd", required=True)
+    from .store import TABLES
+    rb = jsub.add_parser("rebuild", help="从 JSONL journal 原子重建 SQLite 投影")
+    rb.add_argument("file", help="完整 journal JSONL 文件或目录")
+    rb.add_argument("--db", help="目标投影路径，默认 journal 所在目录旁的 ctpbuddy.db")
+    rb.set_defaults(func=cmd_journal_rebuild)
+    qp = jsub.add_parser("query", help="只读查询 SQLite journal 投影，输出 JSON")
+    qp.add_argument("table", choices=TABLES)
+    qp.add_argument("--db", default="data/ctpbuddy.db")
+    qp.add_argument("--broker")
+    qp.add_argument("--investor")
+    qp.add_argument("--trading-day")
+    qp.add_argument("--limit", type=int, default=100)
+    qp.add_argument("--offset", type=int, default=0)
+    qp.set_defaults(func=cmd_journal_query)
     hp = jsub.add_parser("hash", help="deterministic sha256 over the event stream")
     hp.add_argument("file", help="journal .jsonl file or a journal directory")
     hp.add_argument("--core", action="store_true",
@@ -461,6 +560,13 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--keep-data", action="store_true", help="keep the replay data dir")
     rp.add_argument("-v", "--verbose", action="store_true")
     rp.set_defaults(func=cmd_journal_replay)
+
+    sp = sub.add_parser("assertions", help="scenario assertion checks")
+    asub = sp.add_subparsers(dest="assertions_cmd", required=True)
+    ac = asub.add_parser("check", help="fail unless all installed assertions passed")
+    ac.add_argument("--admin", default="127.0.0.1:5561")
+    ac.add_argument("--total", type=int, help="expected assertion count")
+    ac.set_defaults(func=cmd_assertions_check)
 
     sp = sub.add_parser("replay", help="playback control (pause/resume/step/seek/loop/speed)")
     rsub = sp.add_subparsers(dest="replay_action", required=True)

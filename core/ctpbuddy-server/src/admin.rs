@@ -52,6 +52,7 @@ impl World {
             "loop" => self.admin_loop(conn_id, frame.req_id, &v),
             "reset_account" => self.admin_reset_account(conn_id, frame.req_id, &v),
             "settle_day" => self.admin_settle_day(conn_id, frame.req_id, &v),
+            "settlement_report" => self.admin_settlement_report(conn_id, frame.req_id, &v),
             "shutdown" => {
                 self.admin_reply(
                     conn_id,
@@ -311,6 +312,15 @@ impl World {
         );
     }
 
+    fn admin_settlement_report(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+        let Some(Value::Arr(items)) = v.get("reports") else { return self.admin_error(conn_id, req_id, "settlement_report 需要 reports 数组"); };
+        let mut reports = Vec::new();
+        for item in items { match crate::settlement::Report::parse(item, &self.cfg.broker_id) { Ok(r) => reports.push(r), Err(e) => return self.admin_error(conn_id, req_id, &e) } }
+        let count = reports.len();
+        if let Err(e) = self.save_reports(reports) { return self.admin_error(conn_id, req_id, &e); }
+        self.admin_reply(conn_id, req_id, json::obj_sorted(vec![("ok".into(), json::b(true)), ("cmd".into(), json::s("settlement_report")), ("saved".into(), json::n(count as f64))]));
+    }
+
     fn admin_settle_day(&mut self, conn_id: u64, req_id: u32, v: &Value) {
         let Some(next_day) = v.get_str("next_trading_day") else {
             return self.admin_error(conn_id, req_id, "settle_day 需要 next_trading_day");
@@ -385,6 +395,13 @@ impl World {
             ("cleared_trades".into(), json::n(self.trades_today.len() as f64)),
             ("cleared_confirmations".into(), json::n(self.settlement_confirmed.len() as f64)),
         ]);
+        let generated = World::minimal_reports(&staged_ledger, &current_day)
+            .into_iter()
+            .filter(|r| !self.settlement_reports.iter().any(|old| old.broker == r.broker && old.investor == r.investor && old.day == r.day))
+            .collect();
+        if let Err(e) = self.save_reports(generated) {
+            return self.admin_error(conn_id, req_id, &format!("保存结算报告失败: {e}"));
+        }
         self.ledger = staged_ledger;
         self.engine = staged_engine;
         self.playback = staged_playback;

@@ -38,6 +38,7 @@ use ctpbuddy_wire::generated::{
     CThostFtdcQryInstrumentOrderCommRateField, CThostFtdcQryInvestorPositionField,
     CThostFtdcQryOrderField, CThostFtdcQryTradeField, CThostFtdcReqUserLoginField,
     CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
+    CThostFtdcQrySettlementInfoField, CThostFtdcSettlementInfoField,
     CThostFtdcSpecificInstrumentField, CThostFtdcUserLogoutField,
 };
 use ctpbuddy_wire::msgs;
@@ -64,6 +65,7 @@ impl World {
             msgs::REQ_USER_LOGIN => self.on_login(conn_id, &frame),
             msgs::REQ_USER_LOGOUT => self.on_logout(conn_id, &frame),
             msgs::REQ_SETTLE_CONFIRM => self.on_settle_confirm(conn_id, &frame),
+            msgs::REQ_QRY_SETTLEMENT_INFO => self.on_qry_settlement_info(conn_id, &frame),
             msgs::REQ_ORDER_INSERT => self.on_order_insert(conn_id, &frame),
             msgs::REQ_ORDER_ACTION => self.on_order_action(conn_id, &frame),
             msgs::SUB_MD => self.on_sub_md(conn_id, &frame, true),
@@ -350,6 +352,33 @@ impl World {
             conn_id,
             Frame::new(msgs::RSP_USER_LOGOUT, frame.req_id, struct_to_bytes(&req)),
         );
+    }
+
+    fn on_qry_settlement_info(&mut self, conn_id: u64, frame: &Frame) {
+        if !self.qry_gate(conn_id, frame.req_id) { return; }
+        let (broker, investor) = match self.session(conn_id) {
+            Some(v) => (v.0, v.1),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        };
+        let q: CThostFtdcQrySettlementInfoField = struct_from_bytes(&frame.payload).unwrap_or_else(CThostFtdcQrySettlementInfoField::zeroed);
+        if (!cstr(&q.BrokerID).is_empty() && cstr(&q.BrokerID) != broker) || (!cstr(&q.InvestorID).is_empty() && cstr(&q.InvestorID) != investor) {
+            return self.send_qry_empty(conn_id, frame.req_id);
+        }
+        let requested = cstr(&q.TradingDay);
+        let day = if requested.is_empty() {
+            self.settlement_reports.iter().filter(|r| r.broker == broker && r.investor == investor && r.day.len() == 8 && r.day < self.vt_trading_day).map(|r| r.day.clone()).max().unwrap_or_default()
+        } else { requested };
+        let account = cstr(&q.AccountID);
+        let currency = cstr(&q.CurrencyID);
+        let mut rows = Vec::new();
+        for report in self.settlement_reports.iter().filter(|r| r.broker == broker && r.investor == investor && !day.is_empty() && r.day == day && (account.is_empty() || r.account == account) && (currency.is_empty() || r.currency == currency)) {
+            for (seq, part) in report.content.chunks(500).enumerate() {
+                let mut f = CThostFtdcSettlementInfoField::zeroed();
+                set_cstr(&mut f.TradingDay, &report.day); f.SettlementID = report.settlement_id; set_cstr(&mut f.BrokerID, &report.broker); set_cstr(&mut f.InvestorID, &report.investor); f.SequenceNo = (seq + 1) as i32; f.Content[..part.len()].copy_from_slice(part); set_cstr(&mut f.AccountID, &report.account); set_cstr(&mut f.CurrencyID, &report.currency); rows.push(f);
+            }
+        }
+        for f in rows { self.send_frame(conn_id, Frame::new(msgs::RSP_QRY_SETTLEMENT_INFO, frame.req_id, struct_to_bytes(&f))); }
+        self.send_qry_empty(conn_id, frame.req_id);
     }
 
     fn on_settle_confirm(&mut self, conn_id: u64, frame: &Frame) {

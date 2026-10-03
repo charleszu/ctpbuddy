@@ -52,9 +52,10 @@ MESSAGES = [
     (0x0202, "ADMIN_RSP", None),
     (0x1001, "REQ_USER_LOGIN", "CThostFtdcReqUserLoginField"),
     (0x1002, "RSP_USER_LOGIN", "CThostFtdcRspUserLoginField"),
-    (0x1003, "RSP_USER_LOGOUT", "CThostFtdcRspInfoField"),
-    (0x1004, "REQ_SETTLE_CONFIRM", "CThostFtdcSettlementInfoConfirmField"),
-    (0x1005, "RSP_SETTLE_CONFIRM", "CThostFtdcRspInfoField"),
+    (0x1003, "REQ_USER_LOGOUT", "CThostFtdcUserLogoutField"),
+    (0x1004, "RSP_USER_LOGOUT", "CThostFtdcUserLogoutField"),
+    (0x1005, "REQ_SETTLE_CONFIRM", "CThostFtdcSettlementInfoConfirmField"),
+    (0x1006, "RSP_SETTLE_CONFIRM", "CThostFtdcSettlementInfoConfirmField"),
     (0x1010, "REQ_ORDER_INSERT", "CThostFtdcInputOrderField"),
     (0x1011, "RSP_ORDER_INSERT", "CThostFtdcRspInfoField"),
     (0x1012, "ERR_RTN_ORDER_INSERT", "CThostFtdcRspInfoField"),
@@ -67,6 +68,8 @@ MESSAGES = [
     (0x1021, "RSP_SUB_MD", "CThostFtdcRspInfoField"),
     (0x1022, "RTN_DEPTH_MD", "CThostFtdcDepthMarketDataField"),
     (0x1030, "RSP_ERROR", "CThostFtdcRspInfoField"),
+    (0x1031, "REQ_QRY_SETTLEMENT_INFO", "CThostFtdcQrySettlementInfoField"),
+    (0x1032, "RSP_QRY_SETTLEMENT_INFO", "CThostFtdcSettlementInfoField"),
 ]
 
 TYPEDEF_BASE_RE = re.compile(
@@ -259,7 +262,7 @@ def gen_python(layouts, repo_root):
     lines.append("    values = _packer(name).unpack_from(buf)")
     lines.append("    out = {}")
     lines.append("    for (fname, kind, _size), v in zip(rows, values):")
-    lines.append("        if kind == 's':")
+    lines.append("        if kind == 's' and not (name == 'CThostFtdcSettlementInfoField' and fname == 'Content'):")
     lines.append("            v = v.split(b'\\x00')[0].decode('utf-8', 'replace')")
     lines.append("        out[fname] = v")
     lines.append("    return out")

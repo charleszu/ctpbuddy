@@ -82,6 +82,24 @@ static void row_OnErrRtnOrderAction(ApiCore& c, const Frame& f) {
 }
 
 
+static void row_OnRspQrySettlementInfo(ApiCore& c, const Frame& f) {
+    CThostFtdcSettlementInfoField fld{};
+    const CThostFtdcSettlementInfoField* p = nullptr;
+    int nrid = 0;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        Pending* pd = c.find_pending(f.req_id);
+        if (!pd) return;
+        nrid = pd->n_request_id;
+        p = payload_as(f, fld);
+    }
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQrySettlementInfo(const_cast<CThostFtdcSettlementInfoField*>(p), &c.zero_rsp_info(), nrid, false);
+}
+
+static void row_OnRspQrySettlementInfo_last(ApiCore& c, int nrid) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQrySettlementInfo(nullptr, &c.zero_rsp_info(), nrid, true);
+}
+
 static void row_OnRspQryOrder(ApiCore& c, const Frame& f) {
     CThostFtdcOrderField fld{};
     const CThostFtdcOrderField* p = nullptr;
@@ -312,6 +330,10 @@ static void row_OnRspOrderAction_err(ApiCore& c, const CThostFtdcRspInfoField& r
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspOrderAction(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
+static void row_OnRspQrySettlementInfo_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
+    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQrySettlementInfo(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+}
+
 static void row_OnRspQryOrder_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
     static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryOrder(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
@@ -366,6 +388,7 @@ const DispatchRow kTdDispatch[] = {
     {msgs::ERR_RTN_ORDER_INSERT, &row_OnErrRtnOrderInsert, nullptr, nullptr, 0},
     {msgs::RSP_ORDER_ACTION, &row_OnRspOrderAction, nullptr, &row_OnRspOrderAction_err, msgs::REQ_ORDER_ACTION},
     {msgs::ERR_RTN_ORDER_ACTION, &row_OnErrRtnOrderAction, nullptr, nullptr, 0},
+    {msgs::RSP_QRY_SETTLEMENT_INFO, &row_OnRspQrySettlementInfo, &row_OnRspQrySettlementInfo_last, &row_OnRspQrySettlementInfo_err, msgs::REQ_QRY_SETTLEMENT_INFO},
     {msgs::RSP_QRY_ORDER, &row_OnRspQryOrder, &row_OnRspQryOrder_last, &row_OnRspQryOrder_err, msgs::REQ_QRY_ORDER},
     {msgs::RSP_QRY_TRADE, &row_OnRspQryTrade, &row_OnRspQryTrade_last, &row_OnRspQryTrade_err, msgs::REQ_QRY_TRADE},
     {msgs::RSP_QRY_INVESTOR_POSITION, &row_OnRspQryInvestorPosition, &row_OnRspQryInvestorPosition_last, &row_OnRspQryInvestorPosition_err, msgs::REQ_QRY_INVESTOR_POSITION},

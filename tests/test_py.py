@@ -16,11 +16,15 @@ import os
 import socket
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "py"))
 
+from ctpbuddy.calendar import CalendarError, TradingCalendar  # noqa: E402
 from ctpbuddy.generated import structs  # noqa: E402
 from ctpbuddy.scenario import (  # noqa: E402
     ScenarioError,
@@ -261,6 +265,95 @@ def test_dsl_compile() -> None:
         print("[ok] dsl: compile/load cache semantics + legacy fallback")
 
 
+def test_calendar() -> None:
+    snapshot = {
+        "schema": "ctpbuddy.trading-calendar/v1",
+        "version": "fixture-2026-10-r1",
+        "source": {"kind": "fixture", "name": "unit-test", "revision": "r1", "license": "test", "scope": "futures"},
+        "days": [
+            {"date": "2026-10-02", "is_trading_day": True, "trading_day": "20261002", "exchanges": {"SHFE": {"night_action_day": "2026-10-02", "night_trading_day": "20261005"}}},
+            {"date": "2026-10-03", "is_trading_day": False},
+            {"date": "2026-10-04", "is_trading_day": False},
+            {"date": "2026-10-05", "is_trading_day": True, "trading_day": "20261005"},
+        ],
+    }
+    cal = TradingCalendar.from_json(json.dumps(snapshot))
+    assert cal.is_trading_day("2026-10-02")
+    assert not cal.is_trading_day("20261003")
+    assert cal.next_trading_day("20261002") == "20261005"
+    assert cal.night_session("2026-10-02", "SHFE") == ("20261002", "20261005")
+    assert cal.metadata["sha256"] == cal.sha256
+    override = dict(snapshot, version="user-r2", days=[{"date": "2026-10-03", "is_trading_day": True, "trading_day": "20261003"}])
+    merged = cal.with_overrides(override)
+    assert merged.is_trading_day("2026-10-03")
+    assert merged.next_trading_day("2026-10-02") == "20261003"
+    for bad in (
+        dict(snapshot, version="main"),
+        dict(snapshot, source=dict(snapshot["source"], scope="equities")),
+        dict(snapshot, days=snapshot["days"] + [snapshot["days"][0]]),
+        dict(snapshot, days=[dict(snapshot["days"][0], trading_day="20261003")]),
+    ):
+        try:
+            TradingCalendar.from_json(bad)
+            raise AssertionError("非法日历应拒绝")
+        except CalendarError:
+            pass
+    try:
+        cal.night_session("2026-10-02", "DCE")
+        raise AssertionError("未显式供给的夜盘映射不应推断")
+    except CalendarError:
+        pass
+    from unittest.mock import patch
+    from ctpbuddy.sdk import Admin
+    from ctpbuddy.cli import main as cli_main
+    for lookup in (
+        lambda: cal.is_trading_day("2026-10-06"),
+        lambda: cal.next_trading_day("2026-10-05"),
+        lambda: TradingCalendar.from_json('{"schema":1,"schema":2}'),
+        lambda: TradingCalendar.from_json([]),
+        lambda: TradingCalendar.from_json(dict(snapshot, days=[dict(snapshot["days"][0], date="2026-02-30")])),
+        lambda: TradingCalendar.from_json(dict(snapshot, days=[dict(snapshot["days"][0], is_trading_day=1)])),
+        lambda: TradingCalendar.from_json(dict(snapshot, source=dict(snapshot["source"], kind="github", revision="main"))),
+        lambda: TradingCalendar.from_json(dict(snapshot, days=[dict(snapshot["days"][0], exchanges={"SHFE": {"night_trading_day": "20261005"}})])),
+    ):
+        try:
+            lookup()
+            raise AssertionError("无效输入或缺失覆盖必须拒绝")
+        except CalendarError:
+            pass
+    # 覆盖自然日时同时移除旧夜盘，不能保留过期映射。
+    removed = cal.with_overrides(dict(snapshot, version="remove-night-r1", days=[dict(snapshot["days"][0], exchanges={})]))
+    try:
+        removed.night_session("2026-10-02", "SHFE")
+        raise AssertionError("旧夜盘应随整日覆盖删除")
+    except CalendarError:
+        pass
+    with tempfile.TemporaryDirectory() as root:
+        path = os.path.join(root, "calendar.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(snapshot, fh)
+        assert TradingCalendar.from_file(path, cal.sha256).sha256 == cal.sha256
+        assert cli_main(["calendar", "validate", path, "--sha256", cal.sha256]) == 0
+        assert cli_main(["calendar", "validate", path, "--sha256", "bad"]) == 1
+    with patch("ctpbuddy.sdk.admin.socket.create_connection"):
+        admin = Admin(calendar=cal)
+        with patch.object(admin, "cmd", return_value={"ok": True}) as cmd, patch.object(admin, "status", return_value={"playback": {"trading_day": "20261002"}}) as status:
+            admin.settle_day({"rb": 1})
+            cmd.assert_called_once_with("settle_day", settlement_prices={"rb": 1}, next_trading_day="20261005")
+            cmd.reset_mock()
+            status.reset_mock()
+            admin.settle_day({"rb": 1}, "20261003")
+            status.assert_not_called()
+            cmd.assert_called_once_with("settle_day", settlement_prices={"rb": 1}, next_trading_day="20261003")
+        admin.calendar = None
+        try:
+            admin.settle_day({})
+            raise AssertionError("未配置日历时不能自动结算")
+        except ValueError:
+            pass
+    print("[ok] calendar: offline validation/hash/CLI, coverage, override, explicit nights and Admin compatibility")
+
+
 def test_journal_hash() -> None:
     """Deterministic journal hashing (DESIGN §11.4, M2-3): ts_wall excluded,
     core projection drops noise types / re-encodes seq / normalizes the
@@ -375,14 +468,135 @@ def test_journal_hash() -> None:
           "selectors, verify, canonical form, load errors")
 
 
+def test_journal_projection() -> None:
+    from ctpbuddy.store import Projection, rebuild
+
+    with tempfile.TemporaryDirectory() as d:
+        journal = os.path.join(d, "journal")
+        os.mkdir(journal)
+        events = [
+            {"seq": 1, "ts_wall": "2026-10-03T09:30:00+08:00", "trading_day": "20261003", "vt_ms": 1, "type": "session_login", "broker": "8888", "investor": "u1", "data": {}},
+            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "u1", "data": {"order_ref": "r1", "order_sys_id": "0001", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "limit_price": 3500, "volume": 2, "outcome": {"accepted": True}}},
+            {"seq": 3, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "order_update", "broker": "8888", "investor": "u1", "data": {"order_ref": "r1", "order_sys_id": "0001", "status": "0", "volume_traded": 2, "volume_total": 0}},
+            {"seq": 4, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "fill", "broker": "8888", "investor": "u1", "data": {"trade_id": "t1", "order_sys_id": "0001", "order_ref": "r1", "instrument": "rb2601", "direction": 0, "offset": 0, "price": 3500, "volume": 2}},
+            {"seq": 5, "ts_wall": "2026-10-03T09:30:03+08:00", "trading_day": "20261003", "vt_ms": 4, "type": "settings_updated", "data": {"before": {"qry_freq": 1}, "after": {"qry_freq": 2}}},
+        ]
+        path = os.path.join(journal, "20261003.jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            for event in events:
+                fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+        db = os.path.join(d, "ctpbuddy.db")
+        first = rebuild(journal, db)
+        second = rebuild(journal, db)
+        assert first == second
+        with Projection(db) as projection:
+            assert len(projection.query("account", investor="u1")) == 1
+            order = projection.query("order_record", investor="u1")[0]
+            assert order["status"] == "0" and order["volume_traded"] == 2
+            assert projection.query("trade_record")[0]["trade_id"] == "t1"
+            assert projection.query("position_change")[0]["volume_delta"] == 2
+            assert projection.query("audit_log")[0]["action"] == "settings_updated"
+        with open(db, "wb") as fh:
+            fh.write(b"not a sqlite database")
+        rebuild(journal, db)
+        with Projection(db) as projection:
+            assert projection.query("trade_record")[0]["trade_id"] == "t1"
+    print("[ok] journal projection: schema/version, deterministic rebuild, recovery and queries")
+
+
+def test_web_projection() -> None:
+    from ctpbuddy.store import rebuild
+    from ctpbuddy.web import make_server
+
+    with tempfile.TemporaryDirectory() as d:
+        journal = os.path.join(d, "journal")
+        os.mkdir(journal)
+        events = [
+            {"seq": 1, "ts_wall": "2026-10-03T09:30:00+08:00", "trading_day": "20261003", "vt_ms": 1, "type": "session_login", "broker": "8888", "investor": "web1", "data": {}},
+            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "web1", "data": {"order_ref": "w1", "order_sys_id": "1", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "limit_price": 3500, "volume": 1, "outcome": {"accepted": True}}},
+            {"seq": 3, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "fill", "broker": "8888", "investor": "web1", "data": {"trade_id": "t1", "order_sys_id": "1", "order_ref": "w1", "instrument": "rb2601", "direction": 0, "offset": 0, "price": 3500, "volume": 1}},
+            {"seq": 4, "ts_wall": "2026-10-03T09:30:03+08:00", "trading_day": "20261003", "vt_ms": 4, "type": "settings_updated", "data": {"after": {"qry_freq": 2}}},
+        ]
+        with open(os.path.join(journal, "20261003.jsonl"), "w", encoding="utf-8") as fh:
+            for event in events:
+                fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+        db = os.path.join(d, "projection.db")
+        rebuild(journal, db)
+        server = make_server("127.0.0.1", 0, "127.0.0.1:1", db)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            base = "http://127.0.0.1:%d" % server.server_address[1]
+            host = "127.0.0.1:%d" % server.server_address[1]
+            for table, key in (("account", "investor_id"), ("order_record", "order_ref"), ("trade_record", "trade_id"), ("audit_log", "action")):
+                request = urllib.request.Request(base + "/api/projection?table=" + table, headers={"Host": host})
+                payload = json.loads(urllib.request.urlopen(request).read())
+                assert payload["rows"] and key in payload["rows"][0], (table, payload)
+            injected = urllib.request.Request(base + "/api/projection?table=account%20WHERE%201%3D1", headers={"Host": host})
+            try:
+                urllib.request.urlopen(injected)
+                raise AssertionError("投影表名注入被接受")
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 400
+
+            broken = make_server("127.0.0.1", 0, "127.0.0.1:1", os.path.join(d, "missing.db"))
+            broken_thread = threading.Thread(target=broken.serve_forever, daemon=True)
+            broken_thread.start()
+            try:
+                broken_base = "http://127.0.0.1:%d" % broken.server_address[1]
+                broken_host = "127.0.0.1:%d" % broken.server_address[1]
+                request = urllib.request.Request(broken_base + "/api/projection", headers={"Host": broken_host})
+                try:
+                    urllib.request.urlopen(request)
+                    raise AssertionError("缺失投影库未报错")
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == 503
+                    body = exc.read().decode()
+                    assert d not in body and "missing.db" not in body, body
+            finally:
+                broken.shutdown()
+                broken.server_close()
+        finally:
+            server.shutdown()
+            server.server_close()
+    print("[ok] web projection: account/order/trade/audit, table allowlist and path-safe errors")
+
+
+def test_assertions_cli() -> None:
+    from unittest.mock import patch
+    from ctpbuddy.cli import main as cli_main
+
+    def check(summary, expected, *extra):
+        with patch("ctpbuddy.cli.Admin") as admin:
+            admin.return_value.__enter__.return_value.status.return_value = {
+                "assertions": summary,
+            }
+            assert cli_main(["assertions", "check", *extra]) == expected
+
+    check(None, 1)
+    check({"total": 0}, 1)
+    check({"total": 2, "evaluated": 1, "passed": 1, "failed": 0}, 1)
+    check({"total": 2, "evaluated": 2, "passed": 1, "failed": 1}, 1)
+    passed = {"total": 2, "evaluated": 2, "passed": 2, "failed": 0}
+    check(passed, 0, "--total", "2")
+    check(passed, 1, "--total", "3")
+    with patch("ctpbuddy.cli.Admin", side_effect=ConnectionRefusedError("offline")):
+        assert cli_main(["assertions", "check"]) == 1
+    print("[ok] assertions CLI: pass/fail/pending/empty/count/offline exit codes")
+
+
 def main() -> int:
+    test_assertions_cli()
     test_struct_layout()
     test_frames()
     test_scenario()
     test_dsl_spec()
     test_dsl_errors()
     test_dsl_compile()
+    test_calendar()
     test_journal_hash()
+    test_journal_projection()
+    test_web_projection()
     print("\nPY UNIT: PASS")
     return 0
 

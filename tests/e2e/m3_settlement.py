@@ -12,6 +12,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from m3_refdata import BROKER, RB, M, RB_PRE_SETTLE, find_core, free_port, wait_fills, wait_port  # noqa: E402
+from ctpbuddy.calendar import TradingCalendar  # noqa: E402
 from ctpbuddy.sdk import Admin, Client, CTPError  # noqa: E402
 from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
 
@@ -40,7 +41,19 @@ def main() -> int:
         proc = subprocess.Popen([find_core(), "--td", f"127.0.0.1:{td}", "--admin", f"127.0.0.1:{ap}", "--broker-id", BROKER, "--speed", "0", "--data-dir", data, "--scenario", sdir], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
             wait_port(ap)
-            with Admin(f"127.0.0.1:{ap}") as admin:
+            calendar = TradingCalendar.from_json({
+                "schema": "ctpbuddy.trading-calendar/v1",
+                "version": "e2e-2026-r1",
+                "source": {"kind": "fixture", "name": "m3_settlement", "revision": "r1", "license": "test", "scope": "futures"},
+                "days": [
+                    {"date": "2026-10-02", "is_trading_day": True, "trading_day": "20261002"},
+                    {"date": "2026-10-03", "is_trading_day": True, "trading_day": "20261003"},
+                    {"date": "2026-10-04", "is_trading_day": False},
+                    {"date": "2026-10-05", "is_trading_day": False},
+                    {"date": "2026-10-06", "is_trading_day": True, "trading_day": "20261006"},
+                ],
+            })
+            with Admin(f"127.0.0.1:{ap}", calendar=calendar) as admin:
                 admin.start_scenario(sdir, paused=True, spec={"name": "settlement-fictional", "accounts": [{
                     "investor": "carry002", "balance": 1000000, "positions": [{
                         "instrument": M, "exchange": "DCE", "direction": "short",
@@ -102,8 +115,8 @@ def main() -> int:
                 cli.order_action(RB, "REST")
                 time.sleep(0.1)
                 details_before = cli.qry_investor_position_detail()
-                result = admin.settle_day({RB: 3501.0, M: 2980.0}, "20261004")
-                assert result["trading_day"] == "20261004", result
+                result = admin.settle_day({RB: 3501.0, M: 2980.0})
+                assert result["trading_day"] == "20261006", result
                 rows = cli.qry_investor_position(RB)
                 assert rows and all(r["TodayPosition"] == 0 for r in rows), rows
                 carry = other.qry_investor_position_detail(M)
@@ -141,7 +154,7 @@ def main() -> int:
             assert len(settlements) == 1, settlements
             event = settlements[0]
             assert event["trading_day"] == "20261003"
-            assert event["data"]["next_trading_day"] == "20261004"
+            assert event["data"]["next_trading_day"] == "20261006"
             assert event["data"]["settlement_prices"] == {RB: 3501.0, M: 2980.0}
             assert {a["investor"] for a in event["data"]["accounts"]} == {"settle001", "carry002"}
             assert event["data"]["cleared_confirmations"] == 2

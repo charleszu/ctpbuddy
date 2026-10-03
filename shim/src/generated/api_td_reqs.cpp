@@ -331,10 +331,7 @@ int TraderApi::ReqQryTraderOffer(CThostFtdcQryTraderOfferField *pQryTraderOffer,
 }
 
 int TraderApi::ReqQrySettlementInfo(CThostFtdcQrySettlementInfoField *pQrySettlementInfo, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySettlementInfo");
-    return 0;
+    return send_req<CThostFtdcQrySettlementInfoField>(msgs::REQ_QRY_SETTLEMENT_INFO, pQrySettlementInfo, nRequestID);
 }
 
 int TraderApi::ReqQryTransferBank(CThostFtdcQryTransferBankField *pQryTransferBank, int nRequestID) {

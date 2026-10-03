@@ -255,6 +255,7 @@ def run_scenario(td_port: int, admin_port: int, data_dir: str, scenario: str) ->
         assert close(pb["speed"], 0.0), pb
         assert cli_main(["replay", "status", "--admin", "127.0.0.1:%d" % admin_port]) == 0
         print("[ok] admin start_scenario: inline spec, %d ticks, paused at idx 0" % started["ticks"])
+        assert cli_main(["assertions", "check", "--admin", "127.0.0.1:%d" % admin_port]) == 1
 
         feed = Feed(clients)
 
@@ -328,6 +329,7 @@ def run_scenario(td_port: int, admin_port: int, data_dir: str, scenario: str) ->
         check_md(feed.md(D1)[-1:], t="09:34:00", last=3510, bid1=3508, bid1v=5, ask1=3512, ask1v=6)
         a = admin.status()["assertions"]
         assert a["evaluated"] == 4 and a["passed"] == 3 and a["failed"] == 1, a
+        assert cli_main(["assertions", "check", "--admin", "127.0.0.1:%d" % admin_port, "--total", "4"]) == 1
         assert close(a["items"][2]["actual"], 2.0), a  # dsl001 fills >= 2
         print("[ok] assertions @09:34:00: fills=2 evaluated, 3 pass / 1 fail overall")
 

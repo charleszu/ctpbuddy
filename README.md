@@ -36,6 +36,9 @@ M1（核心闭环 + Shim 全链路）已完成：
 - [x] 任务41最小初仓闭环：真实 core 启动导入逐笔 SHFE 昨仓、静态 `YdPosition`、平昨保持静态值、零余量 detail 过滤、无初仓流水；SHFE/INE 查询按逐笔 detail 年龄桶聚合，非 SHFE 单行
 - [x] 任务42第一阶段显式日结：ADMIN `settle_day` 接收用户供给的 `settlement_prices` 与严格递增 `next_trading_day`；要求 playback 暂停且无活动订单；账本先暂存校验再原子替换，最终按供给结算价盯市，动态权益滚存至 `PreBalance`，清零当日资金/盈亏/手续费/冻结，今仓转静态昨仓，清理当日订单成交与旧确认；不自动按固定时刻触发、不复用 `reset_account`、不伪造 SettlementInfo 查询
 - [x] 任务43 `OrderSysID`：内部订单号继续用于引擎/账本/journal关联；首条对外 OrderSysID 为空，按交易所布局在 accepted 边界后填充，交易所拒单全程为空；Trade/QryOrder/撤单使用最终非空系统号，覆盖 SHFE GFD、拒单、DCE/FAK 布局与最终关联
+- [x] M3-5（本地）：结算单原始 GBK 供给与 `ReqQrySettlementInfo` 分段查询；`tests/e2e/m3_5_settlement_info.py` 通过，尚未纳入当前 GitHub Actions e2e 矩阵
+- [x] M3-6（本地）：JSONL journal 的 SQLite 投影、原子 rebuild 与只读 CLI/Web 查询；`tests/e2e/m3_6_projection.py` 通过，尚未纳入当前 GitHub Actions e2e 矩阵
+- [ ] M4 交付：断言 CLI 有本地实现和单测，但当前 CI 仅检查入口；M4 e2e CI 覆盖、三渠道发布与文档站仍未完成
 
 ## 快速开始
 
@@ -65,6 +68,11 @@ python tests/e2e/m3_detail.py     # 持仓明细：逐笔盈亏 + 先开先平
 python tests/e2e/m3_settlement.py # 显式日结：结算价、今仓转昨仓、账户滚存与确认门禁
 python tests/e2e/m3_order_sysid.py # 任务43：OrderSysID 接受边界、拒单空号、Trade/QryOrder最终关联
 
+# M3-6：从 Rust 写入的 JSONL journal 构建 Python 标准库 SQLite 查询投影
+ctpbuddy journal rebuild ./data/journal --db ./data/ctpbuddy.db
+ctpbuddy journal query account --db ./data/ctpbuddy.db --broker 8888
+ctpbuddy journal query order_record --db ./data/ctpbuddy.db --investor test01
+
 # 4. 手动起一套玩玩（示例场景 rb_demo）
 ctpbuddy serve --scenario scenarios/rb_demo --data-dir ./data
 ctpbuddy status                  # 另开一个终端
@@ -80,6 +88,8 @@ python tools/audit_real_accounts.py    # 资金恒等式逐项核对真实账户
 `Balance` / `Available` / 结算单权益恒等式、盯市盈亏的逐笔求和、平今平昨盈亏口径。
 目录可用 `CTPBUDDY_EXPORT_DIR` / `CTPBUDDY_SETTLEMENT_DIR` 指定；未提供则跳过，
 不影响上面的回归。口径细节见 DESIGN §8.7.1。
+
+M3-6 存储投影：Rust 核心只写 `data/journal/*.jsonl`，Python 标准库 `sqlite3` 通过 `ctpbuddy journal rebuild` 原子生成 `data/ctpbuddy.db`；数据库可以直接删除后重建，重建依据 journal 顺序与 full hash，结果确定。`journal query` 和配置了 `--db` 的 Web `/api/projection?table=...` 只读查询账户、订单、成交、持仓变动/快照、资金观测和配置审计。SQLite 损坏时不要修复数据文件，删除后重新 rebuild。
 
 核心支持 `--qry-freq <n>`（env `CTPBUDDY_QRY_FREQ`）调前置每秒查询预算：超过即回 `OnRspError[90]`「CTP：查询未就绪，请稍后重试」，与真实 CTP 前置一致（DESIGN §8.8）。除行情与 RefData 外，可用本地 Web 后台配置已实现的柜台参数：`ctpbuddy web --host loopback --port 8080 --admin 127.0.0.1:5561`。可配置 `qry_freq`、`order_freq`（报单/撤单独立额度）、`max_user_sessions`（0 为关闭限制）、`settlement_required`（默认开启，未确认报单返回官方 42「CTP:结算结果未确认」）、`initial_funds`（仅首次开户）。Web 通过 ADMIN 单一真相读写，绑定回环地址、同源/CSRF、严格 schema 校验；设置写入 `data_dir/settings.json` 并原子替换，已有账户资金不改。启动覆盖优先级为 CLI > env > 持久化 > 默认，覆盖字段会明确显示；不可用 data_dir 时更新拒绝。
 
@@ -99,6 +109,43 @@ ctpbuddy serve --scenario scenarios/rb_demo --refdata ./myrefdata --data-dir ./d
 provider 是鸭子类型的：实现任意子集表方法即可，**没实现的方法视为「本 desk 无此规则」而非错误**（没配手续费就是零手续费，这是合法柜台配置）。随包快照**刻意不含手续费表**——编造的手续费比没有更糟。
 
 取用优先级：`--refdata` / `CTPBUDDY_REFDATA` > `<scenario>/refdata/` > 随包快照。口径详见 DESIGN §8.6.1。
+
+## 期货交易日历（Python，离线）
+
+`ctpbuddy.calendar.TradingCalendar` 只读取用户提供的 JSON 快照，运行时不访问网络、不安装第三方依赖。快照必须带固定 `version`、`source`、`scope: futures` 和 `days`；GitHub 项目只能作为人工/离线生成快照的数据源，不能把股票交易所日历直接当作期货日历。
+
+```python
+from ctpbuddy.calendar import TradingCalendar
+from ctpbuddy.sdk import Admin
+
+calendar = TradingCalendar.from_file("calendar.json", expected_sha256="...")
+with Admin(calendar=calendar) as admin:
+    admin.settle_day({"rb2601": 3501.0})  # 从 status 当前 TradingDay 推导下一期货交易日
+```
+
+最小快照格式如下（**虚构测试 fixture，不代表真实休市安排**）：
+
+```json
+{
+  "schema": "ctpbuddy.trading-calendar/v1",
+  "version": "fixture-r1",
+  "source": {"kind": "fixture", "name": "offline-demo", "revision": "r1", "license": "test-only", "scope": "futures"},
+  "days": [
+    {"date": "2026-10-02", "is_trading_day": true, "trading_day": "20261002", "exchanges": {"SHFE": {"night_action_day": "20261002", "night_trading_day": "20261005"}}},
+    {"date": "2026-10-03", "is_trading_day": false},
+    {"date": "2026-10-04", "is_trading_day": false},
+    {"date": "2026-10-05", "is_trading_day": true, "trading_day": "20261005"}
+  ]
+}
+```
+
+`ctpbuddy calendar validate calendar.json` 输出规范化内容 SHA256；再用 `--sha256 <固定值>` 校验。SHA256 不包含 JSON 缩进差异，但包含版本、来源和全部映射。来源元数据只是可追溯声明，结构校验不能证明市场数据权威性，真实快照需由用户核验。GitHub 来源需 `kind: github`、`name: owner/repo`、`revision: <40位commit SHA>`、明确 `license` 和 `scope: futures`。用户/fixture 来源也必须给出固定 revision。
+
+自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中同时显式提供 `night_action_day` 和 `night_trading_day`，缺失时拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
+
+用户覆盖通过 `calendar.with_overrides(user_snapshot)` 或 `load_calendar(path, override=...)` 完成，按自然日整条替换并重新计算快照 SHA256。推荐在 CI 中固定并校验 SHA256；不要把未核验的外部数据写入仓库。
+
+已核查的外部数据源示例：`gerrymanoim/exchange_calendars`，Apache-2.0，固定 commit `bbda29fed902374bdb75acab008f421fbd567823`。其 README 明确定位为证券交易所日历、日历由用户贡献维护，并将常规交易时段外（含盘前/盘后/竞价/午休）视为关闭；仓库包含上海证券交易所 XSHG，但不提供 CTP 期货夜盘 ActionDay/TradingDay 语义。因此本项目不在运行时依赖它，也不将其数据直接作为期货快照。
 
 ## 结构
 

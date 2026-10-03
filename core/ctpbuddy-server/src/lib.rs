@@ -12,6 +12,7 @@ pub mod journal;
 pub mod json;
 pub mod scenario;
 pub mod settings;
+mod settlement;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
@@ -345,6 +346,7 @@ pub struct World {
     /// clock, exactly like `qry_gate` — real CTP throttles on real time.
     order_freq_windows: HashMap<(String, String, GateStream), (Instant, u32)>,
     settlement_confirmed: HashMap<(String, String), String>,
+    settlement_reports: Vec<settlement::Report>,
     shutdown: bool,
 }
 
@@ -452,6 +454,10 @@ impl World {
             assertions,
             order_freq_windows: HashMap::new(),
             settlement_confirmed: HashMap::new(),
+            settlement_reports: settlement::load_reports(&cfg.data_dir, &cfg.broker_id).unwrap_or_else(|e| {
+                eprintln!("[ctpbuddy] settlement reports disabled: {e}");
+                Vec::new()
+            }),
             shutdown: false,
             cfg,
         };

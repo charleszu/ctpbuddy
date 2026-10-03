@@ -5,15 +5,22 @@ import json
 import socket
 from typing import Any, Dict, Optional
 
+from ..calendar import CalendarProvider
 from ..wire import ADMIN_REQ, ADMIN_RSP, Frame
 
 
 class Admin:
-    def __init__(self, addr: str = "127.0.0.1:5561", timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        addr: str = "127.0.0.1:5561",
+        timeout: float = 10.0,
+        calendar: Optional[CalendarProvider] = None,
+    ) -> None:
         host, _, port = addr.rpartition(":")
         self.sock = socket.create_connection((host, int(port)), timeout=timeout)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._seq = 0
+        self.calendar = calendar
 
     def close(self) -> None:
         self.sock.close()
@@ -92,8 +99,36 @@ class Admin:
     def reset_account(self, investor: str = "") -> Dict[str, Any]:
         return self.cmd("reset_account", investor=investor)
 
-    def settle_day(self, settlement_prices: Dict[str, float], next_trading_day: str) -> Dict[str, Any]:
-        """显式结算当前交易日；调用前须暂停 playback 且无活动订单。"""
+    def settlement_report(self, reports: Any) -> Dict[str, Any]:
+        normalized = []
+        for report in reports:
+            row = dict(report)
+            content = row.pop("content", None)
+            if content is not None:
+                if isinstance(content, str):
+                    content = content.encode("gbk")
+                row["content_bytes"] = list(content)
+            normalized.append(row)
+        return self.cmd("settlement_report", reports=normalized)
+
+    def settle_day(
+        self,
+        settlement_prices: Dict[str, float],
+        next_trading_day: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """显式结算当前交易日；可由离线日历推导下一期货交易日。
+
+        ``next_trading_day`` 显式传入时保持旧行为；省略时必须配置
+        ``calendar``，自然日与期货交易日不会混用。
+        """
+        if next_trading_day is None:
+            if self.calendar is None:
+                raise ValueError("未提供 next_trading_day，且 Admin 未配置 TradingCalendar")
+            playback = self.status().get("playback")
+            current = playback.get("trading_day") if isinstance(playback, dict) else None
+            if not isinstance(current, str) or len(current) != 8:
+                raise ValueError("无法从 admin status 获取当前期货交易日")
+            next_trading_day = self.calendar.next_trading_day(current)
         return self.cmd(
             "settle_day",
             settlement_prices=settlement_prices,

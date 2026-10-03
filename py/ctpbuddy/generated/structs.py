@@ -1613,7 +1613,7 @@ def unpack(name, buf):
     values = _packer(name).unpack_from(buf)
     out = {}
     for (fname, kind, _size), v in zip(rows, values):
-        if kind == 's':
+        if kind == 's' and not (name == 'CThostFtdcSettlementInfoField' and fname == 'Content'):
             v = v.split(b'\x00')[0].decode('utf-8', 'replace')
         out[fname] = v
     return out

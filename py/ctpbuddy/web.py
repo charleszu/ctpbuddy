@@ -5,7 +5,9 @@ import ipaddress
 import json
 import secrets
 import socket
+import sqlite3
 import threading
+from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -23,7 +25,7 @@ def _strict_object(pairs):
     return result
 
 
-def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561"):
+def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None):
     if host == "loopback":
         host = "127.0.0.1"
     if host == "localhost":
@@ -83,9 +85,32 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561"):
                 return self.reply(200, (Path(__file__).parent / "assets" / name).read_bytes(), kind + "; charset=utf-8")
             if self.path == "/api/session":
                 return self.reply(200, {"token": token})
+            if urlsplit(self.path).path == "/api/projection":
+                return self.projection()
             if self.path != "/api/settings":
                 return self.reply(404, {"error": "路径不存在"})
             self.invoke()
+
+        def projection(self):
+            if not database:
+                return self.reply(404, {"error": "未配置 SQLite 投影"})
+            query = parse_qs(urlsplit(self.path).query)
+            table = query.get("table", ["account"])[0]
+            def one(name):
+                return query.get(name, [None])[0]
+            try:
+                from .journal import JournalError
+                from .store import Projection
+                with Projection(database) as projection:
+                    rows = projection.query(table, broker=one("broker"), investor=one("investor"),
+                                            trading_day=one("trading_day"), limit=int(one("limit") or 100),
+                                            offset=int(one("offset") or 0))
+            except ValueError:
+                return self.reply(400, {"error": "投影查询参数无效"})
+            except (OSError, sqlite3.Error, RuntimeError, JournalError):
+                # 不把 SQLite 的绝对路径或底层文件错误回显给浏览器。
+                return self.reply(503, {"error": "SQLite 投影不可用"})
+            return self.reply(200, {"table": table, "rows": rows})
 
         def do_POST(self):
             if not self.valid_source(write=True):
@@ -139,8 +164,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561"):
     return Server((host, port), Handler)
 
 
-def serve(host="127.0.0.1", port=8080, admin="127.0.0.1:5561"):
-    server = make_server(host, port, admin)
+def serve(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None):
+    server = make_server(host, port, admin, database)
     print("[ctpbuddy] 本地参数后台 http://%s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
     try:
         server.serve_forever()

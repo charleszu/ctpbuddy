@@ -57,6 +57,8 @@ pub const RTN_DEPTH_MD: u16 = 0x1022;
 pub const UNSUB_MD: u16 = 0x1023;
 pub const RSP_UNSUB_MD: u16 = 0x1024;
 pub const RSP_ERROR: u16 = 0x1030;
+pub const REQ_QRY_SETTLEMENT_INFO: u16 = 0x1031;
+pub const RSP_QRY_SETTLEMENT_INFO: u16 = 0x1032;
 
 pub const REQ_QRY_INSTRUMENT: u16 = 0x1040;
 pub const RSP_QRY_INSTRUMENT: u16 = 0x1041;

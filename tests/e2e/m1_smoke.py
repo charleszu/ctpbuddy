@@ -24,6 +24,8 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "py"))
 
+from ctpbuddy.cli import main as cli_main  # noqa: E402
+from ctpbuddy.scenario import normalize_spec  # noqa: E402
 from ctpbuddy.sdk import Admin, CTPError, Client  # noqa: E402
 from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
 from ctpbuddy.wire import RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE  # noqa: E402
@@ -184,9 +186,15 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
     print("[ok] admin ping/status (broker %s, %d instruments, no scenario)" % (st["broker_id"], st["instruments"]))
 
     # load paused so the subscription is in place before the first tick
-    started = admin.start_scenario(scenario, paused=True)
+    spec = normalize_spec({
+        "accounts": [{"investor": INVESTOR, "balance": INITIAL_FUNDS}],
+        "assertions": [{"after": "1s", "investor": INVESTOR,
+                        "expect": {"balance": "==2000000"}}],
+    })
+    started = admin.start_scenario(scenario, paused=True, spec=spec)
     assert started["ticks"] == 3 and started["paused"] is True, started
     assert started["trading_day"] == "20261002", started
+    assert cli_main(["assertions", "check", "--admin", "127.0.0.1:%d" % admin_port, "--total", "1"]) == 1
     print("[ok] admin start_scenario: %d ticks, day %s (paused)" % (started["ticks"], started["trading_day"]))
 
     # -- session -------------------------------------------------------------
@@ -242,6 +250,7 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
             time.sleep(0.05)
         else:
             raise AssertionError("scenario playback did not finish")
+        assert cli_main(["assertions", "check", "--admin", "127.0.0.1:%d" % admin_port, "--total", "1"]) == 0
         md = None
         for kind, field in cli.events(timeout=5.0):
             if kind == RTN_DEPTH_MD:
