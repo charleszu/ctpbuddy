@@ -88,9 +88,11 @@ impl Account {
         }
     }
 
-    /// Dynamic equity: realized balance + unrealized position profit.
+    /// Dynamic equity: static equity plus today's mark-to-market effects.
+    /// `balance` already contains realized close PnL and commission; deposits
+    /// and withdrawals remain separate account-day fields.
     pub fn dynamic_equity(&self) -> f64 {
-        self.balance + self.position_profit
+        self.balance + self.deposit - self.withdraw + self.position_profit
     }
 
     /// `CThostFtdcTradingAccountField::Available` semantics.
@@ -1215,10 +1217,118 @@ impl Ledger {
         self.refresh_margin(catalog);
     }
 
-    /// Recompute unrealized PnL for every position from `prices`.
-    ///
-    /// Market data updates settlement/PnL only. Position margin is booked at
-    /// fill time and remains unchanged until a fill releases its detail share.
+    /// 使用调用方供给的结算价原子结算全部账户。
+    /// 调用方负责暂停播放及检查活动订单；所有价格和日期校验通过后才暂存滚存。
+    pub fn settle_trading_day(
+        &mut self,
+        catalog: &Catalog,
+        prices: &HashMap<String, f64>,
+        trading_day: &str,
+        next_trading_day: &str,
+    ) -> Result<(), String> {
+        fn valid_day(s: &str) -> bool {
+            if s.len() != 8 || !s.bytes().all(|b| b.is_ascii_digit()) { return false; }
+            let y: u32 = s[..4].parse().unwrap();
+            let m: u32 = s[4..6].parse().unwrap();
+            let d: u32 = s[6..].parse().unwrap();
+            let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+            let max = match m { 2 if leap => 29, 2 => 28, 4 | 6 | 9 | 11 => 30, 1..=12 => 31, _ => 0 };
+            y >= 1900 && d > 0 && d <= max
+        }
+        if !valid_day(trading_day) || !valid_day(next_trading_day) || next_trading_day <= trading_day {
+            return Err("next_trading_day 必须为严格递增的合法 YYYYMMDD".into());
+        }
+        for (instrument, price) in prices {
+            if catalog.get(instrument).is_none() || !price.is_finite() || *price <= 0.0 {
+                return Err(format!("未知合约或非法结算价: {instrument}"));
+            }
+        }
+        if self.frozen.values().any(|e| e.margin - e.released_margin > 1e-9 || e.commission - e.released_commission > 1e-9)
+            || self.positions.values().any(|p| p.frozen_today > 0 || p.frozen_yd > 0) {
+            return Err("存在未释放的订单冻结".into());
+        }
+        for ((_, instrument, _), position) in &self.positions {
+            if position.volume() <= 0 {
+                continue;
+            }
+            let price = prices
+                .get(instrument)
+                .copied()
+                .ok_or_else(|| format!("缺少持仓合约 {instrument} 的结算价"))?;
+            if !price.is_finite() || price <= 0.0 {
+                return Err(format!("合约 {instrument} 的结算价必须为正有限数"));
+            }
+        }
+        let mut staged = self.clone();
+        staged.mark_to_market(catalog, prices, &HashMap::new(), trading_day);
+        let final_equity: HashMap<AccountKey, f64> = staged
+            .accounts
+            .values()
+            .map(|a| (AccountKey::new(&a.broker_id, &a.investor_id), a.dynamic_equity()))
+            .collect();
+        if final_equity.values().any(|v| !v.is_finite()) {
+            return Err("结算权益计算结果非有限数".into());
+        }
+        for position in staged.positions.values_mut() {
+            let volume = position.volume();
+            let price = prices.get(&position.instrument_id).copied()
+                .unwrap_or(position.settlement_price);
+            position.yd_position = volume;
+            position.yd_initial = volume;
+            position.today_position = 0;
+            position.frozen_today = 0;
+            position.frozen_yd = 0;
+            position.pre_settlement_price = price;
+            position.settlement_price = price;
+            position.position_cost = price
+                * volume as f64
+                * catalog.get(&position.instrument_id).map(|i| i.volume_multiple).unwrap_or(1) as f64;
+            position.position_profit = 0.0;
+            position.close_profit = 0.0;
+            position.commission = 0.0;
+            position.details.retain(|d| d.volume > 0);
+            position.open_volume = position.details.iter().map(|d| d.volume).sum();
+            position.open_amount = position.details.iter()
+                .map(|d| d.open_price * d.volume as f64
+                    * catalog.get(&position.instrument_id).map(|i| i.volume_multiple).unwrap_or(1) as f64)
+                .sum();
+            position.open_cost = position.open_amount;
+            for detail in &mut position.details {
+                if detail.volume > 0 {
+                    detail.last_settlement_price = price;
+                }
+                detail.close_profit = 0.0;
+                detail.close_profit_trade = 0.0;
+                detail.commission = 0.0;
+                detail.close_volume = 0;
+                detail.close_amount = 0.0;
+            }
+        }
+        for account in staged.accounts.values_mut() {
+            let final_equity = *final_equity
+                .get(&AccountKey::new(&account.broker_id, &account.investor_id))
+                .expect("account equity precomputed");
+            account.pre_balance = final_equity;
+            account.balance = final_equity;
+            account.deposit = 0.0;
+            account.withdraw = 0.0;
+            account.close_profit = 0.0;
+            account.position_profit = 0.0;
+            account.commission = 0.0;
+            account.frozen_margin = 0.0;
+            account.frozen_commission = 0.0;
+        }
+        staged.frozen.clear();
+        staged.frozen_pos.clear();
+        staged.group_activity.clear();
+        staged.refresh_margin(catalog);
+        if staged.accounts.values().any(|a| a.frozen_margin.abs() > 1e-9 || a.frozen_commission.abs() > 1e-9) {
+            return Err("日结后仍存在冻结资金".into());
+        }
+        *self = staged;
+        Ok(())
+    }
+
     pub fn mark_to_market(
         &mut self,
         catalog: &Catalog,
@@ -1289,6 +1399,69 @@ mod tests {
             instrument_id: id.into(), exchange_id: "TEST".into(), direction, offset, hedge_flag: b'1',
             price: 10.0, volume, volume_total_original: volume, order_sys_id: to_fixed("1"),
             order_ref: to_fixed("1"), trade_id: to_fixed("1"), order_key: "1".into() }
+    }
+
+    #[test]
+    fn explicit_settlement_carries_today_to_yesterday_and_rolls_account() {
+        let catalog = fixture(true);
+        let mut ledger = Ledger::new(10_000.0);
+        ledger.ensure_account("TEST", "alice");
+        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
+        ledger.mark_to_market(&catalog, &HashMap::from([("TESTA01".into(), 12.0)]), &HashMap::new(), "20261003");
+        ledger.account_mut("TEST", "alice").unwrap().deposit = 3.0;
+        assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), 12.0)]), "20261003", "20261004").is_ok());
+        let p = ledger.position("TEST", "alice", "TESTA01", PositionSide::Long).unwrap();
+        assert_eq!(p.today_position, 0);
+        assert_eq!(p.yd_position, 1);
+        assert_eq!(p.yd_initial, 1);
+        assert_eq!(p.details[0].open_date, "20261003");
+        let a = ledger.account("TEST", "alice").unwrap();
+        assert_eq!(a.pre_balance, a.balance);
+        assert_eq!(a.deposit, 0.0);
+        assert_eq!(a.withdraw, 0.0);
+        assert_eq!(a.close_profit, 0.0);
+        assert_eq!(a.position_profit, 0.0);
+        assert_eq!(a.commission, 0.0);
+        assert_eq!(a.frozen_margin, 0.0);
+        assert_eq!(a.frozen_commission, 0.0);
+    }
+
+    #[test]
+    fn settlement_is_atomic_across_accounts_and_uses_supplied_final_price() {
+        let catalog = fixture(true);
+        let mut ledger = Ledger::new(10_000.0);
+        for name in ["alice", "bob"] { ledger.ensure_account("TEST", name); }
+        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 2), &catalog, 10.0, "20261003");
+        let mut other = fill("TESTB01", Direction::Sell, OffsetFlag::Open, 1);
+        other.investor_id = to_fixed("bob");
+        ledger.on_fill(&other, &catalog, 10.0, "20261003");
+        let before = ledger.account("TEST", "alice").unwrap().balance;
+        assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), 12.0)]), "20261003", "20261004").is_err());
+        assert_eq!(ledger.account("TEST", "alice").unwrap().balance, before);
+        assert_eq!(ledger.position("TEST", "alice", "TESTA01", PositionSide::Long).unwrap().today_position, 2);
+        let prices = HashMap::from([("TESTA01".into(), 12.0), ("TESTB01".into(), 11.0)]);
+        ledger.settle_trading_day(&catalog, &prices, "20261003", "20261004").unwrap();
+        let mult = catalog.get("TESTA01").unwrap().volume_multiple as f64;
+        assert_eq!(ledger.account("TEST", "alice").unwrap().pre_balance, before + 4.0 * mult);
+        for day in ["20261004", "20260230", "2026-10-05", "20261003"] {
+            assert!(ledger.settle_trading_day(&catalog, &prices, "20261004", day).is_err());
+        }
+        for price in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), price)]), "20261004", "20261005").is_err());
+        }
+    }
+
+    #[test]
+    fn invalid_settlement_is_atomic_and_requires_all_prices() {
+        let catalog = fixture(true);
+        let mut ledger = Ledger::new(10_000.0);
+        ledger.ensure_account("TEST", "alice");
+        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
+        let before = ledger.account("TEST", "alice").unwrap().clone();
+        assert!(ledger.settle_trading_day(&catalog, &HashMap::new(), "20261003", "20261004").is_err());
+        assert_eq!(ledger.account("TEST", "alice").unwrap().pre_balance, before.pre_balance);
+        assert_eq!(ledger.position("TEST", "alice", "TESTA01", PositionSide::Long).unwrap().today_position, 1);
+        assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), 10.0)]), "20261004", "20261004").is_err());
     }
 
     #[test]

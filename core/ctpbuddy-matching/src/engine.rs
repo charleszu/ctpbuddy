@@ -222,6 +222,7 @@ enum Counterpart {
     Market { level: Option<usize>, price: f64, avail: i32 },
 }
 
+#[derive(Clone)]
 pub struct MatchingEngine {
     catalog: Catalog,
     books: BTreeMap<String, Book>,
@@ -301,6 +302,12 @@ impl MatchingEngine {
             .iter()
             .map(|(k, t)| (k.clone(), t.pre_settlement_price))
             .collect()
+    }
+
+    /// 日结后不让上一日行情再次盯市；保留全局编号计数器。
+    pub fn advance_trading_day(&mut self) {
+        self.last_md.clear();
+        self.terminal_refs.clear();
     }
 
     pub fn open_order_count(&self) -> usize {

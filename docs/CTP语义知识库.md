@@ -455,7 +455,7 @@ FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、同用�
 | 4 | `TradeID` 除郑商所外**同号双向**，去重须带 `Direction` | notes/13 §E | **待核**：当前引擎撮合双方共享同一 TradeID；未找到足够可靠的官方 SDK 原文确认郑商所例外，暂不改 | 中 |
 | 5 | 持仓记录键含 **`PositionDate`**；上期/能源今昨**拆两条记录** | 7 字段键（notes/14 §B2） | **✅ 已修（查询投影层）**：SHFE/INE 的今昨年龄桶拆两行；其他所保留单行；核心键暂不拆，避免扩大账本/套保维度 | ~~中~~ 已清（核心键仍是后续边界） |
 | 6 | 查询无数据回**空指针 + `bIsLast=true`**，不回全零记录 | notes/14 §B4-5 | **✅ 已核**：Core 空流统一发送 `QRY_LAST`；shim dispatch 回调 `nullptr, bIsLast=true`；Python `_query_stream` 返回 `[]`，真实 shim demo 已补断言 | ~~中~~ 已清 |
-| 7 | `YdPosition` 是静态昨仓初值，不随平昨减少 | notes/14 §B2 | **✅ 任务41已落地**：逐笔初仓供给初始化静态值；当前昨仓仍由 `Position−TodayPosition` 表示；无初仓时不伪造静态值 | 日结仍未实现 |
+| 7 | `YdPosition` 是静态昨仓初值，不随平昨减少 | notes/14 §B2 | **✅ 任务41已落地**：逐笔初仓供给初始化静态值；当前昨仓仍由 `Position−TodayPosition` 表示；无初仓时不伪造静态值；**✅ 任务42**：显式日结后 `YdPosition=当前 volume`、`TodayPosition=0`，保留明细 key | 日结已实现；SettlementInfo 查询回报仍不伪造 |
 | 8 | `TradeType` `'0'`/`'4'`（组合单生成成交） | notes/14 §B6 | 未建模（v1 不做组合；大商所盘后自动组合会产生 `'4'`） | 低 |
 | 9 | `OrderSysID` 第 1 次回报为空、第 2 次才有 | notes/13 §E | 需核（下游方案 01 依赖此形状） | 低 |
 

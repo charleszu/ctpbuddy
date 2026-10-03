@@ -33,7 +33,9 @@ M1（核心闭环 + Shim 全链路）已完成：
 - [x] e2e 冒烟测试（SDK 登录 → 订阅 → 报单穿透 → 断言成交与资金扣减）
 - [x] C++ Shim：139+14 个纯虚方法全 override、519 项编译期布局校验、真实下游 demo（stock 厂商头文件 + 链接 Shim import lib）全链路通过 `tests/e2e/m1_shim_e2e.py`——含 CTP 两类查询流控真实触发（在途 -2 + 每秒 QryFreq 90 重试）
 - [ ] ZeroMQ 传输适配（当前为 TCP 占位，帧协议一致）
-- [x] 任务41最小初仓闭环：真实 core 启动导入逐笔 SHFE 昨仓、静态 `YdPosition`、平昨保持静态值、零余量 detail 过滤、无初仓流水；SHFE/INE 查询按逐笔 detail 年龄桶聚合，非 SHFE 单行；日结（42）与 OrderSysID（43）未实现
+- [x] 任务41最小初仓闭环：真实 core 启动导入逐笔 SHFE 昨仓、静态 `YdPosition`、平昨保持静态值、零余量 detail 过滤、无初仓流水；SHFE/INE 查询按逐笔 detail 年龄桶聚合，非 SHFE 单行
+- [x] 任务42第一阶段显式日结：ADMIN `settle_day` 接收用户供给的 `settlement_prices` 与严格递增 `next_trading_day`；要求 playback 暂停且无活动订单；账本先暂存校验再原子替换，最终按供给结算价盯市，动态权益滚存至 `PreBalance`，清零当日资金/盈亏/手续费/冻结，今仓转静态昨仓，清理当日订单成交与旧确认；不自动按固定时刻触发、不复用 `reset_account`、不伪造 SettlementInfo 查询
+- [ ] 任务43 `OrderSysID`
 
 ## 快速开始
 
@@ -60,6 +62,7 @@ python tests/e2e/m2_surface.py   # 错单双推送面 + 流控面（--order-freq
 python tests/e2e/m2_ioc.py       # FAK 部成部撤的三所分流回报（官方场景 8/9/10）
 python tests/e2e/m3_refdata.py    # 四张费率查询 + 与账本 CurrMargin/Commission 交叉核对
 python tests/e2e/m3_detail.py     # 持仓明细：逐笔盈亏 + 先开先平
+python tests/e2e/m3_settlement.py # 显式日结：结算价、今仓转昨仓、账户滚存与确认门禁
 
 # 4. 手动起一套玩玩（示例场景 rb_demo）
 ctpbuddy serve --scenario scenarios/rb_demo --data-dir ./data

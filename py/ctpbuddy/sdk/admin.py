@@ -92,5 +92,13 @@ class Admin:
     def reset_account(self, investor: str = "") -> Dict[str, Any]:
         return self.cmd("reset_account", investor=investor)
 
+    def settle_day(self, settlement_prices: Dict[str, float], next_trading_day: str) -> Dict[str, Any]:
+        """显式结算当前交易日；调用前须暂停 playback 且无活动订单。"""
+        return self.cmd(
+            "settle_day",
+            settlement_prices=settlement_prices,
+            next_trading_day=next_trading_day,
+        )
+
     def shutdown(self) -> Dict[str, Any]:
         return self.cmd("shutdown")

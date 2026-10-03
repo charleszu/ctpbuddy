@@ -265,6 +265,7 @@ pub fn format_hhmmss(ms: f64) -> String {
 
 /// Virtual-clock playback state. Owned exclusively by the world loop (DESIGN.md §7.5):
 /// pause / step / speed are mutated only from admin events, never from IO threads.
+#[derive(Clone)]
 pub struct Playback {
     ticks: Vec<Tick>,
     idx: usize,
@@ -307,6 +308,16 @@ impl Playback {
 
     pub fn resume(&mut self) {
         self.paused = false;
+    }
+
+    /// 日结后丢弃旧日未播放行情，保持暂停，避免旧行情污染新日账本。
+    pub fn advance_trading_day(&mut self, next_day: &str) {
+        self.ticks.retain(|t| t.trading_day.as_str() >= next_day);
+        self.idx = 0;
+        self.paused = true;
+        self.step_once = false;
+        self.looping = false;
+        self.started = None;
     }
 
     pub fn paused(&self) -> bool {

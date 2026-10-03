@@ -51,6 +51,7 @@ impl World {
             "seek" => self.admin_seek(conn_id, frame.req_id, &v),
             "loop" => self.admin_loop(conn_id, frame.req_id, &v),
             "reset_account" => self.admin_reset_account(conn_id, frame.req_id, &v),
+            "settle_day" => self.admin_settle_day(conn_id, frame.req_id, &v),
             "shutdown" => {
                 self.admin_reply(
                     conn_id,
@@ -308,6 +309,100 @@ impl World {
                 ("speed".into(), json::n(speed)),
             ]),
         );
+    }
+
+    fn admin_settle_day(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+        let Some(next_day) = v.get_str("next_trading_day") else {
+            return self.admin_error(conn_id, req_id, "settle_day 需要 next_trading_day");
+        };
+        let Some(prices) = v.get("settlement_prices").and_then(Value::as_obj) else {
+            return self.admin_error(conn_id, req_id, "settle_day 需要 settlement_prices 对象");
+        };
+        if self.playback.as_ref().map(|p| !p.paused()).unwrap_or(false) {
+            return self.admin_error(conn_id, req_id, "日结前必须暂停 playback");
+        }
+        if self.engine.open_order_count() != 0 {
+            return self.admin_error(conn_id, req_id, "日结前不能存在活动订单");
+        }
+        let Some(fields) = v.as_obj() else {
+            return self.admin_error(conn_id, req_id, "settle_day 请求必须为对象");
+        };
+        let mut seen = std::collections::HashSet::new();
+        for (key, _) in fields {
+            if !matches!(key.as_str(), "cmd" | "settlement_prices" | "next_trading_day") || !seen.insert(key) {
+                return self.admin_error(conn_id, req_id, "settle_day 含未知或重复字段");
+            }
+        }
+        let mut map = std::collections::HashMap::new();
+        for (instrument, value) in prices {
+            let Some(price) = value.as_num() else {
+                return self.admin_error(conn_id, req_id, &format!("结算价 {instrument} 必须为数字"));
+            };
+            if map.insert(instrument.clone(), price).is_some() {
+                return self.admin_error(conn_id, req_id, "结算价合约重复");
+            }
+        }
+        let current_day = self.vt_trading_day.clone();
+        let mut staged_ledger = self.ledger.clone();
+        if let Err(e) = staged_ledger.settle_trading_day(
+            self.engine.catalog(), &map, &current_day, &next_day,
+        ) {
+            return self.admin_error(conn_id, req_id, &e);
+        }
+        let mut staged_engine = self.engine.clone();
+        staged_engine.advance_trading_day();
+        let mut staged_playback = self.playback.clone();
+        if let Some(pb) = staged_playback.as_mut() {
+            pb.advance_trading_day(&next_day);
+        }
+        let mut accounts: Vec<_> = staged_ledger.accounts().collect();
+        accounts.sort_by(|a, b| a.broker_id.cmp(&b.broker_id).then(a.investor_id.cmp(&b.investor_id)));
+        let account_results = Value::Arr(accounts.iter().map(|a| {
+            json::obj_sorted(vec![
+                ("broker".into(), json::s(&a.broker_id)),
+                ("investor".into(), json::s(&a.investor_id)),
+                ("pre_balance".into(), json::n(a.pre_balance)),
+                ("used_margin".into(), json::n(a.used_margin)),
+                ("positions".into(), Value::Arr(staged_ledger.positions_of_ordered(&a.broker_id, &a.investor_id).iter().map(|(p, d)| {
+                    json::obj_sorted(vec![
+                        ("instrument".into(), json::s(&p.instrument_id)),
+                        ("side".into(), json::s(if p.side == ctpbuddy_ledger::PositionSide::Long { "long" } else { "short" })),
+                        ("open_date".into(), json::s(&d.open_date)),
+                        ("trade_id".into(), json::s(&d.trade_id)),
+                        ("open_price".into(), json::n(d.open_price)),
+                        ("volume".into(), json::n(d.volume as f64)),
+                        ("last_settlement_price".into(), json::n(d.last_settlement_price)),
+                    ])
+                }).collect())),
+            ])
+        }).collect());
+        let event = json::obj_sorted(vec![
+            ("from_trading_day".into(), json::s(&current_day)),
+            ("next_trading_day".into(), json::s(&next_day)),
+            ("settlement_prices".into(), json::obj_sorted(prices.to_vec())),
+            ("accounts".into(), account_results),
+            ("cleared_orders".into(), json::n(self.orders_today.len() as f64)),
+            ("cleared_trades".into(), json::n(self.trades_today.len() as f64)),
+            ("cleared_confirmations".into(), json::n(self.settlement_confirmed.len() as f64)),
+        ]);
+        self.ledger = staged_ledger;
+        self.engine = staged_engine;
+        self.playback = staged_playback;
+        self.journal_record_json(
+            "settlement",
+            &self.cfg.broker_id.clone(),
+            "",
+            event,
+        );
+        self.orders_today.clear();
+        self.trades_today.clear();
+        self.settlement_confirmed.clear();
+        self.vt_trading_day = next_day.clone();
+        self.admin_reply(conn_id, req_id, json::obj_sorted(vec![
+            ("ok".into(), json::b(true)),
+            ("cmd".into(), json::s("settle_day")),
+            ("trading_day".into(), json::s(&next_day)),
+        ]));
     }
 
     fn admin_reset_account(&mut self, conn_id: u64, req_id: u32, v: &Value) {

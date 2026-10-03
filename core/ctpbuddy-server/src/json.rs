@@ -55,6 +55,13 @@ impl Value {
         }
     }
 
+    pub fn as_obj(&self) -> Option<&[(String, Value)]> {
+        match self {
+            Value::Obj(pairs) => Some(pairs),
+            _ => None,
+        }
+    }
+
     pub fn as_num(&self) -> Option<f64> {
         match self {
             Value::Num(n) => Some(*n),

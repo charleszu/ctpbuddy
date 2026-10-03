@@ -431,7 +431,7 @@ assertions:             # 可选：场景内断言（CI 用）
   Balance  = 静态权益 + PositionProfit + CloseProfit + CashIn − Commission   ← 即「动态权益」
   Available = Balance − CurrMargin − FrozenMargin − FrozenCommission − FrozenCash − DeliveryMargin
   ```
-  **CTP 的 `Balance` 字段 = 动态权益（含当日浮动/平仓盈亏），不是静态权益**——这是 ledger 实现最容易错的口径；PositionProfit/CloseProfit/Commission/CurrMargin/FrozenMargin/FrozenCommission/CashIn 均为按持仓汇总的**当日值，结算后清零**；
+  **CTP 的 `Balance` 字段 = 动态权益（含当日浮动/平仓盈亏），不是静态权益**——这是 ledger 实现最容易错的口径；PositionProfit/CloseProfit/Commission 与冻结资金为当日值，结算后清零；`CurrMargin` 是存续持仓占用，不能随当日统计一起清零；
 - 持仓维护 `InvestorPosition` + `InvestorPositionDetail`：昨仓 / 今仓分开，平仓严格区分**平昨 / 平今**（上期所平今手续费更高、大商所平今单独、中金/郑商所无区分但费率表不同）——全部走**规则表按交易所配置**，字段含 CloseToday/CloseYesterday 分开统计；当前昨仓 = `Position − TodayPosition`，查询 `YdPosition` 则为交易日起始的静态昨仓初值（用户初仓供给），平昨不减少；持仓明细单条 = (OpenDate, TradeID, Direction, OpenPrice, Volume, Margin, ...)，按 (OpenDate, TradeID) 排序实现**先开先平**；
 - **先开先平与今/昨是两个正交的轴，不可混为一谈**（M3 修正）：消耗明细的顺序**只按开仓时间**（先开先平）；`平今`/`平昨` 决定的是**可以动哪个年龄桶**，不是允许跳到最新那笔。若把「平今」实现成「今仓优先取最新」，会按错的口径结盈亏并破坏先开先平的保证——客户端靠后者复现柜台持仓。实现见 `Position::take_details_filtered`；
 - **平仓盈亏按明细算**：昨仓明细持仓价 = **昨结算价**、今仓明细持仓价 = **开仓价**——顺序错了盈亏就算错（算例见 notes/04 E2）；持仓盈亏（浮动）多头 `(最新价−持仓均价)×乘数×手数`，空头反向；
@@ -439,6 +439,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - 手续费：`成交量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`，开仓/平仓/平今各一套费率；**申报费**（OrderCommRate，中金所特有）：报单+撤单都计，FAK/FOK 的自动撤单也计（一次 FAK/FOK = 2 次信息量），盘中实时资金不含申报费、只体现在结算单；
 - 浮动盈亏、风险度（CurMargin/Balance）随行情实时更新（mark-on-read，见 §8.8）；
 - 出入金 / 账户重置经 Web 后台与 ADMIN 帧操作，全部入审计日志。
+- **显式日结（第一阶段）**：仅由 ADMIN `settle_day` 触发，不按固定时刻自动触发，也不复用 `reset_account`。请求必须提供用户/场景供给的 `settlement_prices`（instrument→price）与严格递增的 `next_trading_day`；调用前 playback 必须暂停且撮合簿无活动订单，否则拒绝且无副作用。账本先克隆并完成全部账户/持仓校验与最终结算价 mark-to-market，再一次性替换；任一账户失败则全批不变。结算后账户 `PreBalance` 滚存为最终动态权益（官方 `Balance` 口径），当日 `Deposit/Withdraw/CloseProfit/PositionProfit/Commission/Frozen*` 清零；持仓剩余今仓转昨仓，`YdPosition`/`TodayPosition`/结算价推进，明细保留原 `OpenDate` 与 key；清理 orders_today/trades_today，旧 settlement confirmation 失效。只记录完整 `settlement` journal 事件，不伪造 SettlementInfo 查询回报。
 
 #### 8.6.1 参考数据来源与「一份数据、两处消费」（M3 落地，2026-10-03）
 
