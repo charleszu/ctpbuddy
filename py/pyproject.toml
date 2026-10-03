@@ -19,4 +19,4 @@ ctpbuddy = "ctpbuddy.cli:main"
 include = ["ctpbuddy*"]
 
 [tool.setuptools.package-data]
-ctpbuddy = ["generated/*.py"]
+ctpbuddy = ["generated/*.py", "assets/*.html", "assets/*.js", "assets/*.css"]

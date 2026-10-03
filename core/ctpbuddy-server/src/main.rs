@@ -46,8 +46,9 @@ fn apply_env(cfg: &mut Config) {
     env_or("CTPBUDDY_DATA_DIR", &mut cfg.data_dir);
     if let Ok(v) = std::env::var("CTPBUDDY_INITIAL_FUNDS") {
         if let Ok(n) = v.parse::<f64>() {
-            if n > 0.0 {
+            if n.is_finite() && n >= 0.0 {
                 cfg.initial_funds = n;
+                cfg.settings_overrides.push("initial_funds".into());
             }
         }
     }
@@ -60,6 +61,7 @@ fn apply_env(cfg: &mut Config) {
         if let Ok(n) = v.parse::<u32>() {
             if n >= 1 {
                 cfg.qry_freq = n;
+                cfg.settings_overrides.push("qry_freq".into());
             }
         }
     }
@@ -67,7 +69,22 @@ fn apply_env(cfg: &mut Config) {
         if let Ok(n) = v.parse::<u32>() {
             if n >= 1 {
                 cfg.order_freq = n;
+                cfg.settings_overrides.push("order_freq".into());
             }
+        }
+    }
+    for (env, key) in [("CTPBUDDY_MAX_USER_SESSIONS", "max_user_sessions"), ("CTPBUDDY_SETTLEMENT_REQUIRED", "settlement_required")] {
+        if let Ok(v) = std::env::var(env) {
+            let value = if key == "settlement_required" {
+                match v.as_str() { "true" => ctpbuddy_server::json::b(true), "false" => ctpbuddy_server::json::b(false), _ => { eprintln!("invalid {env}: expected true/false"); std::process::exit(1); } }
+            } else {
+                match v.parse::<u32>() { Ok(n) => ctpbuddy_server::json::n(n as f64), Err(_) => { eprintln!("invalid {env}"); std::process::exit(1); } }
+            };
+            match ctpbuddy_server::settings::patch(cfg, &ctpbuddy_server::json::Value::Obj(vec![(key.into(), value)])) {
+                Ok(next) => *cfg = next,
+                Err(e) => { eprintln!("invalid {env}: {e}"); std::process::exit(1); }
+            }
+            cfg.settings_overrides.push(key.into());
         }
     }
     if let Ok(v) = std::env::var("CTPBUDDY_SCENARIO") {
@@ -99,6 +116,8 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 cfg.initial_funds = v
                     .parse::<f64>()
                     .map_err(|_| format!("invalid --initial-funds: {v}"))?;
+                if !cfg.initial_funds.is_finite() || cfg.initial_funds < 0.0 { return Err("--initial-funds must be finite and >= 0".into()); }
+                cfg.settings_overrides.push("initial_funds".into());
             }
             "--scenario" => cfg.scenario_dir = Some(take("--scenario")?),
             "--refdata" => cfg.refdata_dir = Some(take("--refdata")?),
@@ -110,6 +129,7 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 if cfg.qry_freq < 1 {
                     return Err("--qry-freq must be >= 1".to_string());
                 }
+                cfg.settings_overrides.push("qry_freq".into());
             }
             "--order-freq" => {
                 let v = take("--order-freq")?;
@@ -119,6 +139,18 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 if cfg.order_freq < 1 {
                     return Err("--order-freq must be >= 1".to_string());
                 }
+                cfg.settings_overrides.push("order_freq".into());
+            }
+            "--max-user-sessions" | "--settlement-required" => {
+                let key = if arg == "--max-user-sessions" { "max_user_sessions" } else { "settlement_required" };
+                let v = take(&arg)?;
+                let value = if key == "settlement_required" {
+                    match v.as_str() { "true" => ctpbuddy_server::json::b(true), "false" => ctpbuddy_server::json::b(false), _ => return Err("--settlement-required expects true/false".into()) }
+                } else {
+                    ctpbuddy_server::json::n(v.parse::<u32>().map_err(|_| "invalid session limit")? as f64)
+                };
+                cfg = ctpbuddy_server::settings::patch(&cfg, &ctpbuddy_server::json::Value::Obj(vec![(key.into(), value)]))?;
+                cfg.settings_overrides.push(key.into());
             }
             "--speed" => {
                 let v = take("--speed")?;

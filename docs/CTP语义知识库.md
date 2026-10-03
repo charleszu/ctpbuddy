@@ -48,7 +48,7 @@
 | 3 | 查询在途笔数 = 1 笔 | **客户端 API 内置**（永远存在，与前置配置无关） | 查询函数**返回值 -2**「未处理请求超过许可数」，请求不上线 | **Shim** 在途闸门 ✅已实现 |
 | 4 | FTD 报文流控 FTDMaxCommFlux | 交易前置 | 无错误，超限报文在前置缓存延迟到下一秒 | Core TODO |
 | 5 | 前置连接数 ConnectFreq | 交易前置（同 IP 每秒连接数；白名单 whiteiplist） | 主动断开 → `OnFrontDisconnected` | Core TODO |
-| 6 | 同一用户最大在线会话数 | 柜台/交易核心（6.6.3+ 按用户维度） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 | Core TODO |
+| 6 | 同一用户最大在线会话数 | 柜台/交易核心（6.6.3+ 按用户维度） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 | 已实现：`max_user_sessions`，0 关闭，按 BrokerID+UserID，降低不踢已有会话 |
 | 7 | 交易所 API 流控 | 交易所端 | `OnRtnOrder` 报「CTP：交易所每秒发送请求数超过许可数」/「未处理请求超过许可数」 | Core TODO |
 
 关键语义：
@@ -401,7 +401,7 @@ O = 现手 / 2 − S
 完整笔记（含 文件:行号）见 `docs/notes/03-LocalCTP参考实现对账.md`。结论摘要：
 
 - **定位**：进程内仿 CTP 交易柜台，直接替换客户端 `thosttraderapi_se.dll`，**不是 FTD 服务端**（无 TCP/FTDC 编解码/组播/心跳）；内置 9 套 CTP 头文件（6.3.15~6.7.8）由 `GenScript/ParseCTPHeaders.py` 解析自动生成 SQL Wrapper、SPI 消息结构体、不支持函数占位（默认 v6.5.1 产物）。
-- **会话**：FrontID=进程启动 Unix 秒、SessionID 进程自增、OrderRef 空则取会话内 max+1（与真实 CTP 一致，可作验收基准）；**无会话数限制、无踢线**；不校验密码与结算单确认；同账户多实例互相覆盖（已知缺陷）。
+- **会话**：FrontID=进程启动 Unix 秒、SessionID 进程自增、OrderRef 空则取会话内 max+1（与真实 CTP 一致，可作验收基准）；柜台参数 `max_user_sessions` 按 BrokerID+UserID 限制在线会话，默认 0 兼容旧行为，超限使用官方 60「CTP:用户在线会话超出上限」，降低上限不踢已有会话；不校验密码。
 - **流控为零**：查询/报单均无在途/频次限制——与真实 CTP 相反，**只能当「无流控对照端点」，不能当流控基准**。
 - **撮合**：限价 vs 对手价（买≥Ask1/卖≤Bid1），组合逐腿反向累加减，整单成交无部单，FAK/MinVolume 未真正实现，仅行情快照驱动。
 - **风控两段式**：预检（只算不冻）+ 成交/挂单后真冻结；条件单跳过预检、触发时以 StopPrice 转普通单重走流程（`TJBD_` 前缀）。
@@ -430,7 +430,7 @@ O = 现手 / 2 − S
 6. **FAK/FOK** ✅（M2-1 落地）：TC+VC 组合语义、FOK=整单成交否则全撤、FAK 最小成交量整笔撤销规则；条件单触发转新报单未做（§4.1）。
 7. **交易所差异归一化** ✅（M2-1 落地）：平今转换（非上期所一律 Close）、市价单按所语义；郑商所 FAK-only 规则表待注入；TradingDay 各所混乱见 §7（§4.1-4.3、§7）。
 8. **成交开平标志 ≠ 报单开平标志** ✅（M2-1 落地）：非上期所平仓回 '1'（§4.3）。
-9. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别 TODO（§8）。**`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁未做**（已登记为可落地缺口）。
+9. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别、日结仍 TODO（§8）。柜台参数 `settlement_required` 默认开启；登录后未对当前交易日确认时，报单前置返回官方 `42 SETTLEMENT_INFO_NOT_CONFIRMED`「CTP:结算结果未确认」，确认后允许报单；关闭开关仅用于兼容旧测试行为。
 10. **错误码全集对账** ✅（#42 落地）：error.xml 299 条逐条标注 → **19 已实现**（推送面全部对齐）/ **51 可落地**（语义在范围内但无代码路径发出，缺口清单见 [`docs/错误码全集.md`](错误码全集.md)）/ **229 暂不可达**（业务域未实现）。状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成，改代码后重跑。
 11. **LEDGER 扩展**：MarginPriceType 配置 ✅、平今/平昨费率 ✅、FrozenCommission 报单估算+释放 ✅（M3-2/M3-3 已补齐，2026-10-03 复核）；**品种内保证金优惠已实现**——用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按 broker/investor/exchange/ProductID 聚合；账本与 `ReqQryInvestorProductGroupMargin` 共用唯一计算，冻结计待成交开仓后的增量、成交/撤单/平仓及 mark-to-market 后重算。跨品种映射、套利取高仍不支持；当前仅投机、空投资单元，其他报单明确拒绝（§6.3、notes/04 C4）；期权权利金（§6）。
 12. **费率查询接口** ✅（M3-3 落地，2026-10-03）：`ReqQryInstrumentMarginRate` / `ReqQryInstrumentCommissionRate` / `ReqQryInstrumentOrderCommRate` / `ReqQryBrokerTradingParams` 四张由 `unsupported` 转为实装，官方语义逐字复刻——**`InstrumentID` 留空 = 返回该投资者持仓对应合约的费率（不是全市场，「目前无法通过一次查询得到所有合约保证金率」）**，`BrokerID`/`InvestorID`（及 `CurrencyID`）必填、「不填则返回值为空」。定位上四张表与账本计算**共用同一份 `RefData`**，客户端交叉核对 `ReqQryInstrumentMarginRate` 与 `ReqQryTradingAccount.CurrMargin` 时数字必然一致（§9、DESIGN §6.4/§8.6.1）。

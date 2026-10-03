@@ -275,6 +275,10 @@ impl World {
             );
         }
 
+        let online = self.investor_conns(&broker, &user).into_iter().filter(|id| *id != conn_id).count();
+        if self.cfg.max_user_sessions > 0 && online >= self.cfg.max_user_sessions as usize {
+            return self.send_error(conn_id, frame.req_id, 60, "CTP:用户在线会话超出上限");
+        }
         // auto-open the account on first login (SimNow-style)
         self.ledger.ensure_account(&broker, &user);
         let (front_id, session_id) = {
@@ -356,7 +360,11 @@ impl World {
             Some(f) => f,
             None => return self.send_error(conn_id, frame.req_id, -2, "确认字段长度错误"),
         };
-        // M1: no real settlement cycle — accept and echo (DESIGN §8.7 TODO).
+        let (broker, user, _, _, _) = self.session(conn_id).unwrap();
+        if cstr(&req.BrokerID) != broker || cstr(&req.InvestorID) != user {
+            return self.send_error(conn_id, frame.req_id, 3, "结算确认身份与登录会话不一致");
+        }
+        self.settlement_confirmed.insert((broker, user), self.vt_day());
         self.send_frame(
             conn_id,
             Frame::new(msgs::RSP_SETTLE_CONFIRM, frame.req_id, struct_to_bytes(&req)),
@@ -500,6 +508,10 @@ impl World {
             front_id,
             session_id,
         };
+
+        if self.cfg.settlement_required && self.settlement_confirmed.get(&(broker.clone(), investor.clone())).map(String::as_str) != Some(self.vt_day().as_str()) {
+            return self.send_error(conn_id, frame.req_id, 42, "CTP:结算结果未确认");
+        }
 
         // 报单流控 (§8.3): the front-office per-investor每秒报单 budget —
         // inserts are their own stream, separate from cancels (notes/14

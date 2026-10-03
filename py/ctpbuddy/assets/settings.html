@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CTPBuddy · 柜台参数</title><link rel="stylesheet" href="/settings.css"><script src="/settings.js" defer></script></head>
+<body><aside><div class="brand">CTP<span>Buddy</span></div><small>LOCAL COUNTER CONSOLE</small><nav><a class="active" href="/">柜台参数</a><p>行情与参考数据</p><small>由独立数据管道管理</small></nav><div class="local">本地自托管<br><small>Rust 核心 · 单一真相</small></div></aside>
+<main><header><div><div class="eyebrow">管理后台 / 系统设置</div><h1>柜台运行参数</h1><p>配置真实生效，保存至本地柜台。不是浏览器本地存储。</p></div><span class="badge">LOCAL ONLY</span></header>
+<section class="notice"><b>安全、可追溯的参数变更</b><p>整批校验后原子持久化，不重置现有流控窗口，不修改已有账户资金。</p></section>
+<div id="message" role="status">正在连接柜台…</div>
+<form id="settings"><section class="panel"><div class="panelhead"><div><h2>可配置参数</h2><p>每个字段均已接入核心业务路径</p></div><button type="button" id="refresh">重新读取</button></div><div id="fields"></div><footer><span>保存后从 ADMIN 实时读回核对</span><button type="submit" id="save" disabled>保存到柜台</button></footer></section></form>
+<section class="panel details"><h2>生效与持久化</h2><p id="precedence"></p><p id="overrides"></p><div class="legend"><span>runtime · 下一次请求生效</span><span>new-account · 仅初次开户</span><span>restart · 端点 / data_dir 仅启动设置</span></div></section>
+<section class="panel details"><h2>最近一次保存审计</h2><pre id="audit">尚未执行保存。保存成功后显示 journal 序号与 before / after。</pre></section>
+<section class="planned"><h3>边界与规划</h3><p>日结、踢线、权限角色、独立报撤额度：规划中，禁止编辑。行情、RefData、官方错误码 / 常量及确定性 PULSE 不属于柜台设置。</p></section><div class="bottom">CTPBuddy 是本地仿真测试柜台，与官方 CTP 无隶属关系。</div></main></body></html>

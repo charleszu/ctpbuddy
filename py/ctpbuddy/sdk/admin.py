@@ -47,6 +47,12 @@ class Admin:
     def status(self) -> Dict[str, Any]:
         return self.cmd("status")
 
+    def settings(self) -> Dict[str, Any]:
+        return self.cmd("settings_get")
+
+    def update_settings(self, patch: Dict[str, Any]) -> Dict[str, Any]:
+        return self.cmd("settings_update", patch=patch)
+
     def start_scenario(
         self,
         path: str,

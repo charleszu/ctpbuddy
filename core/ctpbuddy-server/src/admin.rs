@@ -35,6 +35,16 @@ impl World {
                 );
             }
             "status" => self.admin_status(conn_id, frame.req_id),
+            "settings_get" => {
+                if !matches!(&v, Value::Obj(p) if p.len() == 1) {
+                    return self.admin_error(conn_id, frame.req_id, "settings_get 仅允许 cmd");
+                }
+                self.admin_reply(conn_id, frame.req_id, self.settings_reply());
+            }
+            "settings_update" => match self.update_settings(&v) {
+                Ok(reply) => self.admin_reply(conn_id, frame.req_id, reply),
+                Err(e) => self.admin_error(conn_id, frame.req_id, &e),
+            },
             "start_scenario" => self.admin_start_scenario(conn_id, frame.req_id, &v),
             "pause" | "resume" | "step" => self.admin_playback_ctl(conn_id, frame.req_id, &cmd),
             "set_speed" => self.admin_set_speed(conn_id, frame.req_id, &v),

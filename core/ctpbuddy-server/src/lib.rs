@@ -11,6 +11,7 @@ pub mod handlers;
 pub mod journal;
 pub mod json;
 pub mod scenario;
+pub mod settings;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
@@ -84,6 +85,12 @@ pub struct Config {
     /// 6/s-queued-silently default is injectable for testing legacy
     /// downstreams).
     pub order_freq: u32,
+    /// 0 disables the per-user online-session limit.
+    pub max_user_sessions: u32,
+    /// Require settlement confirmation before orders (official error 42).
+    pub settlement_required: bool,
+    /// Fields explicitly supplied by CLI/env; they override persisted settings.
+    pub settings_overrides: Vec<String>,
 }
 
 impl Default for Config {
@@ -99,12 +106,16 @@ impl Default for Config {
             data_dir: String::new(),
             qry_freq: 2,
             order_freq: 20,
+            max_user_sessions: 0,
+            settlement_required: true,
+            settings_overrides: Vec::new(),
         }
     }
 }
 
 /// Bind transports and run the world loop until an admin `shutdown`.
-pub fn run(cfg: Config) -> std::io::Result<()> {
+pub fn run(mut cfg: Config) -> std::io::Result<()> {
+    settings::load(&mut cfg).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let td = TcpListener::bind(&cfg.td_endpoint)?;
     let admin = TcpListener::bind(&cfg.admin_endpoint)?;
     let (tx, rx) = mpsc::channel::<WorldMsg>();
@@ -333,6 +344,7 @@ pub struct World {
     /// budgets** (notes/14 §A.3-02), so the key carries the stream. Wall
     /// clock, exactly like `qry_gate` — real CTP throttles on real time.
     order_freq_windows: HashMap<(String, String, GateStream), (Instant, u32)>,
+    settlement_confirmed: HashMap<(String, String), String>,
     shutdown: bool,
 }
 
@@ -439,6 +451,7 @@ impl World {
             scenario_t0_ms,
             assertions,
             order_freq_windows: HashMap::new(),
+            settlement_confirmed: HashMap::new(),
             shutdown: false,
             cfg,
         };

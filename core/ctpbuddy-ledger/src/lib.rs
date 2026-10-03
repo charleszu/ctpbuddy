@@ -629,6 +629,10 @@ impl Ledger {
 
     /// Auto-open an account on first login (SimNow-style convenience): every
     /// investor starts with `initial_funds`.
+    pub fn set_initial_funds(&mut self, initial_funds: f64) {
+        self.initial_funds = initial_funds;
+    }
+
     pub fn ensure_account(&mut self, broker_id: &str, investor_id: &str) -> &mut Account {
         let initial = self.initial_funds;
         self.accounts

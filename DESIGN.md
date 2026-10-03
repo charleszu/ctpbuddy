@@ -77,7 +77,7 @@ flowchart LR
     C2 --- S
   end
   subgraph Python 层["Python 层（pip install ctpbuddy）"]
-    W[Web 管理后台<br/>FastAPI + htmx]
+    W[Web 管理后台<br/>Python stdlib ThreadingHTTPServer]
     K[CLI / SDK / 场景 runner]
   end
   ZMQ{{"ZeroMQ<br/>DEALER-ROUTER 请求响应<br/>PUB-SUB 回报/行情推送"}}
@@ -120,7 +120,7 @@ flowchart LR
 
 - Shim 必须 C++：`CreateFtdcTraderApi` 返回 C++ 抽象类指针，导出 MSVC mangled 符号，Rust 实现要手拼符号名，痛苦且脆。
 - 核心必须 Rust：撮合/账本是"不能随便崩"的单线程确定性引擎，内存安全有价值；performance 与 GC 可预期。
-- 控制面必须 Python：量化社区的通用语；FastAPI + htm 的服务端渲染最快；行情源插件生态也靠 Python。
+- 控制面必须 Python：量化社区的通用语；本地设置 Web 使用 stdlib `ThreadingHTTPServer`，无 CDN / 云服务 / 框架依赖；行情源插件生态也靠 Python。
 
 ---
 

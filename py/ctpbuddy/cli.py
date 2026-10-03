@@ -128,6 +128,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return proc.wait()
 
 
+def cmd_web(args: argparse.Namespace) -> int:
+    from .web import serve
+    return serve(args.host, args.port, args.admin)
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     with Admin(args.admin) as admin:
         v = admin.status()
@@ -387,6 +392,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--initial-funds", type=float, default=None, help="new-account initial funds")
     sp.add_argument("--data-dir", default=None, help="journal / runtime data dir")
     sp.set_defaults(func=cmd_serve)
+
+    sp = sub.add_parser("web", help="start the local settings Web backend")
+    sp.add_argument("--host", default="loopback", help="loopback or an explicit loopback IP")
+    sp.add_argument("--port", type=int, default=8080)
+    sp.add_argument("--admin", default="127.0.0.1:5561")
+    sp.set_defaults(func=cmd_web)
 
     sp = sub.add_parser("status", help="core admin status")
     sp.add_argument("--admin", default="127.0.0.1:5561")
