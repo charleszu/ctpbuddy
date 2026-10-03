@@ -2,7 +2,7 @@
 
 > 本文件是 CTPBuddy 项目的 CTP 语义权威存档，供后续 Agent 与开发者查阅。
 > 内容来自 `C:\workspace\src\CTP\docs`（40+ 份官方 SDK 文档/教材/坑指/入门系列）、SDK 自带 CHM《6.7.13_API接口说明》与参考实现 `LocalCTP` 的系统化通读，逐条注明出处；**冲突处以官方 CHM/API 说明为准**。
-> 深度细节（含原文引用、算例、代码行号）在 `docs/notes/` 下分册；本文件是索引与结论层。
+> 深度细节（含原文引用、算例、代码行号）在 `docs/notes/` 下分册；本文件是索引与结论层。通用开发指南和速查表见 [`CTP开发知识库/README.md`](CTP开发知识库/README.md)，仅作非官方权威的分层入口；官方 HTML、notes 与真实环境核验优先。
 > 官方资料可读版：SDK《6.7.13_API接口说明》CHM 已转为干净 HTML（405 页）在 [`docs/api-doc-html/`](api-doc-html/)，SDK 错误码全集（error.xml 299 条）可读表在 [`docs/错误码全集.md`](错误码全集.md)。
 >
 > **两类资料的地位不同，必须区分**（这是本库的一条组织原则）：
