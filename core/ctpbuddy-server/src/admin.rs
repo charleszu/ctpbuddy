@@ -174,6 +174,7 @@ impl World {
         };
         let n_transforms = spec.as_ref().map(|s| s.transforms.len()).unwrap_or(0);
         let n_accounts = spec.as_ref().map(|s| s.accounts.len()).unwrap_or(0);
+        let bootstrap_positions = spec.as_ref().map(|s| s.accounts.iter().map(|a| a.positions.len()).sum::<usize>()).unwrap_or(0);
         let n_assertions = spec.as_ref().map(|s| s.assertions.len()).unwrap_or(0);
         let speed_now = self.playback.as_ref().map(|p| p.speed()).unwrap_or(0.0);
         self.journal_record_json(
@@ -188,6 +189,7 @@ impl World {
                 ("speed".into(), json::n(speed_now)),
                 ("transforms".into(), json::n(n_transforms as f64)),
                 ("accounts".into(), json::n(n_accounts as f64)),
+                ("bootstrap_positions".into(), json::n(bootstrap_positions as f64)),
                 ("assertions".into(), json::n(n_assertions as f64)),
             ]),
         );

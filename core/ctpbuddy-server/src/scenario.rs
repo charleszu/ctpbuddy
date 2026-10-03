@@ -7,6 +7,17 @@
 
 use ctpbuddy_market::transform::Transform;
 
+fn valid_date(s: &str) -> bool {
+    if s.len() != 8 || !s.bytes().all(|b| b.is_ascii_digit()) { return false; }
+    let y: i32 = s[0..4].parse().unwrap_or(0);
+    let m: u32 = s[4..6].parse().unwrap_or(0);
+    let d: u32 = s[6..8].parse().unwrap_or(0);
+    if y < 1900 || !(1..=12).contains(&m) || d == 0 { return false; }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let max = match m { 2 if leap => 29, 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 };
+    d <= max
+}
+
 use crate::json::Value;
 
 /// Comparison operators for scenario assertions (`expect: { metric: ">=1" }`).
@@ -71,6 +82,26 @@ pub struct Assertion {
 }
 
 /// A normalized scenario spec (the JSON form of scenario.yaml).
+#[derive(Clone, Debug)]
+pub struct BootstrapPosition {
+    pub instrument: String,
+    pub exchange: String,
+    pub direction: String,
+    pub open_date: String,
+    pub trade_id: String,
+    pub open_price: f64,
+    pub volume: i32,
+    pub pre_settlement: f64,
+    pub margin: Option<f64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AccountSpec {
+    pub investor: String,
+    pub balance: Option<f64>,
+    pub positions: Vec<BootstrapPosition>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Spec {
     pub name: String,
@@ -81,8 +112,8 @@ pub struct Spec {
     pub time_scale: Option<f64>,
     /// `clock.start` — ticks before this virtual ms are dropped at load.
     pub start_ms: Option<f64>,
-    /// `accounts`: (investor, optional initial balance).
-    pub accounts: Vec<(String, Option<f64>)>,
+    /// Scenario-authored accounts and optional bootstrap positions.
+    pub accounts: Vec<AccountSpec>,
     pub assertions: Vec<Assertion>,
 }
 
@@ -144,21 +175,51 @@ pub fn parse_spec(v: &Value) -> Result<Spec, String> {
             }
         }
     }
-    if let Some(Value::Arr(items)) = v.get("accounts") {
+    if let Some(raw) = v.get("accounts") {
+        let items = match raw { Value::Arr(items) => items, _ => return Err("accounts 必须是列表".into()) };
         for (i, item) in items.iter().enumerate() {
             let investor = item
                 .get_str("investor")
                 .ok_or_else(|| format!("accounts[{i}]: 缺少 investor"))?;
-            if investor.trim().is_empty() {
+            if investor.trim().is_empty() || investor.len() > 12 || investor.contains('\0') {
                 return Err(format!("accounts[{i}]: investor 不能为空"));
             }
             let balance = get_num(item, "balance");
             if let Some(b) = balance {
-                if b <= 0.0 {
-                    return Err(format!("accounts[{i}]: balance 必须为正"));
+                if !b.is_finite() || b <= 0.0 {
+                    return Err(format!("accounts[{i}]: balance 必须为有限正数"));
                 }
             }
-            spec.accounts.push((investor, balance));
+            let mut positions = Vec::new();
+            let mut keys = std::collections::HashSet::new();
+            if let Some(raw_positions) = item.get("positions") {
+                let items = match raw_positions { Value::Arr(items) => items, _ => return Err(format!("accounts[{i}].positions 必须是列表")) };
+                for (j, p) in items.iter().enumerate() {
+                    let field = |k: &str| p.get_str(k).ok_or_else(|| format!("accounts[{i}].positions[{j}]: 缺少 {k}"));
+                    let instrument = field("instrument")?;
+                    let exchange = field("exchange")?;
+                    let direction = field("direction")?;
+                    let open_date = field("open_date")?;
+                    let trade_id = field("trade_id")?;
+                    let open_price = p.get("open_price").and_then(|v| v.as_num()).ok_or_else(|| format!("accounts[{i}].positions[{j}].open_price 非数字"))?;
+                    let volume = p.get("volume").and_then(|v| v.as_num()).ok_or_else(|| format!("accounts[{i}].positions[{j}].volume 非数字"))?;
+                    let pre_settlement = p.get("pre_settlement").and_then(|v| v.as_num()).ok_or_else(|| format!("accounts[{i}].positions[{j}].pre_settlement 非数字"))?;
+                    if !matches!(direction.as_str(), "long" | "short") || !valid_date(&open_date) || instrument.is_empty() || exchange.is_empty() || trade_id.is_empty() || instrument.len() > 80 || exchange.len() > 8 || trade_id.len() > 20 || [&instrument, &exchange, &trade_id].iter().any(|s| s.contains('\0')) || open_price <= 0.0 || pre_settlement <= 0.0 || !open_price.is_finite() || !pre_settlement.is_finite() || !volume.is_finite() || volume <= 0.0 || volume > i32::MAX as f64 || volume.fract() != 0.0 {
+                        return Err(format!("accounts[{i}].positions[{j}] 字段非法"));
+                    }
+                    let margin = match p.get("margin") {
+                        None => None,
+                        Some(Value::Num(m)) if m.is_finite() && *m >= 0.0 => Some(*m),
+                        _ => return Err(format!("accounts[{i}].positions[{j}].margin 必须是有限非负数字")),
+                    };
+                    let key = format!("{instrument}|{exchange}|{direction}|{open_date}|{trade_id}");
+                    if !keys.insert(key) { return Err(format!("accounts[{i}].positions[{j}] 重复逐笔 key")); }
+                    positions.push(BootstrapPosition { instrument, exchange, direction, open_date, trade_id, open_price, volume: volume as i32, pre_settlement, margin });
+                }
+            }
+            let total: i64 = positions.iter().map(|p| p.volume as i64).sum();
+            if total > i32::MAX as i64 { return Err(format!("accounts[{i}] positions 聚合 volume 超过 i32")); }
+            spec.accounts.push(AccountSpec { investor, balance, positions });
         }
     }
     if let Some(Value::Arr(items)) = v.get("assertions") {
@@ -239,7 +300,10 @@ mod tests {
         assert_eq!(spec.transforms.len(), 3);
         assert_eq!(spec.time_scale, Some(0.0));
         assert_eq!(spec.start_ms, Some(34200000.0));
-        assert_eq!(spec.accounts, vec![("smoke001".to_string(), Some(500000.0))]);
+        assert_eq!(spec.accounts.len(), 1);
+        assert_eq!(spec.accounts[0].investor, "smoke001");
+        assert_eq!(spec.accounts[0].balance, Some(500000.0));
+        assert!(spec.accounts[0].positions.is_empty());
         assert_eq!(spec.assertions.len(), 1);
         assert_eq!(spec.assertions[0].op, Cmp::Eq);
     }
@@ -258,6 +322,19 @@ mod tests {
         )
         .unwrap();
         assert!(parse_spec(&v).unwrap_err().contains("op"));
+    }
+
+    #[test]
+    fn rejects_invalid_bootstrap_types_dates_and_margin() {
+        for text in [
+            r#"{"accounts":[{"investor":"x","positions":{}}]}"#,
+            r#"{"accounts":[{"investor":"x","positions":[{"instrument":"rb2601","exchange":"SHFE","direction":"long","open_date":"20260230","trade_id":"t","open_price":1,"volume":1,"pre_settlement":1}]}]}"#,
+            r#"{"accounts":[{"investor":"x","positions":[{"instrument":"rb2601","exchange":"SHFE","direction":"long","open_date":"20260202","trade_id":"t","open_price":1,"volume":1,"pre_settlement":1,"margin":"bad"}]}]}"#,
+            r#"{"accounts":[{"investor":"x","positions":[{"instrument":"rb2601","exchange":"SHFE","direction":"long","open_date":"20260202","trade_id":"t","open_price":1,"volume":2147483648,"pre_settlement":1}]}]}"#,
+        ] {
+            let v = json::parse(text).unwrap();
+            assert!(parse_spec(&v).is_err(), "accepted {text}");
+        }
     }
 
     #[test]

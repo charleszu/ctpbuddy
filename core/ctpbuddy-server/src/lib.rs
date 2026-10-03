@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use ctpbuddy_ledger::Ledger;
 use ctpbuddy_market::{format_hhmmss, CsvSource, Playback, Tick};
-use ctpbuddy_matching::{Catalog, EngineEvent, MatchingEngine};
+use ctpbuddy_matching::{Catalog, EngineEvent, MarginPrice, MatchingEngine};
 use ctpbuddy_wire::frame::Frame;
 use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcOrderField, CThostFtdcTradeField};
 use ctpbuddy_wire::msgs;
@@ -388,7 +388,7 @@ impl World {
         let mut scenario_name = String::new();
         let mut scenario_t0_ms = None;
         let mut assertions = Vec::new();
-        let mut startup_accounts: Vec<(String, Option<f64>)> = Vec::new();
+        let mut startup_accounts: Vec<scenario::AccountSpec> = Vec::new();
 
         if let Some(dir) = &cfg.scenario_dir {
             // scenario.json is the compiled form of scenario.yaml (written by
@@ -455,12 +455,39 @@ impl World {
             shutdown: false,
             cfg,
         };
+        let day = world.vt_trading_day.clone();
+        let accounts = startup_accounts;
         let broker = world.cfg.broker_id.clone();
-        for (investor, funds) in &startup_accounts {
-            world.ledger.ensure_account_with(&broker, investor, funds.unwrap_or(0.0));
-        }
+        Self::bootstrap_accounts(&mut world.ledger, &world.engine.catalog(), &broker, &accounts, &day).expect("startup bootstrap must validate");
+        world.ledger.refresh(&world.engine.catalog());
         world.eval_assertions();
         world
+    }
+
+    fn bootstrap_accounts(ledger: &mut Ledger, catalog: &Catalog, broker: &str, accounts: &[scenario::AccountSpec], day: &str) -> Result<(), String> {
+        for account in accounts {
+            if !account.positions.is_empty() && ledger.account(broker, &account.investor).is_some() {
+                return Err(format!("账户 {} 已存在，不能重复导入初始持仓", account.investor));
+            }
+            for p in &account.positions {
+                let Some(inst) = catalog.get(&p.instrument) else { return Err(format!("未知合约 {}", p.instrument)); };
+                if inst.exchange_id != p.exchange { return Err(format!("合约 {} 的交易所错误: {}", p.instrument, p.exchange)); }
+                if p.open_date.as_str() >= day { return Err(format!("初仓 {} 的 open_date 必须早于交易日 {}", p.trade_id, day)); }
+            }
+        }
+        for account in accounts {
+            ledger.ensure_account_with(broker, &account.investor, account.balance.unwrap_or(0.0));
+            for p in &account.positions {
+                let side = if p.direction == "long" { ctpbuddy_ledger::PositionSide::Long } else { ctpbuddy_ledger::PositionSide::Short };
+                let direction = if side == ctpbuddy_ledger::PositionSide::Long { ctpbuddy_matching::Direction::Buy } else { ctpbuddy_matching::Direction::Sell };
+                let margin = p.margin.unwrap_or_else(|| catalog.margin(&p.instrument, direction, MarginPrice::PreSettlement(p.pre_settlement), p.volume));
+                let multiple = catalog.get(&p.instrument).unwrap().volume_multiple;
+                let pos = ledger.position_mut_or_create(broker, &account.investor, &p.instrument, side);
+                pos.pre_settlement_price = p.pre_settlement;
+                pos.add_bootstrap_detail(&p.open_date, &p.trade_id, p.open_price, p.volume, margin, p.pre_settlement, multiple);
+            }
+        }
+        Ok(())
     }
 
     /// Load a scenario into the world (admin `start_scenario`): swap catalog
@@ -481,6 +508,23 @@ impl World {
         let day = ticks[0].trading_day.clone();
         let t0 = ticks[0].virtual_ms();
         let name = spec.map(|s| s.name.clone()).unwrap_or_default();
+        if let Some(s) = spec {
+            for account in &s.accounts {
+                if !account.positions.is_empty() && self.ledger.account(&self.cfg.broker_id, &account.investor).is_some() {
+                    return Err(format!("账户 {} 已存在，不能重复导入初始持仓", account.investor));
+                }
+                for p in &account.positions {
+                    let Some(inst) = catalog.get(&p.instrument) else { return Err(format!("未知合约 {}", p.instrument)); };
+                    if inst.exchange_id != p.exchange { return Err(format!("合约 {} 的交易所错误: {}", p.instrument, p.exchange)); }
+                    if p.open_date.as_str() >= day.as_str() { return Err(format!("初仓 {} 的 open_date 必须早于交易日 {}", p.trade_id, day)); }
+                    if !p.open_price.is_finite() || !p.pre_settlement.is_finite() { return Err(format!("初仓 {} 含非有限价格", p.trade_id)); }
+                }
+            }
+        }
+
+        let mut staged_ledger = self.ledger.clone();
+        Self::bootstrap_accounts(&mut staged_ledger, &catalog, &self.cfg.broker_id, spec.map(|s| s.accounts.as_slice()).unwrap_or(&[]), &day)?;
+        staged_ledger.refresh(&catalog);
 
         // NOTE: swapping the scenario drops active orders; their ledger freezes
         // are released with `reset_account` (M2: cancel-all admin command).
@@ -503,13 +547,8 @@ impl World {
         self.scenario_t0_ms = Some(t0);
         self.assertions = spec.map(|s| s.assertions.clone()).unwrap_or_default();
 
-        let broker = self.cfg.broker_id.clone();
-        if let Some(s) = spec {
-            for (investor, funds) in &s.accounts {
-                self.ledger
-                    .ensure_account_with(&broker, investor, funds.unwrap_or(0.0));
-            }
-        }
+        self.ledger = staged_ledger;
+        self.ledger.refresh(&self.engine.catalog());
         self.eval_assertions();
         Ok((n, day, name))
     }
@@ -720,7 +759,7 @@ impl World {
         let prices = self.engine.last_prices();
         let pre_settlements = self.engine.pre_settlements();
         self.ledger
-            .mark_to_market(self.engine.catalog(), &prices, &pre_settlements);
+            .mark_to_market(self.engine.catalog(), &prices, &pre_settlements, &self.vt_trading_day);
         if let Some(j) = self.journal.as_mut() {
             j.flush_if_due(now);
         }

@@ -45,7 +45,9 @@ for authoring compatibility; single-day replay uses the time part).
 """
 from __future__ import annotations
 
+import datetime
 import json
+import math
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -55,6 +57,7 @@ __all__ = [
     "parse_yaml",
     "load_scenario_spec",
     "compile_scenario",
+    "normalize_spec",
     "parse_duration_ms",
     "parse_time_ms",
 ]
@@ -368,24 +371,88 @@ def _norm_clock(raw: Any) -> Dict[str, Any]:
     return out
 
 
+def _norm_positions(raw: Any, account: str, trading_day: Optional[str] = None) -> List[Dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise ScenarioError("accounts[%s].positions 必须是列表" % account)
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    required = ("instrument", "exchange", "direction", "open_date", "trade_id", "open_price", "volume", "pre_settlement")
+    for i, item in enumerate(raw):
+        where = "accounts[%s].positions[%d]" % (account, i)
+        if not isinstance(item, dict):
+            raise ScenarioError("%s 必须是映射" % where)
+        missing = [k for k in required if k not in item]
+        if missing:
+            raise ScenarioError("%s 缺少: %s" % (where, ", ".join(missing)))
+        vals = {}
+        for k in ("instrument", "exchange", "direction", "open_date", "trade_id"):
+            if not isinstance(item[k], str) or "\x00" in item[k]:
+                raise ScenarioError("%s.%s 必须是无 NUL 的字符串" % (where, k))
+            vals[k] = item[k]
+        if not vals["instrument"] or not vals["exchange"] or not vals["trade_id"]:
+            raise ScenarioError("%s 的 instrument/exchange/trade_id 不能为空" % where)
+        if vals["direction"] not in ("long", "short"):
+            raise ScenarioError("%s.direction 必须是 long 或 short" % where)
+        if not re.match(r"^\d{8}$", vals["open_date"]):
+            raise ScenarioError("%s.open_date 必须是 YYYYMMDD" % where)
+        try:
+            datetime.date(int(vals["open_date"][:4]), int(vals["open_date"][4:6]), int(vals["open_date"][6:]))
+        except ValueError:
+            raise ScenarioError("%s.open_date 不是有效公历日期" % where)
+        limits = {"instrument": 80, "exchange": 8, "open_date": 8, "trade_id": 20}
+        for key, limit in limits.items():
+            if len(vals[key]) > limit:
+                raise ScenarioError("%s.%s 超过 CTP 字段长度 %d" % (where, key, limit))
+        price = _num(item["open_price"], "%s.open_price" % where)
+        volume = item["volume"]
+        if isinstance(volume, bool) or not isinstance(volume, int) or volume <= 0 or volume > 2_147_483_647:
+            raise ScenarioError("%s.volume 必须是 1..2147483647 的整数" % where)
+        pre = _num(item["pre_settlement"], "%s.pre_settlement" % where)
+        if not math.isfinite(price) or price <= 0 or not math.isfinite(pre) or pre <= 0:
+            raise ScenarioError("%s.open_price/pre_settlement 必须是有限正数" % where)
+        entry = dict(vals, open_price=price, volume=volume, pre_settlement=pre)
+        if "margin" in item:
+            margin = _num(item["margin"], "%s.margin" % where)
+            if not math.isfinite(margin) or margin < 0:
+                raise ScenarioError("%s.margin 必须是有限非负数" % where)
+            entry["margin"] = margin
+        key = tuple(entry[k] for k in ("instrument", "exchange", "direction", "open_date", "trade_id"))
+        if key in seen:
+            raise ScenarioError("%s 重复逐笔 key" % where)
+        seen.add(key)
+        out.append(entry)
+    total = 0
+    for entry in out:
+        total += entry["volume"]
+        if total > 2_147_483_647:
+            raise ScenarioError("accounts[%s].positions 聚合 volume 超过 i32" % account)
+    return out
+
+
 def _norm_accounts(raw: Any) -> List[Dict[str, Any]]:
     if raw is None:
         return []
     if not isinstance(raw, list):
         raise ScenarioError("accounts 必须是列表")
     out: List[Dict[str, Any]] = []
+    seen_accounts = set()
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ScenarioError("accounts[%d] 必须是映射" % i)
         investor = _str(item.get("investor"), "accounts[%d].investor" % i).strip()
-        if not investor:
-            raise ScenarioError("accounts[%d].investor 不能为空" % i)
+        if not investor or len(investor) > 12 or "\x00" in investor:
+            raise ScenarioError("accounts[%d].investor 必须是长度不超过12的无 NUL 字符串" % i)
+        if investor in seen_accounts:
+            raise ScenarioError("accounts[%d].investor 重复" % i)
+        seen_accounts.add(investor)
         entry: Dict[str, Any] = {"investor": investor}
         if "balance" in item and item["balance"] is not None:
             bal = _num(item["balance"], "accounts[%d].balance" % i)
-            if bal <= 0:
-                raise ScenarioError("accounts[%d].balance 必须为正" % i)
+            if not math.isfinite(bal) or bal <= 0:
+                raise ScenarioError("accounts[%d].balance 必须为有限正数" % i)
             entry["balance"] = bal
+        if "positions" in item:
+            entry["positions"] = _norm_positions(item.get("positions"), investor)
         out.append(entry)
     return out
 

@@ -918,7 +918,7 @@ impl World {
         let prices = self.engine.last_prices();
         let pre_settlements = self.engine.pre_settlements();
         self.ledger
-            .mark_to_market(self.engine.catalog(), &prices, &pre_settlements);
+            .mark_to_market(self.engine.catalog(), &prices, &pre_settlements, &self.vt_trading_day);
     }
 
     /// 报单流控 (DESIGN §8.3, docs: 报单流控、查询流控和会话数控制):

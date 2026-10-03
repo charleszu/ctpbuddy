@@ -196,6 +196,7 @@ pub struct PositionDetail {
     /// makes 先开先平 total.
     pub trade_id: String,
     pub open_price: f64,
+    pub bootstrap: bool,
     /// Remaining lots on this detail.
     pub volume: i32,
     /// Margin charged to this detail when it was opened.
@@ -211,6 +212,8 @@ pub struct PositionDetail {
     pub last_settlement_price: f64,
     /// Realized PnL attributed to this detail so far.
     pub close_profit: f64,
+    pub close_profit_trade: f64,
+    pub commission: f64,
     /// Lots of this detail already closed.
     pub close_volume: i32,
     /// Turnover of the closes attributed to this detail.
@@ -223,12 +226,15 @@ impl PositionDetail {
             open_date: open_date.to_string(),
             trade_id: trade_id.to_string(),
             open_price,
+            bootstrap: false,
             volume,
             margin,
             margin_price,
             open_volume: volume,
             last_settlement_price: 0.0,
             close_profit: 0.0,
+            close_profit_trade: 0.0,
+            commission: 0.0,
             close_volume: 0,
             close_amount: 0.0,
         }
@@ -294,10 +300,11 @@ impl PositionDetail {
         f.Margin = self.margin * self.volume as f64 / self.open_volume.max(1) as f64;
         f.LastSettlementPrice = self.last_settlement_price;
         f.SettlementPrice = settlement_price;
-        f.PositionProfitByDate = self.profit(side, last_price, multiple);
-        f.PositionProfitByTrade = f.PositionProfitByDate;
+        let basis = if self.open_date == trading_day { self.open_price } else { self.last_settlement_price };
+        f.PositionProfitByDate = Position::detail_pnl(side, basis, last_price, self.volume, multiple);
+        f.PositionProfitByTrade = Position::detail_pnl(side, self.open_price, last_price, self.volume, multiple);
         f.CloseProfitByDate = self.close_profit;
-        f.CloseProfitByTrade = self.close_profit;
+        f.CloseProfitByTrade = self.close_profit_trade;
         // 先开先平剩余数量: the lots of this detail still open, which for a
         // detail consumed from the front equals its own remainder.
         f.TimeFirstVolume = self.volume;
@@ -311,8 +318,10 @@ pub struct Position {
     pub side: PositionSide,
     /// 今仓 (opened today).
     pub today_position: i32,
-    /// 昨仓 (carried from yesterday).
+    /// 昨仓 (currently remaining carried lots).
     pub yd_position: i32,
+    /// Static trading-day-start yesterday position (`YdPosition`).
+    pub yd_initial: i32,
     /// Open turnover basis (sum of `price * volume * multiple`); average cost
     /// is `open_amount / (open_volume * multiple)`.
     pub open_amount: f64,
@@ -340,6 +349,7 @@ impl Position {
             side,
             today_position: 0,
             yd_position: 0,
+            yd_initial: 0,
             open_amount: 0.0,
             open_volume: 0,
             position_cost: 0.0,
@@ -361,6 +371,29 @@ impl Position {
     pub fn add_detail(&mut self, open_date: &str, trade_id: &str, price: f64, volume: i32, margin: f64, margin_price: f64) {
         self.details
             .push(PositionDetail::new(open_date, trade_id, price, volume, margin, margin_price));
+    }
+
+    pub fn add_bootstrap_detail(
+        &mut self,
+        open_date: &str,
+        trade_id: &str,
+        price: f64,
+        volume: i32,
+        margin: f64,
+        pre_settlement: f64,
+        multiple: i32,
+    ) {
+        self.yd_position += volume;
+        self.yd_initial += volume;
+        self.open_cost += price * volume as f64 * multiple as f64;
+        self.position_cost += pre_settlement * volume as f64 * multiple as f64;
+        self.margin += margin;
+        self.settlement_price = pre_settlement;
+        let mut detail = PositionDetail::new(open_date, trade_id, price, volume, margin, pre_settlement);
+        detail.bootstrap = true;
+        detail.last_settlement_price = pre_settlement;
+        self.details.push(detail);
+        self.details.sort_by(|a, b| a.open_date.cmp(&b.open_date).then(a.trade_id.cmp(&b.trade_id)));
     }
 
     /// 先开先平: consume `volume` lots from the **oldest** details, returning
@@ -446,80 +479,90 @@ impl Position {
         mult: i32,
     ) -> Vec<CThostFtdcInvestorPositionField> {
         let base = self.to_field(broker_id, investor_id, exchange_id, trading_day, mult);
-        if !matches!(exchange_id, "SHFE" | "INE") || self.yd_position == 0 || self.today_position == 0 {
+        if !matches!(exchange_id, "SHFE" | "INE") {
             return vec![base];
         }
-        let yd = self.bucket_field(base.clone(), self.yd_position, false);
-        let mut today = self.bucket_field(base, self.today_position, true);
-        today.OpenVolume = base.OpenVolume - yd.OpenVolume;
-        today.OpenAmount = base.OpenAmount - yd.OpenAmount;
-        today.OpenCost = base.OpenCost - yd.OpenCost;
-        today.PositionCost = base.PositionCost - yd.PositionCost;
-        today.UseMargin = base.UseMargin - yd.UseMargin;
-        today.Commission = base.Commission - yd.Commission;
-        today.CloseProfit = base.CloseProfit - yd.CloseProfit;
-        today.PositionProfit = base.PositionProfit - yd.PositionProfit;
-        today.CloseProfitByDate = base.CloseProfitByDate - yd.CloseProfitByDate;
-        today.CloseProfitByTrade = base.CloseProfitByTrade - yd.CloseProfitByTrade;
-        today.PositionCostOffset = base.PositionCostOffset - yd.PositionCostOffset;
-        if self.side == PositionSide::Long {
-            today.LongFrozen = base.LongFrozen - yd.LongFrozen;
+        let yd = self.detail_bucket_field(base.clone(), trading_day, mult, false);
+        let today = self.detail_bucket_field(base, trading_day, mult, true);
+        if (self.yd_position > 0 || self.yd_initial > 0) && self.today_position > 0 {
+            vec![yd, today]
+        } else if self.yd_position > 0 {
+            vec![yd]
+        } else if self.today_position > 0 {
+            vec![today]
         } else {
-            today.ShortFrozen = base.ShortFrozen - yd.ShortFrozen;
+            // CTP may retain a zero Position row with static YdPosition until
+            // settlement; preserve that row, but never expose zero-volume detail.
+            vec![yd]
         }
-        vec![yd, today]
     }
 
-    fn bucket_field(
+    fn detail_bucket_field(
         &self,
         mut field: CThostFtdcInvestorPositionField,
-        volume: i32,
+        trading_day: &str,
+        mult: i32,
         today: bool,
     ) -> CThostFtdcInvestorPositionField {
-        let total = self.volume().max(1) as f64;
-        let ratio = volume as f64 / total;
         field.PositionDate = if today { b'1' } else { b'2' };
-        field.Position = volume;
-        field.TodayPosition = if today { volume } else { 0 };
-        // YdPosition is the official static trading-day-start value. It is not
-        // the current yesterday bucket and cannot be reconstructed here.
-        field.YdPosition = 0;
-        field.OpenVolume = ((self.open_volume as f64) * ratio).round() as i32;
-        field.OpenAmount *= ratio;
-        field.OpenCost *= ratio;
-        field.PositionCost *= ratio;
-        field.UseMargin *= ratio;
-        field.ExchangeMargin *= ratio;
-        field.Commission *= ratio;
-        field.CloseProfit *= ratio;
-        field.PositionProfit *= ratio;
-        field.CloseProfitByDate *= ratio;
-        field.CloseProfitByTrade *= ratio;
-        field.PositionCostOffset *= ratio;
-        field.LongFrozenAmount *= ratio;
-        field.ShortFrozenAmount *= ratio;
-        field.FrozenMargin *= ratio;
-        field.FrozenCash *= ratio;
-        field.FrozenCommission *= ratio;
-        field.CashIn *= ratio;
-        field.CombPosition = ((field.CombPosition as f64) * ratio).round() as i32;
-        field.CombLongFrozen = ((field.CombLongFrozen as f64) * ratio).round() as i32;
-        field.CombShortFrozen = ((field.CombShortFrozen as f64) * ratio).round() as i32;
-        field.StrikeFrozen = ((field.StrikeFrozen as f64) * ratio).round() as i32;
-        field.StrikeFrozenAmount *= ratio;
-        field.AbandonFrozen = ((field.AbandonFrozen as f64) * ratio).round() as i32;
-        field.YdStrikeFrozen = ((field.YdStrikeFrozen as f64) * ratio).round() as i32;
-        field.OptionValue *= ratio;
-        let frozen = if self.side == PositionSide::Long {
-            field.LongFrozen
-        } else {
-            field.ShortFrozen
-        };
-        let bucket_frozen = ((frozen as f64) * ratio).round() as i32;
+        field.Position = 0;
+        field.TodayPosition = 0;
+        field.YdPosition = if today { 0 } else { self.yd_initial };
+        field.OpenVolume = 0;
+        field.CloseVolume = 0;
+        field.CloseAmount = 0.0;
+        field.OpenAmount = 0.0;
+        field.OpenCost = 0.0;
+        field.PositionCost = 0.0;
+        field.UseMargin = 0.0;
+        field.ExchangeMargin = 0.0;
+        field.Commission = 0.0;
+        field.CloseProfit = 0.0;
+        field.PositionProfit = 0.0;
+        field.CloseProfitByDate = 0.0;
+        field.CloseProfitByTrade = 0.0;
+        field.PositionCostOffset = 0.0;
+        field.LongFrozen = 0;
+        field.ShortFrozen = 0;
+        field.LongFrozenAmount = 0.0;
+        field.ShortFrozenAmount = 0.0;
+        field.FrozenMargin = 0.0;
+        field.FrozenCash = 0.0;
+        field.FrozenCommission = 0.0;
+        field.CashIn = 0.0;
+        let frozen = if today { self.frozen_today } else { self.frozen_yd };
         if self.side == PositionSide::Long {
-            field.LongFrozen = bucket_frozen;
+            field.ShortFrozen = frozen;
         } else {
-            field.ShortFrozen = bucket_frozen;
+            field.LongFrozen = frozen;
+        }
+        for detail in &self.details {
+            if detail.is_today(trading_day) != today {
+                continue;
+            }
+            let volume = detail.volume;
+            let basis = detail.mark_basis(trading_day);
+            field.CloseProfit += detail.close_profit;
+            field.CloseProfitByDate += detail.close_profit;
+            field.CloseProfitByTrade += detail.close_profit_trade;
+            field.Commission += detail.commission;
+            field.CloseVolume += detail.close_volume;
+            field.CloseAmount += detail.close_amount;
+            if today && !detail.bootstrap {
+                field.OpenVolume += detail.open_volume;
+                field.OpenAmount += detail.open_price * detail.open_volume as f64 * mult as f64;
+            }
+            if volume > 0 {
+                let share = volume as f64 / detail.open_volume.max(1) as f64;
+                field.Position += volume;
+                field.OpenCost += detail.open_price * volume as f64 * mult as f64;
+                field.PositionCost += basis * volume as f64 * mult as f64;
+                field.UseMargin += detail.margin * share;
+                field.PositionProfit += Position::detail_pnl(self.side, basis, self.settlement_price, volume, mult);
+                if today {
+                    field.TodayPosition += volume;
+                }
+            }
         }
         field
     }
@@ -545,12 +588,12 @@ impl Position {
         // `YdPosition` is the official static trading-day-start value. The
         // ledger has no settlement/bootstrap source for that value, so it must
         // not be fabricated from the current yesterday bucket.
-        f.PositionDate = if self.today_position > 0 && self.yd_position == 0 {
-            b'1' // THOST_FTDC_PSD_Today
+        f.PositionDate = if !matches!(exchange_id, "SHFE" | "INE") || (self.today_position > 0 && self.yd_position == 0) {
+            b'1'
         } else {
-            b'2' // THOST_FTDC_PSD_InHistory
+            b'2'
         };
-        f.YdPosition = 0;
+        f.YdPosition = self.yd_initial;
         f.Position = self.volume();
         f.TodayPosition = self.today_position;
         let frozen = self.frozen_today + self.frozen_yd;
@@ -604,6 +647,7 @@ struct FrozenPos {
     yd: i32,
 }
 
+#[derive(Clone)]
 pub struct Ledger {
     accounts: HashMap<AccountKey, Account>,
     positions: HashMap<(AccountKey, String, PositionSide), Position>,
@@ -676,6 +720,19 @@ impl Ledger {
         self.group_activity.retain(|(k, _, _), _| *k != key);
     }
 
+    pub fn position_mut_or_create(
+        &mut self,
+        broker_id: &str,
+        investor_id: &str,
+        instrument_id: &str,
+        side: PositionSide,
+    ) -> &mut Position {
+        let key = AccountKey::new(broker_id, investor_id);
+        self.positions
+            .entry((key, instrument_id.to_string(), side))
+            .or_insert_with(|| Position::new(instrument_id, side))
+    }
+
     pub fn position(
         &self,
         broker_id: &str,
@@ -712,7 +769,7 @@ impl Ledger {
             .positions
             .iter()
             .filter(|((k, _, _), _)| *k == key)
-            .flat_map(|(_, p)| p.details.iter().map(move |d| (p, d)))
+            .flat_map(|(_, p)| p.details.iter().filter(|d| d.volume > 0).map(move |d| (p, d)))
             .collect();
         out.sort_by(|a, b| {
             a.0.instrument_id
@@ -826,6 +883,10 @@ impl Ledger {
             f.ExchMargin = used[2][0] + used[2][1] + used[3][0].max(used[3][1]);
             f
         }).collect()
+    }
+
+    pub fn refresh(&mut self, catalog: &Catalog) {
+        self.refresh_margin(catalog);
     }
 
     fn refresh_margin(&mut self, catalog: &Catalog) {
@@ -1038,6 +1099,7 @@ impl Ledger {
                 margin_actual,
                 price.value(),
             );
+            pos.details.last_mut().unwrap().commission = commission;
             let a = self.accounts.get_mut(&key).expect("account exists");
             a.balance -= commission;
             a.commission += commission;
@@ -1071,6 +1133,7 @@ impl Ledger {
                 }
                 let basis = d.mark_basis(trading_day);
                 let leg_pnl = Position::detail_pnl(side, basis, fill.price, n, mult);
+                let leg_trade_pnl = Position::detail_pnl(side, d.open_price, fill.price, n, mult);
                 pnl += leg_pnl;
                 closed_amount += d.open_price * n as f64 * mult as f64;
                 d.close_amount += fill.price * n as f64 * mult as f64;
@@ -1078,6 +1141,9 @@ impl Ledger {
                 // what this detail was charged, not a recomputed figure.
                 margin_released += d.margin * n as f64 / d.open_volume.max(1) as f64;
                 d.close_profit += leg_pnl;
+                d.close_profit_trade += leg_trade_pnl;
+                let kind = if is_today { CommissionKind::CloseToday } else { CommissionKind::CloseYesterday };
+                d.commission += catalog.commission(&fill.instrument_id, kind, fill.price, n);
             }
             let closed = today_take + yd_take;
             pos.today_position = (pos.today_position - today_take).max(0);
@@ -1131,9 +1197,11 @@ impl Ledger {
 
             // Exhausted details leave the query surface; CTP does not return
             // a 明细 with zero remaining volume.
-            pos.details.retain(|d| d.volume > 0);
-            // drop flat positions from the query surface (CTP does not return them)
-            if pos.volume() == 0 && pos.frozen_today == 0 && pos.frozen_yd == 0 {
+            // 当天累计归属依赖已平明细；仅查询入口过滤零余量，不在盘中删除。
+            // Keep a static bootstrap row after a full close. CTP can expose the
+            // zero Position row until settlement; zero-volume details remain
+            // hidden by the detail query projection.
+            if pos.volume() == 0 && pos.frozen_today == 0 && pos.frozen_yd == 0 && pos.yd_initial == 0 {
                 let k = (key.clone(), fill.instrument_id.clone(), side);
                 self.positions.remove(&k);
             }
@@ -1156,6 +1224,7 @@ impl Ledger {
         catalog: &Catalog,
         prices: &HashMap<String, f64>,
         pre_settlements: &HashMap<String, f64>,
+        trading_day: &str,
     ) {
         for pos in self.positions.values_mut() {
             let mult = catalog
@@ -1167,19 +1236,17 @@ impl Ledger {
                 .copied()
                 .unwrap_or(pos.settlement_price);
             if let Some(ps) = pre_settlements.get(&pos.instrument_id) {
-                if *ps > 0.0 {
+                if *ps > 0.0 && pos.yd_initial == 0 {
                     pos.pre_settlement_price = *ps;
-                    for d in pos.details.iter_mut() {
+                    for d in pos.details.iter_mut().filter(|d| !d.bootstrap) {
                         d.last_settlement_price = *ps;
                     }
                 }
             }
-            let cost = pos.avg_cost(mult);
-            let vol = pos.volume();
-            pos.position_profit = match pos.side {
-                PositionSide::Long => (p - cost) * vol as f64 * mult as f64,
-                PositionSide::Short => (cost - p) * vol as f64 * mult as f64,
-            };
+            pos.position_profit = pos.details.iter().map(|d| {
+                let basis = d.mark_basis(trading_day);
+                Position::detail_pnl(pos.side, basis, p, d.volume, mult)
+            }).sum();
             pos.settlement_price = p;
         }
         let mut sums: HashMap<AccountKey, f64> = HashMap::new();
@@ -1227,11 +1294,12 @@ mod tests {
     #[test]
     fn shfe_query_projection_splits_age_buckets_without_double_counting() {
         let mut p = Position::new("rb", PositionSide::Long);
-        p.yd_position = 2;
+        p.add_bootstrap_detail("20261002", "YD1", 10.0, 2, 40.0, 9.0, 1);
+        p.details.push(PositionDetail::new("20261003", "TD1", 11.0, 3, 60.0, 10.0));
         p.today_position = 3;
         p.open_volume = 5;
-        p.open_amount = 500.0;
-        p.position_cost = 450.0;
+        p.open_amount = 53.0;
+        p.position_cost = 49.0;
         p.margin = 100.0;
         p.commission = 10.0;
         p.frozen_today = 1;
@@ -1242,11 +1310,12 @@ mod tests {
         assert_eq!(rows[1].PositionDate, b'1');
         assert_eq!(rows[1].Position, 3);
         assert_eq!(rows.iter().map(|r| r.Position).sum::<i32>(), p.volume());
-        assert_eq!(rows.iter().map(|r| r.OpenVolume).sum::<i32>(), p.open_volume);
-        assert!((rows.iter().map(|r| r.OpenAmount).sum::<f64>() - p.open_amount).abs() < 1e-9);
+        assert_eq!(rows.iter().map(|r| r.OpenVolume).sum::<i32>(), 3);
+        assert!((rows.iter().map(|r| r.OpenAmount).sum::<f64>() - 33.0).abs() < 1e-9);
         assert!((rows.iter().map(|r| r.UseMargin).sum::<f64>() - p.margin).abs() < 1e-9);
-        assert_eq!(rows.iter().map(|r| r.LongFrozen).sum::<i32>(), p.frozen_today);
-        assert!(rows.iter().all(|r| r.YdPosition == 0));
+        assert_eq!(rows.iter().map(|r| r.ShortFrozen).sum::<i32>(), p.frozen_today);
+        assert_eq!(rows[0].YdPosition, 2);
+        assert_eq!(rows[1].YdPosition, 0);
     }
 
     #[test]
@@ -1351,12 +1420,12 @@ mod tests {
         let before = ledger.account("TEST", "alice").unwrap().used_margin;
         let prices = HashMap::from([("TESTA01".into(), 20.0)]);
         let previous = HashMap::from([("TESTA01".into(), 10.0)]);
-        ledger.mark_to_market(&catalog, &prices, &previous);
+        ledger.mark_to_market(&catalog, &prices, &previous, "20261003");
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, before);
         ledger.on_fill(&fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1), &catalog, 10.0, "20261003");
         let after_partial_close = ledger.account("TEST", "alice").unwrap().used_margin;
         assert!((after_partial_close - before * 2.0 / 3.0).abs() < 1e-9);
-        ledger.mark_to_market(&catalog, &HashMap::from([("TESTA01".into(), 30.0)]), &previous);
+        ledger.mark_to_market(&catalog, &HashMap::from([("TESTA01".into(), 30.0)]), &previous, "20261003");
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, after_partial_close);
         ledger.on_fill(&fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1), &catalog, 10.0, "20261003");
         let rows = ledger.product_group_margin("TEST", "alice", &catalog, "20261003");
