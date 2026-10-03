@@ -163,8 +163,9 @@ def prepare_scenario(workdir: str) -> str:
 
 def journal_file(journal_dir: str) -> str:
     files = sorted(f for f in os.listdir(journal_dir) if f.endswith(".jsonl"))
-    assert len(files) == 1, files
-    return os.path.join(journal_dir, files[0])
+    assert files, "没有 journal 文件"
+    # 启动墙钟日和回放交易日可能不同；不能假设只有一个文件。
+    return journal_dir
 
 
 def record_run(core: str, scenario: str, rundir: str) -> tuple[str, int]:
@@ -422,10 +423,9 @@ def main() -> int:
         # -- phase D: mutate a recorded request -> replay must diverge -------
         mutated = os.path.join(tmp, "mutated.jsonl")
         n_mut = 0
-        with open(jf1, "r", encoding="utf-8") as fin, \
-                open(mutated, "w", encoding="utf-8") as fout:
-            for line in fin:
-                ev = json.loads(line)
+        with open(mutated, "w", encoding="utf-8") as fout:
+            for original in events1:
+                ev = json.loads(json.dumps(original))
                 if ev.get("type") == "order_insert" and \
                         ev["data"].get("order_ref") == "D1A":
                     # 3504 crossed the (halved) ask and filled; a buy limit

@@ -75,6 +75,8 @@ constexpr uint16_t REQ_QRY_BROKER_TRADING_PARAMS = 0x1057;
 constexpr uint16_t RSP_QRY_BROKER_TRADING_PARAMS = 0x1058;
 constexpr uint16_t REQ_QRY_INVESTOR_POSITION_DETAIL = 0x1059;
 constexpr uint16_t RSP_QRY_INVESTOR_POSITION_DETAIL = 0x105A;
+constexpr uint16_t REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN = 0x105B;
+constexpr uint16_t RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN = 0x105C;
 }  // namespace msgs
 
 class ApiCore;  // completed at the bottom of this header

@@ -431,10 +431,11 @@ def run_book(td_port: int, admin_port: int, data_dir: str, scenario: str) -> Non
         assert feed.st("smoke005", "E2") == ["a", "3"], feed.log["smoke005"]
         assert feed.tr("smoke005", "E2") == [], feed.log["smoke005"]
         acct = E.qry_trading_account()
-        # Both estimates still frozen, one lot each. Deliberately NOT
-        # 3500 + 3501: the two limit prices differ but the margin basis does
-        # not move with them (昨结算), so the total is 2 x 3500 x 10 x 0.16.
-        assert close(acct["FrozenMargin"], 2 * RB_PRE_SETTLE * RB_MULT * RB_MARGIN, 1e-4), acct
+        # 随包 refdata 的 rb 大单边已启用：两侧挂单各一手，冻结取大。
+        # 仍以昨结算计价，不能把不同委托价当成不同保证金基数。
+        rule = E.qry_instrument(RB)[0]["MaxMarginSideAlgorithm"]
+        sides = 1 if rule == ord("1") else 2
+        assert close(acct["FrozenMargin"], sides * RB_PRE_SETTLE * RB_MULT * RB_MARGIN, 1e-4), acct
         print("[ok] self-trade prevention: same-account crossing skipped, both rest")
 
         for ref in ("E1", "E2"):

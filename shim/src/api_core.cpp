@@ -362,6 +362,7 @@ bool ApiCore::is_query_msg(uint16_t msg) {
         case msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE:
         case msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE:
         case msgs::REQ_QRY_BROKER_TRADING_PARAMS:
+        case msgs::REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN:
             return true;
         default:
             return false;

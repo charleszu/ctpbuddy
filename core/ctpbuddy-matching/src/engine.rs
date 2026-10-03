@@ -292,6 +292,7 @@ impl MatchingEngine {
         self.last_md.iter().map(|(k, t)| (k.clone(), t.last_price)).collect()
     }
 
+
     /// 每合约的昨结算价, straight off the tick stream. The ledger needs it
     /// because 昨仓保证金 is always charged against it (notes/04 C2) — a
     /// position that never sees this would be margined at zero.

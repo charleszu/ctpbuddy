@@ -387,10 +387,7 @@ int TraderApi::ReqQryEWarrantOffset(CThostFtdcQryEWarrantOffsetField *pQryEWarra
 }
 
 int TraderApi::ReqQryInvestorProductGroupMargin(CThostFtdcQryInvestorProductGroupMarginField *pQryInvestorProductGroupMargin, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorProductGroupMargin");
-    return 0;
+    return send_req<CThostFtdcQryInvestorProductGroupMarginField>(msgs::REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN, pQryInvestorProductGroupMargin, nRequestID);
 }
 
 int TraderApi::ReqQryExchangeMarginRate(CThostFtdcQryExchangeMarginRateField *pQryExchangeMarginRate, int nRequestID) {

@@ -524,6 +524,12 @@ impl RefData {
         self.instruments.get(id)
     }
 
+    pub fn product_margin_algorithm(&self, id: &str) -> bool {
+        self.instrument(id)
+            .map(|i| i.max_margin_side_algorithm == b'1')
+            .unwrap_or(false)
+    }
+
     pub fn margin_rate(&self, id: &str) -> Option<&MarginRate> {
         self.margin_rates.get(id)
     }

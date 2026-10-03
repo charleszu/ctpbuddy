@@ -77,6 +77,9 @@ def load_events(path: str) -> List[Dict[str, Any]]:
                 if not isinstance(ev, dict):
                     raise JournalError("%s:%d: event is not a JSON object" % (p, ln))
                 out.append(ev)
+    if os.path.isdir(path):
+        # 回放可以倒退交易日，文件名顺序不等于事件序号顺序。
+        out.sort(key=lambda ev: ev.get("seq", 0))
     return out
 
 

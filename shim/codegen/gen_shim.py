@@ -61,6 +61,7 @@ MSG = {
     "REQ_QRY_INSTRUMENT_ORDER_COMM_RATE": 0x1055, "RSP_QRY_INSTRUMENT_ORDER_COMM_RATE": 0x1056,
     "REQ_QRY_BROKER_TRADING_PARAMS": 0x1057, "RSP_QRY_BROKER_TRADING_PARAMS": 0x1058,
     "REQ_QRY_INVESTOR_POSITION_DETAIL": 0x1059, "RSP_QRY_INVESTOR_POSITION_DETAIL": 0x105A,
+    "REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN": 0x105B, "RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN": 0x105C,
     "QRY_LAST": 0x1050,
 }
 
@@ -76,6 +77,7 @@ TD_REQUESTS = {
     "ReqQryTradingAccount": ("REQ_QRY_TRADING_ACCOUNT", "CThostFtdcQryTradingAccountField"),
     "ReqQryInvestorPosition": ("REQ_QRY_INVESTOR_POSITION", "CThostFtdcQryInvestorPositionField"),
     "ReqQryInvestorPositionDetail": ("REQ_QRY_INVESTOR_POSITION_DETAIL", "CThostFtdcQryInvestorPositionDetailField"),
+    "ReqQryInvestorProductGroupMargin": ("REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN", "CThostFtdcQryInvestorProductGroupMarginField"),
     "ReqQryOrder": ("REQ_QRY_ORDER", "CThostFtdcQryOrderField"),
     "ReqQryTrade": ("REQ_QRY_TRADE", "CThostFtdcQryTradeField"),
     "ReqQryInstrumentMarginRate": ("REQ_QRY_INSTRUMENT_MARGIN_RATE", "CThostFtdcQryInstrumentMarginRateField"),
@@ -102,6 +104,7 @@ REQ_OF_RSP = {
     "RSP_QRY_TRADE": "REQ_QRY_TRADE",
     "RSP_QRY_INVESTOR_POSITION": "REQ_QRY_INVESTOR_POSITION",
     "RSP_QRY_INVESTOR_POSITION_DETAIL": "REQ_QRY_INVESTOR_POSITION_DETAIL",
+    "RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN": "REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN",
     "RSP_QRY_TRADING_ACCOUNT": "REQ_QRY_TRADING_ACCOUNT",
     "RSP_QRY_INSTRUMENT": "REQ_QRY_INSTRUMENT",
     "RSP_QRY_INSTRUMENT_MARGIN_RATE": "REQ_QRY_INSTRUMENT_MARGIN_RATE",
@@ -142,6 +145,7 @@ TD_DISPATCH = [
     ("qry", "RSP_QRY_TRADE", "CThostFtdcTradeField", "OnRspQryTrade", {}),
     ("qry", "RSP_QRY_INVESTOR_POSITION", "CThostFtdcInvestorPositionField", "OnRspQryInvestorPosition", {}),
     ("qry", "RSP_QRY_INVESTOR_POSITION_DETAIL", "CThostFtdcInvestorPositionDetailField", "OnRspQryInvestorPositionDetail", {}),
+    ("qry", "RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN", "CThostFtdcInvestorProductGroupMarginField", "OnRspQryInvestorProductGroupMargin", {}),
     ("qry", "RSP_QRY_TRADING_ACCOUNT", "CThostFtdcTradingAccountField", "OnRspQryTradingAccount", {}),
     ("qry", "RSP_QRY_INSTRUMENT", "CThostFtdcInstrumentField", "OnRspQryInstrument", {}),
     ("qry", "RSP_QRY_INSTRUMENT_MARGIN_RATE", "CThostFtdcInstrumentMarginRateField", "OnRspQryInstrumentMarginRate", {}),
@@ -553,8 +557,37 @@ def main():
     gen = os.path.join(src, "generated")
     os.makedirs(gen, exist_ok=True)
 
-    td_h = read_text(os.path.join(sdk, "td", "win64", "ThostFtdcTraderApi.h"))
-    md_h = read_text(os.path.join(sdk, "md", "win64", "ThostFtdcMdApi.h"))
+    td_path = os.path.join(sdk, "td", "win64", "ThostFtdcTraderApi.h")
+    md_path = os.path.join(sdk, "md", "win64", "ThostFtdcMdApi.h")
+    if not os.path.exists(td_path):
+        td_path = os.path.join(sdk, "ThostFtdcTraderApi.h")
+        md_path = os.path.join(sdk, "ThostFtdcMdApi.h")
+    td_h = read_text(td_path)
+    md_h = read_text(md_path)
+
+    # 新查询编号由本生成器同步，禁止手改生成的常量。
+    root = os.path.abspath(os.path.join(here, "..", ".."))
+    for rel, pattern, template in [
+        ("core/ctpbuddy-wire/src/msgs.rs", r"pub const (\w+): u16 = 0x([0-9A-Fa-f]+);", "pub const %s: u16 = 0x%04X;"),
+        ("shim/src/api_core.hpp", r"constexpr uint16_t (\w+) = 0x([0-9A-Fa-f]+);", "constexpr uint16_t %s = 0x%04X;"),
+        ("py/ctpbuddy/wire.py", r"^(\w+) = 0x([0-9A-Fa-f]+)", "%s = 0x%04X"),
+    ]:
+        path = os.path.join(root, rel)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        matches = list(re.finditer(pattern, text, re.M))
+        known = {m.group(1): int(m.group(2), 16) for m in matches}
+        if len(known) != len(matches):
+            raise SystemExit("消息常量重复: " + path)
+        for name, value in MSG.items():
+            if name in known and known[name] != value:
+                raise SystemExit("消息编号不一致: %s %s" % (path, name))
+        additions = [template % (name, value) for name, value in MSG.items() if name not in known]
+        if additions:
+            end = matches[-1].end()
+            text = text[:end] + "\n" + "\n".join(additions) + text[end:]
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
 
     td_body = API_CLASS_RE["td"].search(td_h)
     md_body = API_CLASS_RE["md"].search(md_h)

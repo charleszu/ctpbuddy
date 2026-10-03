@@ -42,6 +42,15 @@ pub(crate) fn next_conn_id() -> u64 {
     NEXT_CONN_ID.load(Ordering::SeqCst)
 }
 
+/// 报撤单流控的两条独立预算流（notes/14 §A.3-02：`ReqOrderInsert` 与
+/// `ReqOrderAction`「这两个函数流控是分开计算的」）。混做报撤的策略按流
+/// 各自受限，绝不是两者之和受限。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GateStream {
+    Insert,
+    Cancel,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub td_endpoint: String,
@@ -65,12 +74,15 @@ pub struct Config {
     /// ReqQry* budget per second. Exceeding it answers OnRspError[90]
     /// "CTP：查询未就绪，请稍后重试", same as a real front (front_se QryFreq).
     pub qry_freq: u32,
-    /// 报单流控 (DESIGN §8.3): per-(broker, investor) budget of order
-    /// inserts + cancels per second — the front-office side of CTP's
-    /// 【程序化交易频繁报撤单管理】. Exceeding it rejects the request
-    /// outright with "CTP:下单频率限制" (modern front-office behavior;
-    /// the 2009 FAQ era 6/s-queued-silently default is injectable for
-    /// testing legacy downstreams).
+    /// 报单流控 (DESIGN §8.3): per-(broker, investor) budget per second for
+    /// order inserts — and, counted **separately**, the same budget for
+    /// cancels. `ReqOrderInsert` and `ReqOrderAction` are two independent
+    /// streams (notes/14 §A.3-02「这两个函数流控是分开计算的」); a mixed
+    /// insert/cancel strategy is limited per stream, never by their sum.
+    /// Exceeding a stream rejects that request outright with
+    /// "CTP:下单频率限制" (modern front-office behavior; the 2009 FAQ era
+    /// 6/s-queued-silently default is injectable for testing legacy
+    /// downstreams).
     pub order_freq: u32,
 }
 
@@ -316,10 +328,11 @@ pub struct World {
     scenario_t0_ms: Option<f64>,
     /// Scenario assertions (DESIGN §7.4), one-shot at their virtual time.
     assertions: Vec<scenario::Assertion>,
-    /// 报单流控窗口 (DESIGN §8.3): per-(broker, investor) one-second
-    /// window counting order inserts + cancels. Wall-clock, exactly like
-    /// `qry_gate` — real CTP throttles on real time.
-    order_freq_windows: HashMap<(String, String), (Instant, u32)>,
+    /// 报单流控窗口 (DESIGN §8.3): per-(broker, investor, stream) one-second
+    /// window. Insert and cancel are **separate streams with separate
+    /// budgets** (notes/14 §A.3-02), so the key carries the stream. Wall
+    /// clock, exactly like `qry_gate` — real CTP throttles on real time.
+    order_freq_windows: HashMap<(String, String, GateStream), (Instant, u32)>,
     shutdown: bool,
 }
 
@@ -729,7 +742,7 @@ impl World {
                         field.SessionID,
                         cstr(&field.OrderRef)
                     );
-                    self.ledger.unfreeze_order(&key);
+                    self.ledger.unfreeze_order(&key, self.engine.catalog());
                 }
                 self.orders_today.push(field.clone());
                 let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));

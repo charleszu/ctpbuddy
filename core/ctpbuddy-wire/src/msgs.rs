@@ -83,3 +83,5 @@ pub const REQ_QRY_INVESTOR_POSITION_DETAIL: u16 = 0x1059;
 pub const RSP_QRY_INVESTOR_POSITION_DETAIL: u16 = 0x105A;
 /// Terminates every query stream (CTP's `bIsLast`).
 pub const QRY_LAST: u16 = 0x1050;
+pub const REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN: u16 = 0x105B;
+pub const RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN: u16 = 0x105C;

@@ -128,6 +128,8 @@ struct TdSpi : public CThostFtdcTraderSpi {
 
     std::vector<CThostFtdcTradingAccountField> qry_account;
     bool qry_account_last = false;
+    std::vector<CThostFtdcInvestorProductGroupMarginField> qry_product_margin;
+    bool qry_product_margin_last = false;
     std::vector<CThostFtdcInvestorPositionField> qry_position;
     bool qry_position_last = false;
     std::vector<CThostFtdcInstrumentField> qry_instrument;
@@ -242,6 +244,18 @@ struct TdSpi : public CThostFtdcTraderSpi {
         std::snprintf(buf, sizeof(buf), "RtnTrade %s %s %.0f x %d dir=%c offset=%c", p->TradeID, p->InstrumentID,
                       p->Price, p->Volume, p->Direction ? p->Direction : '?', p->OffsetFlag ? p->OffsetFlag : '?');
         note(buf);
+        sync.notify();
+    }
+
+    void OnRspQryInvestorProductGroupMargin(CThostFtdcInvestorProductGroupMarginField* p,
+        CThostFtdcRspInfoField* rsp, int, bool last) override {
+        std::lock_guard<std::mutex> g(sync.mu);
+        if (p) qry_product_margin.push_back(*p);
+        if (last) qry_product_margin_last = true;
+        if (rsp && rsp->ErrorID != 0) {
+            if (last && rsp->ErrorID == 90) qry_throttled = true;
+            else step_error = "品种保证金查询失败 " + std::to_string(rsp->ErrorID);
+        }
         sync.notify();
     }
 
@@ -577,6 +591,51 @@ void run(const char* front, const char* broker, const char* investor) {
             !close_double(a.Available, 2000000.0 - COMMISSION + unrealized_open - margin_open)) {
             throw DemoFail{std::string("account mismatch after open")};
         }
+    }
+
+    qry_with_retry(td_spi, "OnRspQryInvestorProductGroupMargin last",
+        [&] {
+            td_spi.qry_product_margin.clear();
+            td_spi.qry_product_margin_last = false;
+            td_spi.qry_throttled = false;
+        },
+        [&](int rid) {
+            CThostFtdcQryInvestorProductGroupMarginField q{};
+            put_cstr(q.BrokerID, sizeof(q.BrokerID), broker);
+            put_cstr(q.InvestorID, sizeof(q.InvestorID), investor);
+            put_cstr(q.ProductGroupID, sizeof(q.ProductGroupID), "rb");
+            td->ReqQryInvestorProductGroupMargin(&q, rid);
+        }, [&] { return td_spi.qry_product_margin_last; });
+    require_no_step_error(td_spi);
+    {
+        std::lock_guard<std::mutex> g(td_spi.sync.mu);
+        if (td_spi.qry_product_margin.size() != 1 ||
+            !close_double(td_spi.qry_product_margin[0].UseMargin, td_spi.qry_account[0].CurrMargin))
+            throw DemoFail{"品种保证金与 CurrMargin 不一致"};
+        td_spi.note("品种保证金查询经真实 shim 回调与 CurrMargin 一致");
+    }
+
+    // Empty query: the real shim must deliver OnRspQry*(nullptr, ..., true),
+    // not a zero-filled row. Filter to a product with no position.
+    qry_with_retry(td_spi, "empty OnRspQryInvestorProductGroupMargin last",
+        [&] {
+            td_spi.qry_product_margin.clear();
+            td_spi.qry_product_margin_last = false;
+            td_spi.qry_throttled = false;
+        },
+        [&](int rid) {
+            CThostFtdcQryInvestorProductGroupMarginField q{};
+            put_cstr(q.BrokerID, sizeof(q.BrokerID), broker);
+            put_cstr(q.InvestorID, sizeof(q.InvestorID), investor);
+            put_cstr(q.ProductGroupID, sizeof(q.ProductGroupID), "no-such-product");
+            td->ReqQryInvestorProductGroupMargin(&q, rid);
+        }, [&] { return td_spi.qry_product_margin_last; });
+    require_no_step_error(td_spi);
+    {
+        std::lock_guard<std::mutex> g(td_spi.sync.mu);
+        if (!td_spi.qry_product_margin.empty())
+            throw DemoFail{"empty product-margin query returned a zero-filled row"};
+        td_spi.note("空查询经真实 shim 回调 nullptr + bIsLast=true");
     }
 
     qry_with_retry(

@@ -34,6 +34,7 @@ use ctpbuddy_wire::generated::{
     CThostFtdcQryBrokerTradingParamsField, CThostFtdcQryInstrumentCommissionRateField,
     CThostFtdcQryInstrumentField, CThostFtdcQryInstrumentMarginRateField,
     CThostFtdcQryInvestorPositionDetailField,
+    CThostFtdcQryInvestorProductGroupMarginField,
     CThostFtdcQryInstrumentOrderCommRateField, CThostFtdcQryInvestorPositionField,
     CThostFtdcQryOrderField, CThostFtdcQryTradeField, CThostFtdcReqUserLoginField,
     CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
@@ -43,7 +44,7 @@ use ctpbuddy_wire::msgs;
 use ctpbuddy_wire::{struct_from_bytes, struct_to_bytes};
 
 use crate::json::{self, Value};
-use crate::{Frame, SERVER_NAME, SERVER_VERSION, World};
+use crate::{Frame, GateStream, SERVER_NAME, SERVER_VERSION, World};
 
 impl World {
     pub(crate) fn on_frame(&mut self, conn_id: u64, frame: Frame) {
@@ -83,6 +84,9 @@ impl World {
             }
             msgs::REQ_QRY_BROKER_TRADING_PARAMS => {
                 self.on_qry_broker_trading_params(conn_id, &frame)
+            }
+            msgs::REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN => {
+                self.on_qry_investor_product_group_margin(conn_id, &frame)
             }
             msgs::REQ_QRY_INVESTOR_POSITION_DETAIL => {
                 self.on_qry_investor_position_detail(conn_id, &frame)
@@ -482,11 +486,13 @@ impl World {
             session_id,
         };
 
-        // 报单流控 (§8.3): the front-office per-investor每秒报撤 budget.
+        // 报单流控 (§8.3): the front-office per-investor每秒报单 budget —
+        // inserts are their own stream, separate from cancels (notes/14
+        // §A.3-02「这两个函数流控是分开计算的」).
         // Placed after the local field validation (a malformed order is a
         // field error, not a frequency one) and before any risk check —
         // an over-budget order never reaches the engine or the ledger.
-        if !self.order_gate(&broker, &investor) {
+        if !self.order_gate(&broker, &investor, GateStream::Insert) {
             self.journal_rejected_order(&broker, &investor, &intent, ERR_ORDER_FREQ, "CTP:下单频率限制");
             return self.send_error(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
         }
@@ -550,10 +556,10 @@ impl World {
         let est_comm = catalog.estimated_commission(&instrument, price_est, input.VolumeTotalOriginal);
         if let Err(code) = self
             .ledger
-            .freeze(&order_key, &broker, &investor, est_margin, est_comm)
+            .freeze(&order_key, &broker, &investor, &instrument, PositionSide::of(direction), est_margin, est_comm, catalog)
         {
             // roll back the position reservation made above (close path)
-            self.ledger.unfreeze_order(&order_key);
+            self.ledger.unfreeze_order(&order_key, self.engine.catalog());
             let msg = if code == ERR_FUNDS { "CTP:资金不足" } else { "报单被拒绝" };
             self.journal_rejected_order(&broker, &investor, &intent, code, msg);
             return self.send_error(conn_id, frame.req_id, code, msg);
@@ -568,7 +574,7 @@ impl World {
         let outcome = self.engine.submit(&intent, &ctx);
         match outcome {
             SubmitOutcome::Rejected { error_id, msg } => {
-                self.ledger.unfreeze_order(&order_key);
+                self.ledger.unfreeze_order(&order_key, self.engine.catalog());
                 self.journal_rejected_order(&broker, &investor, &intent, error_id, &msg);
                 self.reject_insert(conn_id, frame.req_id, error_id, &msg, &frame.payload);
             }
@@ -696,9 +702,10 @@ impl World {
             instrument_id: cstr(&action.InstrumentID),
         };
 
-        // 报单流控 (§8.3): 报单与撤单共用同一每秒预算。撤单侧超限的显式
+        // 报单流控 (§8.3): 撤单是与报单**分开计算**的独立预算流（notes/14
+        // §A.3-02），混做报撤的策略不会被对方的流量挤占。撤单侧超限的显式
         // 症状正是文档口径的 OnRspOrderAction「CTP:下单频率限制」。
-        if !self.order_gate(&broker, &investor) {
+        if !self.order_gate(&broker, &investor, GateStream::Cancel) {
             self.journal_cancel_rejected(&broker, &investor, &q, ERR_ORDER_FREQ, "CTP:下单频率限制");
             // 撤单拒绝双面（官方报单回调规则 场景 6/7：先响应后回报）：
             // OnRspOrderAction（RSP_ERROR 完成挂起请求）紧接
@@ -711,6 +718,18 @@ impl World {
                 "CTP:下单频率限制",
                 &frame.payload,
             );
+        }
+
+        // SDK ReqOrderAction：两条定位路线均必填合约；sysid 路线还必填交易所。
+        // 错误码使用 error.xml 的 BAD_ORDER_ACTION_FIELD，而非报单字段错误 15。
+        if q.instrument_id.is_empty()
+            || (!q.order_sys_id.is_empty() && cstr(&action.ExchangeID).is_empty())
+        {
+            let code = 23; // BAD_ORDER_ACTION_FIELD
+            let msg = "CTP:错误的报单操作字段";
+            self.journal_cancel_rejected(&broker, &investor, &q, code, msg);
+            self.send_error(conn_id, frame.req_id, code, msg);
+            return self.send_err_rtn_action(conn_id, frame.req_id, code, msg, &frame.payload);
         }
 
         let (day, now) = self.clock_owned();
@@ -876,8 +895,11 @@ impl World {
     }
 
     /// 报单流控 (DESIGN §8.3, docs: 报单流控、查询流控和会话数控制):
-    /// per-(broker, investor) budget of order inserts + cancels per second,
-    /// the front-office half of CTP's 【程序化交易频繁报撤单管理】.
+    /// per-(broker, investor) budget per second, **one budget per stream** —
+    /// `ReqOrderInsert` and `ReqOrderAction` are counted separately
+    /// (notes/14 §A.3-02「这两个函数流控是分开计算的」), so a mixed
+    /// insert/cancel strategy is limited per stream, never by their sum.
+    /// This is the front-office half of CTP's 【程序化交易频繁报撤单管理】.
     ///
     /// Over-budget requests are rejected **outright** with
     /// 「CTP:下单频率限制」 — the modern front-office behavior (contrast the
@@ -892,12 +914,12 @@ impl World {
     /// when the replay reproduces the recording's pacing.
     ///
     /// Returns true when the request may proceed.
-    fn order_gate(&mut self, broker: &str, investor: &str) -> bool {
+    fn order_gate(&mut self, broker: &str, investor: &str, stream: GateStream) -> bool {
         let now = Instant::now();
         let quota = self.cfg.order_freq.max(1);
         let entry = self
             .order_freq_windows
-            .entry((broker.to_string(), investor.to_string()))
+            .entry((broker.to_string(), investor.to_string(), stream))
             .or_insert((now, 0));
         let used = if now.duration_since(entry.0) < Duration::from_secs(1) {
             entry.1 += 1;
@@ -1000,8 +1022,9 @@ impl World {
                     .get(&p.instrument_id)
                     .map(|i| i.volume_multiple)
                     .unwrap_or(1);
-                p.to_field(&broker, &investor, &ex, &day, mult)
+                p.to_query_fields(&broker, &investor, &ex, &day, mult)
             })
+            .flatten()
             .collect();
         for f in &positions {
             self.send_frame(
@@ -1317,6 +1340,29 @@ impl World {
             msgs::RSP_QRY_INSTRUMENT_ORDER_COMM_RATE,
             rows,
         );
+    }
+
+    fn on_qry_investor_product_group_margin(&mut self, conn_id: u64, frame: &Frame) {
+        if !self.qry_gate(conn_id, frame.req_id) { return; }
+        let (broker, investor) = match self.session(conn_id) {
+            Some(v) => (v.0, v.1),
+            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        };
+        let q: CThostFtdcQryInvestorProductGroupMarginField = struct_from_bytes(&frame.payload)
+            .unwrap_or_else(CThostFtdcQryInvestorProductGroupMarginField::zeroed);
+        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
+            return self.send_qry_empty(conn_id, frame.req_id);
+        }
+        if cstr(&q.BrokerID) != broker || cstr(&q.InvestorID) != investor {
+            return self.send_qry_empty(conn_id, frame.req_id);
+        }
+        // 官方查询页：ExchangeID/InvestUnitID 不是过滤条件，HedgeFlag 不需要填写。
+        self.mark_to_market_now();
+        let filter = cstr(&q.ProductGroupID);
+        let day = self.clock_owned().0;
+        let rows = self.ledger.product_group_margin(&broker, &investor, self.engine.catalog(), &day)
+            .into_iter().filter(|f| filter.is_empty() || cstr(&f.ProductGroupID) == filter).collect();
+        self.send_rate_rows(conn_id, frame.req_id, msgs::RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN, rows);
     }
 
     fn on_qry_broker_trading_params(&mut self, conn_id: u64, frame: &Frame) {

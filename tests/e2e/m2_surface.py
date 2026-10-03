@@ -211,7 +211,47 @@ def run(td_port: int, admin_port: int, scenario: str) -> None:
         print("[ok] insert 165: OnRspOrderInsert{0} then OnErrRtnOrderInsert "
               "(echoes OrderRef X1)")
 
-        # -- C. cancel refuse: BOTH halves, response first -------------------
+        # -- C1. cancel action field: missing InstrumentID -> BOTH halves -----
+        new_window()
+        cli.clear_late()
+        try:
+            cli.order_action("", order_ref="NOPE7777")
+            raise AssertionError("cancel without InstrumentID must be refused")
+        except CTPError as e:
+            assert e.error_id == 23, e  # BAD_ORDER_ACTION_FIELD from error.xml
+            assert e.kind == "RSP_ERROR", e   # OnRspOrderAction first
+            assert e.msg == "CTP:错误的报单操作字段", e
+        late = cli.wait_late(ERR_RTN_ORDER_ACTION)
+        assert late is not None, "invalid cancel must also push OnErrRtnOrderAction"
+        info = rsp_info_of(late.payload)
+        assert info["ErrorID"] == 23, info
+        assert info["ErrorMsg"] == "CTP:错误的报单操作字段", info
+        echoed = input_field_of(late, "CThostFtdcInputOrderActionField")
+        assert echoed["OrderRef"] == "NOPE7777", echoed
+        assert echoed["InstrumentID"] == "", echoed
+        print("[ok] cancel 23 missing InstrumentID: OnRspOrderAction then "
+              "OnErrRtnOrderAction")
+
+        # -- C2. sysid route: ExchangeID is also mandatory --------------------
+        new_window()
+        cli.clear_late()
+        try:
+            cli.order_action(RB, order_ref="", order_sys_id="0000000999", exchange="")
+            raise AssertionError("sysid cancel without ExchangeID must be refused")
+        except CTPError as e:
+            assert e.error_id == 23, e
+            assert e.kind == "RSP_ERROR", e
+            assert e.msg == "CTP:错误的报单操作字段", e
+        late = cli.wait_late(ERR_RTN_ORDER_ACTION)
+        assert late is not None, "invalid sysid cancel must also push OnErrRtnOrderAction"
+        info = rsp_info_of(late.payload)
+        assert info["ErrorID"] == 23, info
+        echoed = input_field_of(late, "CThostFtdcInputOrderActionField")
+        assert echoed["OrderSysID"] == "0000000999", echoed
+        assert echoed["ExchangeID"] == "", echoed
+        print("[ok] cancel 23 sysid route missing ExchangeID: both surfaces")
+
+        # -- C3. cancel refuse: BOTH halves, response first -------------------
         new_window()
         cli.clear_late()
         try:

@@ -5,10 +5,13 @@ Runs the real Rust `ctpbuddy-server` against the real wire protocol in two
 phases, each with its own server + data dir + journal:
 
 Phase 1 (``--order-freq 2``) — the front-office per-(broker, investor)
-insert+cancel budget (DESIGN §8.3, LK 流控文档):
+order-flow budget (DESIGN §8.3, LK 流控文档 / notes/14 §A.3-02):
 - the third of three back-to-back inserts is rejected with the official
   ``116 ORDER_FREQ_LIMIT`` "CTP:下单频率限制";
-- insert and cancel share the same per-second budget;
+- insert and cancel are **separate streams with separate budgets**
+  (官方口径「这两个函数流控是分开计算的」): with the insert budget spent,
+  two cancels still pass, and vice versa — a mixed insert/cancel strategy
+  is limited per stream, never by their sum;
 - the budget is keyed per (broker, investor): one investor's exhausted
   window never blocks another's;
 - the wall-clock window recovers after ~1s;
@@ -274,7 +277,7 @@ def login_all(td_port: int, investors) -> dict:
 
 
 def phase1(core: str, root: str, scenario: str) -> None:
-    """报单流控：--order-freq 2 下的插入/撤单共享预算与恢复."""
+    """报单流控：--order-freq 2 下报/撤两条独立预算流与恢复."""
     srv = Server(core, root, "freq", order_freq=2)
     try:
         admin = srv.admin()
@@ -284,7 +287,7 @@ def phase1(core: str, root: str, scenario: str) -> None:
         clients = login_all(srv.td_port, P1)
         A, B = clients["freq001"], clients["freq002"]
         try:
-            # (a) insert side: three in a row — the third is over budget.
+            # (a) insert stream: three in a row — the third is over budget.
             # A resting buy parks (3497 is below every ask), no market data
             # needed while playback is paused.
             A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
@@ -308,46 +311,44 @@ def phase1(core: str, root: str, scenario: str) -> None:
                            exchange="SHFE", order_ref="F4")
             print("[ok] after ~1s the per-(broker,investor) window recovers")
 
-            # (c) insert + cancel share the budget: on a fresh window 1 insert
-            # + 1 cancel spend it, the next insert is rejected.
+            # (c) insert and cancel are separate streams (notes/14 §A.3-02
+            # 「这两个函数流控是分开计算的」). On a fresh window: two inserts
+            # spend the insert budget, yet both cancels still pass (their own
+            # budget); then each stream's own third request is rejected.
             time.sleep(1.05)
             A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
                            exchange="SHFE", order_ref="F5")
-            A.order_action(RB, order_ref="F5")
+            A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
+                           exchange="SHFE", order_ref="F6")
+            A.order_action(RB, order_ref="F5")   # cancel 1/2 — insert budget is spent
+            A.order_action(RB, order_ref="F6")   # cancel 2/2
+            print("[ok] cancels pass while the insert budget is spent: separate streams")
             try:
                 A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
-                               exchange="SHFE", order_ref="F6")
-                raise AssertionError("insert after insert+cancel accepted")
+                               exchange="SHFE", order_ref="F7")
+                raise AssertionError("third insert of the window accepted")
             except CTPError as e:
                 assert e.error_id == ERR_FREQ, e
                 assert FREQ_MSG in e.msg, e
-            print("[ok] cancel spends the same per-second budget as insert")
-
-            # (d) cancel side: two inserts + one cancel — the cancel is the
-            # over-budget request and is rejected (文档口径 OnRspOrderAction).
-            time.sleep(1.05)
-            A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
-                           exchange="SHFE", order_ref="F7")
-            A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
-                           exchange="SHFE", order_ref="F8")
             try:
-                A.order_action(RB, order_ref="F7")
-                raise AssertionError("over-budget cancel accepted")
+                A.order_action(RB, order_ref="F4")
+                raise AssertionError("third cancel of the window accepted")
             except CTPError as e:
                 assert e.error_id == ERR_FREQ, e
                 assert FREQ_MSG in e.msg, e
-            print("[ok] over-budget cancel rejected the same way (ErrorID %d)" % ERR_FREQ)
+            print("[ok] each stream caps at its own quota (3rd insert + 3rd cancel rejected)")
 
-            # (e) per-investor isolation: B's window is intact while A's is
-            # exhausted.
+            # (d) per-investor isolation: B's windows are intact while A's
+            # are exhausted.
             B.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
                            exchange="SHFE", order_ref="G1")
             print("[ok] the budget is keyed per (broker, investor): B unaffected")
 
-            # (f) recovery once more, so the flow ends clean.
+            # (e) recovery once more for both streams, so the flow ends clean.
             time.sleep(1.05)
             A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
                            exchange="SHFE", order_ref="F9")
+            A.order_action(RB, order_ref="F1")
         finally:
             for cli in clients.values():
                 cli.close()
@@ -364,24 +365,31 @@ def phase1(core: str, root: str, scenario: str) -> None:
             e for e in events
             if e["type"] == "order_cancel" and e["data"]["submit_status"] == "5"
         ]
-        # F3 (a) and F6 (c) rejected inserts; F7's cancel (d) rejected
+        # F3 (a) and F7 (c) rejected inserts; F4's cancel (c) rejected
         assert len(rej_inserts) == 2, rej_inserts
         assert len(rej_cancels) == 1, rej_cancels
         assert {e["data"]["outcome"]["error_id"] for e in rej_inserts} == {ERR_FREQ}
         assert {e["data"]["outcome"]["error_id"] for e in rej_cancels} == {ERR_FREQ}
         assert all(e["data"]["outcome"]["accepted"] is False for e in rej_inserts + rej_cancels)
-        assert {e["data"]["order_ref"] for e in rej_inserts} == {"F3", "F6"}, rej_inserts
-        assert rej_cancels[0]["data"]["order_ref"] == "F7", rej_cancels
+        assert {e["data"]["order_ref"] for e in rej_inserts} == {"F3", "F7"}, rej_inserts
+        assert rej_cancels[0]["data"]["order_ref"] == "F4", rej_cancels
         # every accepted insert keeps the '0' 报单已提交 status
         ok_inserts = [
             e for e in events
             if e["type"] == "order_insert" and e["data"]["submit_status"] != "4"
         ]
-        assert len(ok_inserts) == 8, ok_inserts  # F1 F2 F4 F5 F7 F8 F9 + G1 (investor 2)
+        # F1 F2 F4 F5 F6 F9 + G1 (investor 2)
+        assert len(ok_inserts) == 7, ok_inserts
         assert all(e["data"]["outcome"]["accepted"] is True for e in ok_inserts)
-        print("[ok] journal: %d accepted + %d rejected inserts, %d rejected cancels, "
-              "submit_status '4'/'5' + outcome recorded"
-              % (len(ok_inserts), len(rej_inserts), len(rej_cancels)))
+        # accepted cancels journal '3' (已经接受): F5 F6 (c) + F1 (e)
+        ok_cancels = [
+            e for e in events
+            if e["type"] == "order_cancel" and e["data"]["submit_status"] == "3"
+        ]
+        assert {e["data"]["order_ref"] for e in ok_cancels} == {"F5", "F6", "F1"}, ok_cancels
+        print("[ok] journal: %d accepted + %d rejected inserts, %d accepted + "
+              "%d rejected cancels, submit_status '3'/'4'/'5' + outcome recorded"
+              % (len(ok_inserts), len(rej_inserts), len(ok_cancels), len(rej_cancels)))
     finally:
         srv.shutdown()
 

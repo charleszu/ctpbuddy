@@ -432,7 +432,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - 持仓维护 `InvestorPosition` + `InvestorPositionDetail`：昨仓 / 今仓分开，平仓严格区分**平昨 / 平今**（上期所平今手续费更高、大商所平今单独、中金/郑商所无区分但费率表不同）——全部走**规则表按交易所配置**，字段含 CloseToday/CloseYesterday 分开统计；`YdPosition = Position − TodayPosition`；持仓明细单条 = (OpenDate, TradeID, Direction, OpenPrice, Volume, Margin, ...)，按 (OpenDate, TradeID) 排序实现**先开先平**；
 - **先开先平与今/昨是两个正交的轴，不可混为一谈**（M3 修正）：消耗明细的顺序**只按开仓时间**（先开先平）；`平今`/`平昨` 决定的是**可以动哪个年龄桶**，不是允许跳到最新那笔。若把「平今」实现成「今仓优先取最新」，会按错的口径结盈亏并破坏先开先平的保证——客户端靠后者复现柜台持仓。实现见 `Position::take_details_filtered`；
 - **平仓盈亏按明细算**：昨仓明细持仓价 = **昨结算价**、今仓明细持仓价 = **开仓价**——顺序错了盈亏就算错（算例见 notes/04 E2）；持仓盈亏（浮动）多头 `(最新价−持仓均价)×乘数×手数`，空头反向；
-- 保证金：期货 `(MarginRatioByVolume + MarginRatioByMoney × Price × VolumeMultiple) × Volume`；**实际计算用公司保证金率**（`ReqQryInstrumentMarginRate` 口径，即最终费率）；`ReqQryInstrument` 返回的是交易所率，仅展示不用；**MarginPriceType** 四值（昨仓恒用昨结算价；今仓按公司配置：昨结'1'/最新'2'/成交均价'3'/开仓价'4'——只有最新价/成交均价模式下今仓保证金随行情波动）；市价单冻结按涨跌停价；期权保证金归纳式 `MAX(权利金+不变部分, 最小保证金)` 预留扩展位；优惠（品种内大单边、跨品种大单边、套利取高）**❌ 尚未实现**——`used_margin` 仍为逐笔相加，见 §8.7.2；
+- 保证金：期货 `(MarginRatioByVolume + MarginRatioByMoney × Price × VolumeMultiple) × Volume`；**实际计算用公司保证金率**（`ReqQryInstrumentMarginRate` 口径，即最终费率）；`ReqQryInstrument` 返回的是交易所率，仅展示不用；**MarginPriceType** 四值（昨仓恒用昨结算价；今仓按公司配置：昨结'1'/最新'2'/成交均价'3'/开仓价'4'）；市价单冻结按既有冻结估算口径；期权保证金归纳式 `MAX(权利金+不变部分, 最小保证金)` 预留扩展位；**品种内大单边已实现**：由用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按交易所 + `ProductID` 聚合，多空取大，未启用优惠的合约保持求和；跨品种映射、套利取高、仓单折抵仍未实现，见 §8.7.2；
 - 手续费：`成交量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`，开仓/平仓/平今各一套费率；**申报费**（OrderCommRate，中金所特有）：报单+撤单都计，FAK/FOK 的自动撤单也计（一次 FAK/FOK = 2 次信息量），盘中实时资金不含申报费、只体现在结算单；
 - 浮动盈亏、风险度（CurMargin/Balance）随行情实时更新（mark-on-read，见 §8.8）；
 - 出入金 / 账户重置经 Web 后台与 ADMIN 帧操作，全部入审计日志。
@@ -478,11 +478,17 @@ assertions:             # 可选：场景内断言（CI 用）
 | 结算单可用资金 | `可用资金 = 客户权益 − 保证金占用` | 逐份精确成立 |
 | 盯市盈亏 | `持仓盯市盈亏 = Σ 逐笔明细盯市盈亏`（**不是**均价 × 手数） | 逐行通过；这是账本必须持明细的直接原因 |
 | 平仓盈亏口径 | 昨仓明细按**昨结算价**、今仓明细按**开仓价**（notes/04 E2） | IH2501 买1 手：昨结 2607.2、成交 2616.4 → (2607.2−2616.4)×300 = **−2760.00**，与结算单一致；按开仓价 2626.2 会得 −2940 |
-| 保证金优惠（大单边） | 对锁合约 `保证金占用 = max(多头保证金, 空头保证金)`，非二者相加 | **64/64 行通过**（其中 **56 行对锁**、8 行单边）。**⚠️ 账本未实现**，见 §8.6.2 |
+| 保证金优惠（大单边） | 仅由 `Instrument.MaxMarginSideAlgorithm` 打开时，按同交易所/同 ProductID 的多空取大；关闭时按合约求和 | **64/64 行通过**；账本、冻结/成交/撤单、mark-to-market 与 `ReqQryInvestorProductGroupMargin` 共用 `Ledger::product_group_margin`；跨品种规则因官方字段缺少成员映射仍明确不支持 |
 
 **结算单目录必须递归遍历**：`ctp_settlement/` 除顶层 773 份外还有 `2024/` 子目录 **210 份**（文件名与顶层不重叠，2024-08-30…2024-12-30，其中 61 份含持仓、35 行期货持仓）。审计脚本原先用 `os.listdir` 完全没看到它们，改为 `os.walk` 后结算单恒等式覆盖从 770 → **976** 行。**教训**：审计脚本自身的取样方式也是被审计对象的一部分——"全绿"的行数必须显式打印出来，否则一次静默的取样收窄就能让断言看起来比实际更强。
 
-#### 8.7.2 保证金优惠：账本最大的数值偏差（M3 复核发现，2026-10-03）
+#### 8.7.2 保证金优惠：历史复核与当前实现（2026-10-03）
+
+**当前状态**：品种内大单边和 `ReqQryInvestorProductGroupMargin` 已接线。规则仅由用户 RefData 的 `MaxMarginSideAlgorithm == '1'` 控制，不按交易所硬编码，也不默认全品种取大。共享聚合键为 broker/investor/exchange/ProductID；未启用优惠的合约独立求和。冻结按包含全部待成交开仓订单后的占用增量计算，部分成交/撤单后重算；平仓切换大边后账本与查询保持一致。行情只更新持仓盈亏，不重估已入账保证金；查询遵循官方页 BrokerID/InvestorID/ProductGroupID 过滤，其他字段不作为过滤条件。四处消息常量由 `gen_shim.py` 同步生成，SDK 提供 `qry_investor_product_group_margin`。
+
+**边界**：现有官方字段无跨品种成员关系，IF/IH/IC/IM 不会凭名称抵消；组合套利、仓单折抵及套保/投资单元账本仍待独立建模。RefData 当前费率表仍按合约索引、交易参数仍单行，尚不支持同合约多账户差异费率；分组的账户隔离不能误写成已支持多账户费率选取。以下保留历史复核证据和源引用，不代表当前仍未实现。
+
+**验证**：Rust 全工作区 **30/30**（原 24 + 6 账本回归）；服务器/真实 shim e2e **11/11**（原 10 + `tests/e2e/m3_margin.py`）。新 fixture 明确虚构，覆盖跨合约、异品种/账户/交易所隔离、规则关闭/混合、非对称、部分成交/累计挂单/撤单、平仓切边、四种价格模式及 CurrMargin 一致；新 e2e 通过 `wait_idx` 同步 tick。真实 shim demo 验证新查询 SPI 回调。全量回归同时修正 `m2_book` 的旧双边冻结和成交价基数断言；跨日日志目录按事件 seq 读取，`m2_journal` 不再假定单文件。
 
 DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨品种大单边、套利取高）按规则表配置"，**这句话被误读成已实现**。复核发现：核心只把 `MaxMarginSideAlgorithm` 建模为合约字段并原样回 `ReqQryInstrument`，账本 `used_margin` 是**逐笔明细直接相加**（`ctpbuddy-ledger` 无任何抵消步骤），`ReqQryInvestorProductGroupMargin` 也未接线。
 
@@ -496,7 +502,7 @@ DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨�
 | 汇总/明细比值分布 | 仅 `0.5` 与 `0.6667` 两种，正是多空 imbalance 程度的直接反映 |
 | 单边持仓的 8 行 | 恒等于明细之和（两种算法在此重合） |
 
-**后果**：真实账户长期持有对锁仓位，柜台按单边收，CTPBuddy 在 1:1 对锁时会算出**2 倍** `CurrMargin`（进而错报 `Available` 与 `风险度`）。这解释了为何 `audit_detail_pnl` 早前只在 8 行上通过——不是账本对，而是那 8 行恰好都是单边持仓，多空共存的行被 `continue` 跳过了（汇总行把多空盈亏混成一个数，该断言无从比较）。新断言 `audit_hedged_margin` 不受此限，64/64 全绿，成为补齐该缺口的量尺。
+**历史后果**：在修复前，真实账户长期持有对锁仓位时，柜台按单边收，CTPBuddy 在 1:1 对锁下会算出**2 倍** `CurrMargin`（进而错报 `Available` 与 `风险度`）。这也解释了为何 `audit_detail_pnl` 早前只在 8 行上通过——不是账本当时已对，而是那 8 行恰好都是单边持仓。品种内聚合修复后，`audit_hedged_margin` 继续作为 64/64 的防回归量尺。
 
 **补齐时必须同时做三件事**（缺一件就违反"一份数据两处消费"）：
 1. 账本加一层"按 `(品种, 方向)` 分组、多空取大"的聚合。P5 明确分组键是**品种**（`au2102` 多 + `au2106` 空也抵消），不是合约——实现前需按品种重排聚合层级。
@@ -590,7 +596,7 @@ DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨�
 
 实测口径（`tests/e2e/m2_flow.py`，双服务器：Phase 1 `--order-freq 2` 频控 + Phase 2 高预算状态机，18 项断言 + 双 journal 核对）：
 
-- **报单流控闸门**（`handlers.rs::order_gate`，§8.3/§8.8 表格「报单流控」行落地）：每 `(broker, investor)` 每秒预算（`--order-freq`，默认 20），**报单与撤单共享同一预算**，墙钟 1s 窗口（与 `qry_gate` 同构——真实 CTP 按真实时间限流）；闸门位于本地字段校验之后、任何风控/引擎之前——超限报单永不进引擎与账本。超限拒绝码 **`116 ORDER_FREQ_LIMIT`「CTP:下单频率限制」**（历史误用 91，91 实为 `EXCHANGE_RTNERROR`，保留给交易所侧拒绝转发）；撤单侧同码（文档口径 `OnRspOrderAction`）。窗口过期即恢复（墙钟，重放确定性要求驱动复刻录制 pacing）。
+- **报单流控闸门**（`handlers.rs::order_gate`，§8.3/§8.8 表格「报单流控」行落地）：每 `(broker, investor)` 每秒预算（`--order-freq`，默认 20），**报单与撤单是两条分开计算的独立预算流**（notes/14 §A.3-02「这两个函数流控是分开计算的」——混做报撤的策略按流各自受限，绝不是两者之和受限），墙钟 1s 窗口（与 `qry_gate` 同构——真实 CTP 按真实时间限流）；闸门位于本地字段校验之后、任何风控/引擎之前——超限报单永不进引擎与账本。超限拒绝码 **`116 ORDER_FREQ_LIMIT`「CTP:下单频率限制」**（历史误用 91，91 实为 `EXCHANGE_RTNERROR`，保留给交易所侧拒绝转发）；撤单侧同码（文档口径 `OnRspOrderAction`）。窗口过期即恢复（墙钟，重放确定性要求驱动复刻录制 pacing）。
 - **OrderSubmitStatus 七态细化**：初始 'a' 推送 OSS '0'（报单已提交），其后所有行 '3'（已经接受）；指令级 '1'/'4'/'5'/'2'/'6' 由 journal 的 `submit_status` 承载——**接受的报单记 '0'、拒付的报单 '4'、接受的撤单 '3'、拒付的撤单 '5'**（M2-4 起 accepted insert 也落 '0'，指令级生命周期在 journal 中完整闭环）。
 - **大商所特例三处**（notes/01 B3，全部对齐官方）：① 每个进簿报单先返未成交 '3'（即使立即成交，IOC 类从不入簿、无此 '3'）；② 全部成交时 CTP 自补全部成交回报且**不重复前态**（部分成交仍守「前态+新态」一般规则）；③ ExchangeID 留空的报单从合约目录回填后才能命中上述按所规则（回填在前、特例判定在后，客户端留空 ExchangeID 不丧失大商所语义）。
 - **官方错误码全集对账**（error.xml 299 条，可读表见 [`docs/错误码全集.md`](docs/错误码全集.md)；官方 API 接口说明全量 HTML 版见 [`docs/api-doc-html/`](docs/api-doc-html/)）：核心 12 常量按官方逐条重写（11/12 原值错误，freq 91→116、资金 50→31、未知合约 22→16、涨跌停 33→163、非最小变动价位 34→165、数量不规范 48→164、重复报单 22 保留、平今不足 50、平仓超量 30、找不到报单 25、状态不当 26、字段有误 40→15）；API 负数返回码（-1/-2/-3）error.xml 不含、照 API 文档录。**新增 148 `EXCHANGE_ID_IS_INVALID`**（合约与 ExchangeID 不符，原误用 22）。
@@ -918,7 +924,7 @@ CREATE TABLE audit_log (
 | M2-1 限价簿撮合引擎（价格/时间优先 + 单 vs 单） | ✅ 2026-10-02 | engine.rs 簿结构 + FAK/FOK + 自成交预防 + 双份 Trade + 冻结闭环；口径入 §8.10；`m2_book.py` 16 断言全绿 + M1 双套件回归 |
 | M2-2 场景 DSL 管道与播放控制 | ✅ 2026-10-02 | scenario.py（stdlib YAML 子集 + 归一化/校验 + compile 缓存）、transform.rs（freeze/gap/liquidity，4 测）、server scenario.rs（spec 解析 + one-shot 断言，5 测）、ADMIN seek/loop + start_scenario 内联 spec、CLI `replay`/`scenario compile|validate`、`scenarios/dsl_demo/`；`m2_scenario.py` e2e 全绿（transforms/accounts/断言/journal/seek/loop）+ M2-1 与 M1 三套件回归 |
 | M2-3 journal 录制/重放与确定性 hash 校验 | ✅ 2026-10-02 | journal.py（canonical/full+core hash/verify）、replay.py（trace-following 重放驱动，§11.2）、CLI `journal hash|show|verify|replay`、SDK `order_action` 按 sys_id 撤单、服务端 order_insert 载荷增补（TC/VC/MinVolume/exchange…）；三处确定性修复：启动 vt 归零（不取墙上时钟）、脉冲改真定时器（不被请求流量饿死）、status 暴露 `next_conn_id` + 驱动重试式连接（瞬态探测连接会使 front_id 漂移）；`m2_journal.py` e2e 全绿：双跑 full hash 一致、重放 core hash 三相相等、变异负对照（D1A 限价改至 ask 之下 → 行为分歧） |
-| M2-4 报单流控规则表 + 订单状态机与回报时序 | ✅ 2026-10-03 | `order_gate` 每 (broker, investor) 每秒报撤共享预算（`--order-freq`，墙钟 1s 窗口，超限 116「CTP:下单频率限制」）；OSS 七态细化（journal submit_status '0'/'3'/'4'/'5' 指令级闭环）；大商所自补全部成交特例 + 进簿必返 '3' + ExchangeID 回填保按所规则；官方错误码全集对账（error.xml 299 条，核心 12 常量 11 个修正 + 新增 148）；`m2_flow.py` 双服务器 18 断言全绿 + 全量回归（cargo 9 测 + m1/m2 四套件）；口径入 §8.11 |
+| M2-4 报单流控规则表 + 订单状态机与回报时序 | ✅ 2026-10-03 | `order_gate` 每 (broker, investor) 每秒预算、**报/撤两条独立流分开计算**（`--order-freq`，墙钟 1s 窗口，超限 116「CTP:下单频率限制」；2026-10-03 按 notes/14 §A.3-02 由共享预算修正）；OSS 七态细化（journal submit_status '0'/'3'/'4'/'5' 指令级闭环）；大商所自补全部成交特例 + 进簿必返 '3' + ExchangeID 回填保按所规则；官方错误码全集对账（error.xml 299 条，核心 12 常量 11 个修正 + 新增 148）；`m2_flow.py` 双服务器全绿 + 全量回归（cargo 测 + m1/m2 四套件）；口径入 §8.11 |
 | #42 错单双推送面与错误码全集对账 | ✅ 2026-10-03 | 报单拒绝按层分流（CTP 层仅 `OnRspOrderInsert(NULL)`；交易所层 163/164/165 先成功响应再 `OnErrRtnOrderInsert`；撤单拒绝双面）；composite 载荷（input ++ RspInfo）；py SDK `_Pending` 修一请求多帧竞态；error.xml 299 条逐条标注（已实现 19 / 可落地 51 / 暂不可达 229，状态列由 `tools/fill_errorcode_status.py` 幂等生成）；`m2_surface.py` 五段全绿；口径入 §8.12 + notes/09 |
 | #43 FAK 回报按交易所分流 | ✅ 2026-10-03 | 官方《报单回调规则》场景 8/9/10 三所形状（`CancelFirst` / `TradeDriven` / `StatusDriven`）；taker 成交按 `FakFill` 缓冲后由 `emit_fak_reports` 按 leftover 铺开；catalog 补 CZCE `TA609`（3 位 `YMM`）+ GFEX `si2610`（合约数 5→7）；engine 单测 7 项 + 新增 `m2_ioc.py` 四所并排全绿；`m2_book` C3 断言改 `a,5,5,5`；口径入 §8.13 + notes/10 |
 

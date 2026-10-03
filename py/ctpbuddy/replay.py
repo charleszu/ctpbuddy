@@ -423,11 +423,16 @@ class _Walker:
         expected_accepted = bool(outcome.get("accepted", True))
         expected_err = _num(outcome.get("error_id"))
         ref = d.get("order_ref", "") or "?"
+        exchange = ""
+        if d.get("order_sys_id"):
+            instruments = cli.qry_instrument(d.get("instrument", ""))
+            exchange = instruments[0]["ExchangeID"] if instruments else ""
         try:
             cli.order_action(
                 instrument=d.get("instrument", ""),
                 order_ref=d.get("order_ref", "") or "",
                 order_sys_id=d.get("order_sys_id", "") or "",
+                exchange=exchange,
             )
             _drain(cli)
         except CTPError as e:

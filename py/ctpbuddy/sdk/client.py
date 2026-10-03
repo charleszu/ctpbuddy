@@ -41,6 +41,7 @@ from ..wire import (
     REQ_QRY_INSTRUMENT_ORDER_COMM_RATE,
     REQ_QRY_INVESTOR_POSITION,
     REQ_QRY_INVESTOR_POSITION_DETAIL,
+    REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN,
     REQ_QRY_ORDER,
     REQ_QRY_TRADE,
     REQ_QRY_TRADING_ACCOUNT,
@@ -57,6 +58,7 @@ from ..wire import (
     RSP_QRY_INSTRUMENT_ORDER_COMM_RATE,
     RSP_QRY_INVESTOR_POSITION,
     RSP_QRY_INVESTOR_POSITION_DETAIL,
+    RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN,
     RSP_QRY_ORDER,
     RSP_QRY_TRADE,
     RSP_QRY_TRADING_ACCOUNT,
@@ -423,6 +425,7 @@ class Client:
         session_id: Optional[int] = None,
         action_flag: str = "0",
         order_sys_id: str = "",
+        exchange: str = "",
     ) -> Frame:
         payload = generated.pack(
             "CThostFtdcInputOrderActionField",
@@ -430,6 +433,7 @@ class Client:
             InvestorID=self.investor_id,
             OrderRef=order_ref,
             OrderSysID=order_sys_id,
+            ExchangeID=exchange,
             FrontID=front_id if front_id is not None else getattr(self, "front_id", 0),
             SessionID=session_id if session_id is not None else getattr(self, "session_id", 0),
             InstrumentID=instrument,
@@ -571,6 +575,18 @@ class Client:
             ),
         )
         return [generated.unpack("CThostFtdcInstrumentOrderCommRateField", r) for r in rows]
+
+    def qry_investor_product_group_margin(self, product_group: str = "", exchange: str = "", invest_unit: str = "") -> List[Dict[str, Any]]:
+        rows = self._query_stream(
+            REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN,
+            RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN,
+            generated.pack(
+                "CThostFtdcQryInvestorProductGroupMarginField",
+                BrokerID=self.broker_id, InvestorID=self.investor_id,
+                ProductGroupID=product_group, ExchangeID=exchange, InvestUnitID=invest_unit,
+            ),
+        )
+        return [generated.unpack("CThostFtdcInvestorProductGroupMarginField", r) for r in rows]
 
     def qry_broker_trading_params(self, currency: str = "CNY") -> List[Dict[str, Any]]:
         """交易参数 — `MarginPriceType` decides how 今仓 margin is priced."""
