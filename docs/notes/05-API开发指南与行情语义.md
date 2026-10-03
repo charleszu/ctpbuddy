@@ -19,11 +19,11 @@
 6. `Init()`：启动工作线程，自动用注册地址向服务端请求建立**无身份验证的连接**。
 7. `Join()`：等待线程退出。
 
-【技术指南】Q12 补充的登录前置链：连接成功回调 `OnFrontConnected` → `ReqAuthenticate` 客户端认证（`OnRspAuthenticate` 返回结果；后台开启强制认证时，必须通过认证才能接入）→ `ReqUserLogin`（`OnRspUserLogin` 返回结果）→ 登录成功后当前交易日必须成功执行一次 `ReqSettlementInfoConfirm`（投资者结算结果确认）后才能开始交易。
+【技术指南】Q12 补充的登录前置链：连接成功回调 `OnFrontConnected` → `ReqAuthenticate` 客户端认证（`OnRspAuthenticate` 返回结果；真实柜台若启用强制认证，必须通过认证才能接入）→ `ReqUserLogin`（`OnRspUserLogin` 返回结果）→ 登录成功后当前交易日必须成功执行一次 `ReqSettlementInfoConfirm`（投资者结算结果确认）后才能开始交易。CTPBuddy 当前没有授权配置，不宣称实现柜台侧强制策略。
 
 ### 1.2 关键连接语义
 
-- **无身份验证连接**：连接建立（`OnFrontConnected`）只代表链路可达，登录前需先完成认证（若启用）。
+- **无身份验证连接**：连接建立（`OnFrontConnected`）只代表链路可达；真实柜台若启用强制认证，登录前需先完成认证；CTPBuddy 当前没有授权配置，不宣称实现该强制策略。
 - **登录响应内容**（`OnRspUserLogin` 的 `pRspUserLogin`）：`FrontID`（前置编号）、`SessionID`（会话编号）、`MaxOrderRef`（最大报单引用）、各交易所时间（SHFE/CZCE/DCE/FFEX Time）等。【基础】登录页同样列出这些字段。
 - **登出语义**（【客户端指南】3.4/4.2 注意）：`ReqUserLogout` 会先断现有连接，重新登录后系统建立新连接，`SessionID` 重置，因此 `MaxOrderRef` 一般重新从 0 计数（【技术指南】Q51：FrontID+SessionID 变更后 MaxOrderRef 重置）。
 - **释放顺序**（【技术指南】Q22，避免 Release 死锁）：先 `RegisterSpi(NULL)` → `Release()` → 置空 API 指针 → 最后 `delete` SPI 实例。

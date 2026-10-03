@@ -120,6 +120,7 @@ struct Pending {
     // own input struct back on failure)
     CThostFtdcInputOrderField input_order{};
     CThostFtdcInputOrderActionField input_action{};
+    CThostFtdcRspAuthenticateField rsp_authenticate{};
     // subscribe responses: the core answers once per instrument; bIsLast on
     // the final one, counted against what the shim sent.
     uint32_t expected_responses = 0;
@@ -193,6 +194,7 @@ class ApiCore {public:
     virtual void fire_front_connected() = 0;
     virtual void fire_front_disconnected(int reason) = 0;
     virtual void on_auth_failed(int n_request_id, const CThostFtdcRspInfoField& rsp) = 0;
+    virtual void on_authenticate_rsp(const CThostFtdcRspAuthenticateField*, const CThostFtdcRspInfoField&, int) {}
 
     // ---- registration / lifecycle (generated core forwards call these) ----
     void core_register_front(const char* addr);
@@ -214,6 +216,7 @@ class ApiCore {public:
         return send_request(msg, p, sizeof(S), n_request_id);
     }
     int send_request(uint16_t msg, const void* payload, size_t len, int n_request_id);
+    int send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_request_id);
     void unsupported(int n_request_id, const char* method);
 
     // ---- used by the generated dispatch rows ----
@@ -239,6 +242,7 @@ private:
     void close_socket_locked();
     void write_frame_locked(const Frame& f);
     void send_auth_locked(const char* broker, const char* user);
+    void drain_auth_errors();
     void on_auth_rsp(const Frame& f);
     void on_rsp_error(const Frame& f);
     void on_qry_last(const Frame& f);
@@ -265,10 +269,15 @@ private:
     int front_port_ = 0;
     bool authed_ = false;
     bool auth_in_flight_ = false;
+    uint32_t auth_wire_req_id_ = 0;
     std::string auth_broker_;
     std::string auth_user_;
+    std::string bound_auth_broker_;
+    std::string bound_auth_user_;
+    std::vector<std::pair<int, CThostFtdcRspInfoField>> login_errors_;
     bool has_stashed_login_ = false;
     Frame stashed_login_;
+    std::vector<std::pair<int, CThostFtdcRspInfoField>> auth_errors_;
     uint32_t next_req_id_ = 1;
     std::unordered_map<uint32_t, Pending> pending_;
     // CTP 查询流控 (docs: 报单流控、查询流控和会话数控制): the vendor API

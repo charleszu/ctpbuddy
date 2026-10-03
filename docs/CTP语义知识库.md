@@ -110,7 +110,7 @@
   → Join()
 ```
 
-登录链：`OnFrontConnected → ReqAuthenticate → ReqUserLogin → 每交易日首次交易前 ReqSettlementInfoConfirm`。连接建立只代表链路可达，**无身份验证**；后台开启强制认证时必须先过认证。
+登录链：`OnFrontConnected → ReqAuthenticate → OnRspAuthenticate → ReqUserLogin → 每交易日首次交易前 ReqSettlementInfoConfirm`。连接建立只代表链路可达，**无身份验证**；真实柜台若启用强制认证则必须先过认证。CTPBuddy 当前没有授权配置，不宣称实现柜台侧强制策略。CTPBuddy 的标准 `ReqAuthenticate` 已接入现有 JSON AUTH handshake；显式认证成功后 Shim 保存并绑定 `BrokerID/UserID`，`ReqUserLogin` 必须匹配，服务端还会对连接绑定再次校验，拒绝 Auth A → Login B。`AuthCode/AppID` 仅作协议字段透传，当前核心不伪造柜台授权比对。由 `ReqUserLogin` 自动触发的兼容 AUTH 不额外产生 `OnRspAuthenticate`。本地空字段错误使用官方 `15 BAD_FIELD`，未认证登录使用 `64 NOT_AUTHENT`；`auth_in_flight` 时 `ReqAuthenticate` 同步返回 `-2`，不会先返回 0 再异步 `-3`。已认证重复认证与断线认证失败没有确认精确柜台重复码，统一采用已实现 `63 AUTH_FAILED`（`CTP:客户端认证失败`）兼容策略，网络原因另由 `OnFrontDisconnected` 报告。认证响应回填官方 `UserProductInfo`；`AppType` 未配置，不编造标值。
 
 释放顺序（【技术指南】Q22，防死锁）：`RegisterSpi(NULL) → Release() → 置空指针 → delete SPI`。**禁止在 SPI 回调线程内 Release**。创建与释放最好在同一线程。
 

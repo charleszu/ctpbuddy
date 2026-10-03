@@ -38,6 +38,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -113,6 +114,15 @@ struct TdSpi : public CThostFtdcTraderSpi {
     bool front_disconnected = false;
     int front_reason = 0;
 
+    bool auth_done = false;
+    bool auth_failed = false;
+    int auth_req_id = -1;
+    int auth_error_id = 0;
+    bool auth_last = false;
+    bool auth_has_field = false;
+    CThostFtdcRspAuthenticateField auth_field{};
+    std::thread::id callback_thread;
+    std::thread::id auth_thread;
     bool login_done = false;
     bool login_failed = false;
     int front_id = 0, session_id = 0;
@@ -158,6 +168,7 @@ struct TdSpi : public CThostFtdcTraderSpi {
     void OnFrontConnected() override {
         std::lock_guard<std::mutex> g(sync.mu);
         front_connected = true;
+        callback_thread = std::this_thread::get_id();
         note("front connected (td)");
         sync.notify();
     }
@@ -166,6 +177,26 @@ struct TdSpi : public CThostFtdcTraderSpi {
         front_disconnected = true;
         front_reason = nReason;
         note("front disconnected (td)");
+        sync.notify();
+    }
+
+    void OnRspAuthenticate(CThostFtdcRspAuthenticateField* p, CThostFtdcRspInfoField* rsp, int nid, bool last) override {
+        std::lock_guard<std::mutex> g(sync.mu);
+        auth_req_id = nid;
+        auth_last = last;
+        auth_thread = std::this_thread::get_id();
+        if (p) {
+            auth_has_field = true;
+            auth_field = *p;
+        }
+        if (rsp && rsp->ErrorID != 0) {
+            auth_failed = true;
+            auth_error_id = rsp->ErrorID;
+            step_error = std::string("authenticate rejected: ") + std::to_string(rsp->ErrorID) + " " + rsp->ErrorMsg;
+        } else {
+            auth_done = true;
+            note(p ? "authenticate ok" : "authenticate callback missing field");
+        }
         sync.notify();
     }
 
@@ -480,7 +511,132 @@ void qry_with_retry(TdSpi& spi, const char* what, Reset reset, Send send, Done d
     throw DemoFail{std::string("query throttled for too long: ") + what};
 }
 
-void run(const char* front, const char* broker, const char* investor) {
+void run_auth_checks(const char* front, const char* broker, const char* investor) {
+    struct AuthSpi : CThostFtdcTraderSpi {
+        Sync sync;
+        CThostFtdcTraderApi* api = nullptr;
+        CThostFtdcReqAuthenticateField req{};
+        CThostFtdcReqUserLoginField login{};
+        std::thread::id reader_id;
+        std::vector<int> ids;
+        std::vector<int> errors;
+        bool connected = false;
+        bool login_done = false;
+        bool login_mismatch_done = false;
+        int login_error_id = 0;
+        bool valid = true;
+        void OnFrontConnected() override {
+            std::lock_guard<std::mutex> g(sync.mu);
+            reader_id = std::this_thread::get_id();
+            connected = true;
+            sync.notify();
+        }
+        void OnRspAuthenticate(CThostFtdcRspAuthenticateField* p, CThostFtdcRspInfoField* rsp, int id, bool last) override {
+            bool send_login = false;
+            {
+                std::lock_guard<std::mutex> g(sync.mu);
+                valid = valid && last && rsp && std::this_thread::get_id() == reader_id;
+                int error = rsp ? rsp->ErrorID : -999;
+                valid = valid && ((error == 0) == (p != nullptr));
+                if (p) valid = valid && std::strcmp(p->BrokerID, req.BrokerID) == 0 &&
+                    std::strcmp(p->UserID, req.UserID) == 0 && std::strcmp(p->AppID, req.AppID) == 0 &&
+                    std::strcmp(p->UserProductInfo, req.UserProductInfo) == 0 && p->AppType == 0;
+                if (error == 63) valid = valid && std::strcmp(rsp->ErrorMsg, "CTP:客户端认证失败") == 0;
+                valid = valid && id != 111;
+                ids.push_back(id);
+                errors.push_back(error);
+                send_login = id == 107 && error == 0;
+                sync.notify();
+            }
+            if (send_login) api->ReqUserLogin(&login, 108);
+        }
+        void OnRspUserLogin(CThostFtdcRspUserLoginField* p, CThostFtdcRspInfoField* rsp, int id, bool last) override {
+            std::lock_guard<std::mutex> g(sync.mu);
+            if (id == 108) {
+                valid = valid && p && rsp && rsp->ErrorID == 0 && last;
+                login_done = true;
+            } else if (id == 109) {
+                valid = valid && !p && rsp && rsp->ErrorID == 15 && last;
+                login_error_id = rsp ? rsp->ErrorID : -999;
+                login_mismatch_done = true;
+            } else {
+                valid = false;
+            }
+            sync.notify();
+        }
+        void OnRspError(CThostFtdcRspInfoField*, int, bool) override {
+            std::lock_guard<std::mutex> g(sync.mu);
+            valid = false;
+            sync.notify();
+        }
+    } spi;
+    auto* api = CThostFtdcTraderApi::CreateFtdcTraderApi("");
+    struct Guard { CThostFtdcTraderApi* api; ~Guard() { api->Release(); } } guard{api};
+    spi.api = api;
+    put_cstr(spi.req.BrokerID, sizeof(spi.req.BrokerID), broker);
+    put_cstr(spi.req.UserID, sizeof(spi.req.UserID), investor);
+    put_cstr(spi.req.AuthCode, sizeof(spi.req.AuthCode), "code\\\"\n");
+    put_cstr(spi.req.AppID, sizeof(spi.req.AppID), "app\\\"");
+    put_cstr(spi.login.BrokerID, sizeof(spi.login.BrokerID), broker);
+    put_cstr(spi.login.UserID, sizeof(spi.login.UserID), investor);
+    api->RegisterSpi(&spi);
+    api->RegisterFront(const_cast<char*>(front));
+    api->Init();
+    spi.sync.wait([&] { return spi.connected; }, "auth checks connect");
+    auto check = [&](CThostFtdcReqAuthenticateField* req, int id, int error) {
+        if (api->ReqAuthenticate(req, id) != 0) throw DemoFail{"auth request not accepted"};
+        spi.sync.wait([&] { return !spi.ids.empty() && spi.ids.back() == id; }, "auth check callback");
+        std::lock_guard<std::mutex> g(spi.sync.mu);
+        if (!spi.valid || spi.errors.back() != error) throw DemoFail{"auth callback contract mismatch"};
+    };
+    check(nullptr, 101, 15);
+    for (int i = 0; i < 4; ++i) {
+        auto empty = spi.req;
+        if (i == 0) empty.BrokerID[0] = 0;
+        if (i == 1) empty.UserID[0] = 0;
+        if (i == 2) empty.AuthCode[0] = 0;
+        if (i == 3) empty.AppID[0] = 0;
+        check(&empty, 102 + i, 15);
+    }
+    auto bad = spi.req;
+    put_cstr(bad.BrokerID, sizeof(bad.BrokerID), "9999");
+    check(&bad, 106, 63);
+    if (api->ReqAuthenticate(&spi.req, 107) != 0) throw DemoFail{"first auth request not accepted"};
+    const int concurrent_rc = api->ReqAuthenticate(&spi.req, 111);
+    if (concurrent_rc != -2) throw DemoFail{"in-flight authentication did not return -2 synchronously"};
+    {
+        std::lock_guard<std::mutex> g(spi.sync.mu);
+        if (std::find(spi.ids.begin(), spi.ids.end(), 111) != spi.ids.end())
+            throw DemoFail{"in-flight authentication produced an unexpected callback"};
+    }
+    spi.sync.wait([&] { return !spi.ids.empty() && spi.ids.back() == 107; }, "first authentication callback");
+    spi.sync.wait([&] { return spi.login_done; }, "login from authenticate callback");
+    if (api->ReqAuthenticate(&spi.req, 112) != 0) throw DemoFail{"duplicate auth did not use async compatibility path"};
+    spi.sync.wait([&] { return !spi.ids.empty() && spi.ids.back() == 112; }, "duplicate authentication callback");
+    {
+        std::lock_guard<std::mutex> g(spi.sync.mu);
+        if (!spi.valid || spi.errors.back() != 63)
+            throw DemoFail{"duplicate authentication did not return compatibility error 63"};
+    }
+    auto mismatch = spi.login;
+    put_cstr(mismatch.UserID, sizeof(mismatch.UserID), "other-user");
+    if (api->ReqUserLogin(&mismatch, 109) != 0) throw DemoFail{"mismatched login request not accepted"};
+    spi.sync.wait([&] { return spi.login_mismatch_done; }, "mismatched login callback");
+    {
+        std::lock_guard<std::mutex> g(spi.sync.mu);
+        if (!spi.valid || spi.login_error_id != 15)
+            throw DemoFail{"mismatched login was not rejected with BAD_FIELD"};
+        spi.login_mismatch_done = false;
+    }
+    mismatch = spi.login;
+    put_cstr(mismatch.BrokerID, sizeof(mismatch.BrokerID), "9999");
+    if (api->ReqUserLogin(&mismatch, 109) != 0) throw DemoFail{"mismatched broker request not accepted"};
+    spi.sync.wait([&] { return spi.login_mismatch_done; }, "mismatched broker callback");
+    check(&spi.req, 110, 63);
+    std::printf("AUTH CHECKS: PASS\n");
+}
+
+void run(const char* front, const char* broker, const char* investor, bool explicit_auth) {
     TdSpi td_spi;
     MdSpi md_spi;
     CThostFtdcTraderApi* td = CThostFtdcTraderApi::CreateFtdcTraderApi("");
@@ -501,6 +657,34 @@ void run(const char* front, const char* broker, const char* investor) {
     td->Init();
     td_spi.sync.wait([&] { return td_spi.front_connected || td_spi.front_disconnected; }, "OnFrontConnected (td)");
     if (!td_spi.front_connected) throw DemoFail{"td front not connected"};
+
+    if (explicit_auth) {
+        CThostFtdcReqAuthenticateField empty_auth{};
+        td->ReqAuthenticate(&empty_auth, ++g_req_seq);
+        td_spi.sync.wait([&] { return td_spi.auth_failed; }, "OnRspAuthenticate empty fields");
+        if (td_spi.auth_error_id != 15 || !td_spi.auth_last) {
+            throw DemoFail{"empty authentication was not rejected"};
+        }
+        {
+            std::lock_guard<std::mutex> g(td_spi.sync.mu);
+            td_spi.auth_failed = false;
+            td_spi.auth_error_id = 0;
+            td_spi.auth_last = false;
+            td_spi.step_error.clear();
+        }
+
+        CThostFtdcReqAuthenticateField auth{};
+        put_cstr(auth.BrokerID, sizeof(auth.BrokerID), broker);
+        put_cstr(auth.UserID, sizeof(auth.UserID), investor);
+        put_cstr(auth.AuthCode, sizeof(auth.AuthCode), "demo-auth-code");
+        put_cstr(auth.AppID, sizeof(auth.AppID), "demo-app-id");
+        td->ReqAuthenticate(&auth, ++g_req_seq);
+        td_spi.sync.wait([&] { return td_spi.auth_done || td_spi.auth_failed; }, "OnRspAuthenticate");
+        if (!td_spi.auth_done || td_spi.auth_req_id != g_req_seq || !td_spi.auth_last || !td_spi.auth_has_field ||
+            td_spi.auth_thread != td_spi.callback_thread) {
+            throw DemoFail{"explicit authentication failed"};
+        }
+    }
 
     CThostFtdcReqUserLoginField login{};
     put_cstr(login.BrokerID, sizeof(login.BrokerID), broker);
@@ -921,7 +1105,11 @@ int main(int argc, char** argv) {
     const char* investor = argc > 3 ? argv[3] : "smoke001";
     std::printf("[demo] front=%s broker=%s investor=%s\n", front, broker, investor);
     try {
-        run(front, broker, investor);
+        if (argc > 4 && std::strcmp(argv[4], "auth-check") == 0) {
+            run_auth_checks(front, broker, investor);
+        } else {
+            run(front, broker, investor, argc > 4 && std::strcmp(argv[4], "explicit") == 0);
+        }
     } catch (const DemoFail& e) {
         std::printf("DEMO: FAIL: %s\n", e.what());
         return 1;

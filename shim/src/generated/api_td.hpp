@@ -17,6 +17,7 @@ public:
     const DispatchRow* rows() const override;
     void on_rsp_error_fallback(const CThostFtdcRspInfoField& rsp, int n_request_id) override;
     void on_auth_failed(int n_request_id, const CThostFtdcRspInfoField& rsp) override;
+    void on_authenticate_rsp(const CThostFtdcRspAuthenticateField* field, const CThostFtdcRspInfoField& rsp, int n_request_id) override;
     void fire_front_connected() override;
     void fire_front_disconnected(int reason) override;
 

@@ -212,7 +212,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 | 段 | 用途 |
 |---|---|
 | `0x0000` | 协议层：PING / PONG / HELLO（协商 wire ver） |
-| `0x0100` | 会话层：AUTH / LOGOUT / SETTLE_CONFIRM（核心扩展消息，无对应 CTP struct） |
+| `0x0100` | 会话层：AUTH / LOGOUT / SETTLE_CONFIRM（核心扩展消息；AUTH 由标准 ReqAuthenticate 或兼容自动登录触发） |
 | `0x0200` | ADMIN（JSON 控制指令，REQ/REP 通道） |
 | `0x1000+` | CTP 消息透传：每条 (Req/Rtn/Rsp, struct) 一个 id，`registry.json` 显式登记 |
 
@@ -225,7 +225,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 
 | 类型 | 对应 CTP API |
 |---|---|
-| AUTH | ReqAuthenticate / ReqUserLogin 合并（struct 透传） |
+| AUTH | CTPBuddy JSON handshake；标准 ReqAuthenticate 透传 BrokerID/UserID/AuthCode/AppID，成功后绑定连接身份；兼容 ReqUserLogin 自动触发；AuthCode/AppID 未配置时不做柜台授权比对 |
 | LOGOUT / SETTLE_CONFIRM | ReqUserLogout / ReqSettlementInfoConfirm |
 | ORDER_INSERT | ReqOrderInsert（`CThostFtdcInputOrderField`） |
 | ORDER_ACTION | ReqOrderAction |
@@ -251,6 +251,8 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 - **BrokerID 策略：单进程托管多 Broker**：broker 是核心内的一等实体（各有合约目录、保证金/手续费规则表、账户空间），默认 BrokerID 为 **8888**（不与 SimNow 的 9999 及主流实盘券商号冲突，金融俗惯例里的吉利号，`--broker-id` 可改）。AUTH 按核心的 broker 清单强校验，未知 BrokerID 按 CTP 语义拒登录。多 broker **共享同一路回放行情与虚拟时钟**——同一场景下不同经纪商的成交差异只来自费率/保证金/合约目录，这对多券商对比测试恰是有用属性。需要硬隔离（故障域/版本/管理边界）时可一个 broker 部署一个核心实例，两者只是运维选择、不动架构；下游单进程连多个柜台依赖 §5.3 的按实例端点解析；
 - **订阅时机与可靠性**：Shim 在 AUTH 成功后订阅 `td/{broker}/{investor}`。注意 ZMQ PUB/SUB 两个特性：① 慢订阅者在 HWM 打满时被静默丢帧——核心与 Shim 均设大 HWM（本地 IPC/loopback 实际碰不到，团队远程模式才需留意）；② slow joiner 订阅建立瞬间可能丢头几帧。对策统一为：登录成功后核心主动补发一版快照（订单/持仓/成交/资金），与 CTP 下游"登录后先查一遍"的既有习惯天然对齐，不依赖订阅建立时刻；
 - **断链语义**：ZMQ 无持久化无重投。Shim 检测到与核心断开即以 `OnFrontDisconnected` 回调下游——这是刻意的设计，下游可借此测试自身重连逻辑。核心重启后 Shim 重新 AUTH 即恢复；
+- **身份边界**：显式 ReqAuthenticate 成功后，Shim 保存 BrokerID/UserID；ReqUserLogin 必须与该身份一致，Core 对连接认证绑定再次校验，拒绝 Auth A -> Login B。认证仅做身份绑定，不伪造 AuthCode/AppID 授权校验。
+- **错误码边界**：本地认证字段错误保留官方 `15 BAD_FIELD`，服务端未认证登录使用 `64 NOT_AUTHENT`；`auth_in_flight` 的 `ReqAuthenticate` 同步返回 `-2`（在途许可超过），不再返回 0 后异步 `-3`。已认证重复认证及断线认证失败没有确认精确柜台重复码，统一采用已实现 `63 AUTH_FAILED`（`CTP:客户端认证失败`）兼容策略；网络原因仅通过 `OnFrontDisconnected` 报告。认证响应保留官方 `UserProductInfo` 字段；`AppType` 未配置、不编造标值。
 - **安全**：默认仅 loopback/ipc；团队模式跨机部署使用 CURVE 加密（ZMQ 原生）或内网 VPN，文档明确禁止把 5560/5561 暴露公网。
 
 ---

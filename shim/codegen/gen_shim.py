@@ -68,6 +68,7 @@ MSG = {
 # CTP request method -> (wire req msg, request struct). Requests absent here
 # get the local OnRspError trampoline.
 TD_REQUESTS = {
+    "ReqAuthenticate": ("AUTH", "CThostFtdcReqAuthenticateField"),
     "ReqUserLogin": ("REQ_USER_LOGIN", "CThostFtdcReqUserLoginField"),
     "ReqUserLogout": ("REQ_USER_LOGOUT", "CThostFtdcUserLogoutField"),
     "ReqSettlementInfoConfirm": ("REQ_SETTLE_CONFIRM", "CThostFtdcSettlementInfoConfirmField"),
@@ -257,6 +258,8 @@ def gen_class(api, cls_name, base_api, requests, core, handwritten, methods):
     lines_h.append("    const DispatchRow* rows() const override;")
     lines_h.append("    void on_rsp_error_fallback(const CThostFtdcRspInfoField& rsp, int n_request_id) override;")
     lines_h.append("    void on_auth_failed(int n_request_id, const CThostFtdcRspInfoField& rsp) override;")
+    if api == "td":
+        lines_h.append("    void on_authenticate_rsp(const CThostFtdcRspAuthenticateField* field, const CThostFtdcRspInfoField& rsp, int n_request_id) override;")
     lines_h.append("    void fire_front_connected() override;")
     lines_h.append("    void fire_front_disconnected(int reason) override;")
     lines_h.append("")
@@ -325,6 +328,13 @@ def gen_reqs(api, cls_name, methods, requests, handwritten):
                     "}\n" % (ret, cls_name, name, params))
             continue
         msg_name, _struct = entry
+        if name == "ReqAuthenticate":
+            out.append(
+                "%s %s::%s(%s) {\n"
+                "    return send_ctp_auth(%s, nRequestID);\n"
+                "}\n" % (ret, cls_name, name, params, PARAM_RE.match(params.split(",")[0].strip()).group(2)))
+            mapped.append(name)
+            continue
         # first parameter: <Type> *<name>
         first = params.split(",")[0].strip()
         m = PARAM_RE.match(first)
@@ -517,6 +527,11 @@ def gen_dispatch(api, rows, spi_type):
     out.append("    static_cast<%s*>(spi())->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);" % spi_type)
     out.append("}")
     out.append("")
+    if api == "td":
+        out.append("void TraderApi::on_authenticate_rsp(const CThostFtdcRspAuthenticateField* field, const CThostFtdcRspInfoField& rsp, int n_request_id) {")
+        out.append("    static_cast<CThostFtdcTraderSpi*>(spi())->OnRspAuthenticate(const_cast<CThostFtdcRspAuthenticateField*>(field), const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);")
+        out.append("}")
+        out.append("")
     out.append("void %s::fire_front_connected() {" % ("TraderApi" if api == "td" else "MdApi"))
     out.append("    static_cast<%s*>(spi())->OnFrontConnected();" % spi_type)
     out.append("}")

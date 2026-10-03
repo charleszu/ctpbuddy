@@ -52,10 +52,7 @@ void TraderApi::SubscribePublicTopic(THOST_TE_RESUME_TYPE nResumeType) {
 }
 
 int TraderApi::ReqAuthenticate(CThostFtdcReqAuthenticateField *pReqAuthenticateField, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqAuthenticate");
-    return 0;
+    return send_ctp_auth(pReqAuthenticateField, nRequestID);
 }
 
 int TraderApi::RegisterUserSystemInfo(CThostFtdcUserSystemInfoField *pUserSystemInfo) {

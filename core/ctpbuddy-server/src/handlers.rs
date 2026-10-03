@@ -240,11 +240,11 @@ impl World {
             .map(|c| c.authenticated)
             .unwrap_or(false);
         if !authed {
-            return self.send_error(conn_id, frame.req_id, -2, "未认证：请先发送 AUTH");
+            return self.send_error(conn_id, frame.req_id, 64, "未认证：请先发送 AUTH");
         }
         let req: CThostFtdcReqUserLoginField = match struct_from_bytes(&frame.payload) {
             Some(f) => f,
-            None => return self.send_error(conn_id, frame.req_id, -2, "登录字段长度错误"),
+            None => return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "登录字段长度错误"),
         };
         let broker = cstr(&req.BrokerID);
         let user = cstr(&req.UserID);
@@ -252,12 +252,27 @@ impl World {
             return self.send_error(
                 conn_id,
                 frame.req_id,
-                63,
+                15,
                 &format!("BrokerID '{broker}' 与本核心服务的不一致（{}）", self.cfg.broker_id),
             );
         }
         if user.is_empty() {
-            return self.send_error(conn_id, frame.req_id, 3, "UserID 为空");
+            return self.send_error(conn_id, frame.req_id, 15, "UserID 为空");
+        }
+        let (auth_broker, auth_user) = {
+            let c = self.conns.get(&conn_id).unwrap();
+            (
+                c.broker_id.clone().unwrap_or_default(),
+                cstr(&c.user_id),
+            )
+        };
+        if broker != auth_broker || user != auth_user {
+            return self.send_error(
+                conn_id,
+                frame.req_id,
+                15,
+                "登录 BrokerID/UserID 与连接认证身份不一致",
+            );
         }
 
         // auto-open the account on first login (SimNow-style)

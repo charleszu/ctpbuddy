@@ -194,6 +194,14 @@ bool ApiCore::read_exact(uint8_t* buf, size_t n) {
             s = sock_;
         }
         if (s == INVALID_SOCKET) return false;
+        drain_auth_errors();
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(s, &readable);
+        timeval timeout{0, 100000};
+        int ready = select(0, &readable, nullptr, nullptr, &timeout);
+        if (ready == 0) continue;
+        if (ready == SOCKET_ERROR) return false;
         int r = recv(s, reinterpret_cast<char*>(buf + got), static_cast<int>(n - got), 0);
         if (r > 0) {
             got += static_cast<size_t>(r);
@@ -233,17 +241,116 @@ void ApiCore::write_frame_locked(const Frame& f) {
     }
 }
 
+namespace {
+
+std::string json_string(const char* value, size_t size) {
+    std::string out;
+    out.push_back('"');
+    for (size_t i = 0; i < size && value[i] != 0; ++i) {
+        const unsigned char ch = static_cast<unsigned char>(value[i]);
+        if (ch == '\\' || ch == '"') {
+            out.push_back('\\');
+            out.push_back(static_cast<char>(ch));
+        } else if (ch < 0x20) {
+            const char hex[] = "0123456789abcdef";
+            out += "\\u00";
+            out.push_back(hex[ch >> 4]);
+            out.push_back(hex[ch & 15]);
+        } else {
+            out.push_back(static_cast<char>(ch));
+        }
+    }
+    out.push_back('"');
+    return out;
+}
+
+}  // namespace
+
 void ApiCore::send_auth_locked(const char* broker, const char* user) {
-    // caller holds mu_
+    // caller holds mu_; this is the legacy automatic handshake.
     auth_in_flight_ = true;
+    bound_auth_broker_ = cstr_of(broker, 11);
+    bound_auth_user_ = cstr_of(user, 16);
     Frame f;
     f.msg_type = msgs::AUTH;
     f.req_id = next_req_id_++;
-    std::string body = "{\"broker_id\":\"" + std::string(broker) +
-                       "\",\"user_id\":\"" + std::string(user) +
-                       "\",\"app_id\":\"ctpbuddy-shim\"}";
+    auth_wire_req_id_ = f.req_id;
+    std::string body = "{\"broker_id\":" + json_string(broker, 11) +
+                       ",\"user_id\":" + json_string(user, 16) +
+                       ",\"app_id\":\"ctpbuddy-shim\"}";
     f.payload.assign(body.begin(), body.end());
     write_frame_locked(f);
+}
+
+int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_request_id) {
+    CThostFtdcRspInfoField local_rsp{};
+    bool local_error = false;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        if (stopped_.load() || sock_ == INVALID_SOCKET) return -1;
+        if (auth_in_flight_) return -2;
+        auto fail = [&](int id, const char* msg) {
+            local_rsp.ErrorID = id;
+            set_cstr(local_rsp.ErrorMsg, sizeof(local_rsp.ErrorMsg), msg);
+            local_error = true;
+        };
+        if (!req) {
+            fail(15, "ReqAuthenticate 字段为空");
+        } else {
+            const std::string broker = cstr_of(req->BrokerID, sizeof(req->BrokerID));
+            const std::string user = cstr_of(req->UserID, sizeof(req->UserID));
+            const std::string auth_code = cstr_of(req->AuthCode, sizeof(req->AuthCode));
+            const std::string app_id = cstr_of(req->AppID, sizeof(req->AppID));
+            if (broker.empty() || user.empty() || auth_code.empty() || app_id.empty()) {
+                fail(15, "ReqAuthenticate 必填字段为空");
+            } else if (authed_) {
+                // 重复认证使用通用失败兼容策略，不声称复刻柜台精确重复码。
+                fail(63, "CTP:客户端认证失败");
+            } else {
+                Frame f;
+                f.msg_type = msgs::AUTH;
+                f.req_id = next_req_id_++;
+                std::string body = "{\"broker_id\":" + json_string(req->BrokerID, sizeof(req->BrokerID)) +
+                                   ",\"user_id\":" + json_string(req->UserID, sizeof(req->UserID)) +
+                                   ",\"auth_code\":" + json_string(req->AuthCode, sizeof(req->AuthCode)) +
+                                   ",\"app_id\":" + json_string(req->AppID, sizeof(req->AppID)) + "}";
+                f.payload.assign(body.begin(), body.end());
+                Pending pd;
+                pd.req_id = f.req_id;
+                pd.req_msg = msgs::AUTH;
+                pd.n_request_id = n_request_id;
+                set_cstr(pd.rsp_authenticate.BrokerID, sizeof(pd.rsp_authenticate.BrokerID), broker);
+                set_cstr(pd.rsp_authenticate.UserID, sizeof(pd.rsp_authenticate.UserID), user);
+                set_cstr(pd.rsp_authenticate.AppID, sizeof(pd.rsp_authenticate.AppID), app_id);
+                set_cstr(pd.rsp_authenticate.UserProductInfo, sizeof(pd.rsp_authenticate.UserProductInfo),
+                         cstr_of(req->UserProductInfo, sizeof(req->UserProductInfo)));
+                // AppType 未建模：没有配置，不编造官方枚举值，保留零初始化。
+                pending_[f.req_id] = pd;
+                auth_in_flight_ = true;
+                auth_wire_req_id_ = f.req_id;
+                bound_auth_broker_ = broker;
+                bound_auth_user_ = user;
+                write_frame_locked(f);
+            }
+        }
+    }
+    if (local_error) {
+        std::lock_guard<std::mutex> g(mu_);
+        auth_errors_.emplace_back(n_request_id, local_rsp);
+    }
+    return 0;
+}
+
+void ApiCore::drain_auth_errors() {
+    std::vector<std::pair<int, CThostFtdcRspInfoField>> errors;
+    std::vector<std::pair<int, CThostFtdcRspInfoField>> login_errors;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        errors.swap(auth_errors_);
+        login_errors.swap(login_errors_);
+    }
+    for (const auto& entry : errors) on_authenticate_rsp(nullptr, entry.second, entry.first);
+    for (const auto& entry : login_errors) on_auth_failed(entry.first, entry.second);
 }
 
 // ---- reader thread ----------------------------------------------------------
@@ -289,14 +396,30 @@ void ApiCore::reader_main() {
             }
             on_frame(f);
         }
+        Pending auth_pd;
+        Pending login_pd;
         {
             std::lock_guard<std::mutex> g(mu_);
             close_socket_locked();
             authed_ = false;
+            auth_pd = take_pending(auth_wire_req_id_);
+            auth_wire_req_id_ = 0;
+            auth_in_flight_ = false;
+            if (has_stashed_login_) login_pd = take_pending(stashed_login_.req_id);
+            has_stashed_login_ = false;
             // an in-flight query can no longer complete on this socket
             qry_in_flight_ = false;
         }
-        if (alive && !stopped_.load()) fire_front_disconnected(0x1001);
+        if (!stopped_.load()) {
+            drain_auth_errors();
+            CThostFtdcRspInfoField rsp{};
+            // 断线期间的认证失败采用兼容策略，网络原因另由断线回调报告。
+            rsp.ErrorID = 63;
+            set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
+            if (auth_pd.req_msg == msgs::AUTH) on_authenticate_rsp(nullptr, rsp, auth_pd.n_request_id);
+            if (login_pd.req_msg != 0) on_auth_failed(login_pd.n_request_id, rsp);
+            fire_front_disconnected(0x1001);
+        }
         sleep_chunks(1.0);  // reconnect backoff
     }
 }
@@ -373,30 +496,28 @@ void ApiCore::on_auth_rsp(const Frame& f) {
     std::string body(reinterpret_cast<const char*>(f.payload.data()), f.payload.size());
     bool ok = body.find("\"ok\":true") != std::string::npos ||
               body.find("\"ok\": true") != std::string::npos;
-    // best-effort error extraction for diagnostics
-    std::string err;
-    {
-        const std::string key = "\"error\":";
-        auto p = body.find(key);
-        if (p != std::string::npos) {
-            p += key.size();
-            if (p < body.size() && body[p] == '"') {
-                ++p;
-                auto q = body.find('"', p);
-                if (q != std::string::npos) err = body.substr(p, q - p);
-            }
-        }
-    }
 
     Frame stashed;
     int nrid = -1;
     bool have_stash = false;
+    Pending auth_pd;
     {
         std::lock_guard<std::mutex> g(mu_);
+        if (!auth_in_flight_ || f.req_id != auth_wire_req_id_) return;
+        auth_pd = take_pending(f.req_id);
+        auth_wire_req_id_ = 0;
         auth_in_flight_ = false;
         // a genuine AUTH rejection leaves authed_ false; a late "already
         // authenticated" reply to a duplicate AUTH must not downgrade us.
-        if (ok) authed_ = true;
+        if (ok) {
+            authed_ = true;
+            if (auth_pd.req_msg == msgs::AUTH) {
+                auth_broker_ = cstr_of(auth_pd.rsp_authenticate.BrokerID,
+                                       sizeof(auth_pd.rsp_authenticate.BrokerID));
+                auth_user_ = cstr_of(auth_pd.rsp_authenticate.UserID,
+                                     sizeof(auth_pd.rsp_authenticate.UserID));
+            }
+        }
         if (has_stashed_login_) {
             stashed = stashed_login_;
             has_stashed_login_ = false;
@@ -404,17 +525,24 @@ void ApiCore::on_auth_rsp(const Frame& f) {
             if (!ok) nrid = take_pending(stashed.req_id).n_request_id;
         }
     }
+    CThostFtdcRspInfoField rsp{};
+    rsp.ErrorID = 0;
     if (ok) {
+        if (auth_pd.req_msg == msgs::AUTH) {
+            on_authenticate_rsp(&auth_pd.rsp_authenticate, rsp, auth_pd.n_request_id);
+        }
         if (have_stash) {
             std::lock_guard<std::mutex> g(mu_);
             write_frame_locked(stashed);
         }
         return;
     }
-    CThostFtdcRspInfoField rsp{};
-    rsp.ErrorID = 63;  // CTTrading: 校验失败
-    if (err.empty()) err = "CTPBuddy AUTH 失败";
-    set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), err);
+
+    rsp.ErrorID = 63;  // 兼容策略：CTP:客户端认证失败
+    set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
+    if (auth_pd.req_msg == msgs::AUTH) {
+        on_authenticate_rsp(nullptr, rsp, auth_pd.n_request_id);
+    }
     if (have_stash && nrid >= 0) {
         on_auth_failed(nrid, rsp);
     }
@@ -466,49 +594,65 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
     {
         std::lock_guard<std::mutex> g(mu_);
         if (stopped_.load()) return -1;
-        // CTP 查询流控 (docs: 报单流控、查询流控和会话数控制): the vendor API
-        // allows exactly one in-flight ReqQry* per session; a second query
-        // before the first stream completes fails locally with -2
-        // (未处理请求超过许可数) and is never put on the wire.
-        if (is_query_msg(msg)) {
-            if (qry_in_flight_) return -2;
-            qry_in_flight_ = true;
+        if (msg == msgs::REQ_USER_LOGIN && (authed_ || auth_in_flight_) &&
+            len == sizeof(CThostFtdcReqUserLoginField)) {
+            const auto* req = static_cast<const CThostFtdcReqUserLoginField*>(payload);
+            const std::string broker = cstr_of(req->BrokerID, sizeof(req->BrokerID));
+            const std::string user = cstr_of(req->UserID, sizeof(req->UserID));
+            if (broker != bound_auth_broker_ || user != bound_auth_user_) {
+                CThostFtdcRspInfoField rsp{};
+                rsp.ErrorID = 15;
+                set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg),
+                         "ReqUserLogin BrokerID/UserID 与认证身份不一致");
+                login_errors_.emplace_back(n_request_id, rsp);
+                return 0;
+            }
         }
-        f.req_id = next_req_id_++;
-        Pending pd;
-        pd.req_id = f.req_id;
-        pd.req_msg = msg;
-        pd.n_request_id = n_request_id;
-        if (msg == msgs::REQ_ORDER_INSERT && len == sizeof(CThostFtdcInputOrderField)) {
-            memcpy(&pd.input_order, payload, sizeof(pd.input_order));
-        } else if (msg == msgs::REQ_ORDER_ACTION && len == sizeof(CThostFtdcInputOrderActionField)) {
-            memcpy(&pd.input_action, payload, sizeof(pd.input_action));
-        } else if ((msg == msgs::SUB_MD || msg == msgs::UNSUB_MD) &&
-                   len >= sizeof(CThostFtdcSpecificInstrumentField)) {
-            pd.expected_responses = static_cast<uint32_t>(len / sizeof(CThostFtdcSpecificInstrumentField));
-        }
-        pending_[f.req_id] = pd;
+        {
+            // CTP 查询流控 (docs: 报单流控、查询流控和会话数控制): the vendor API
+            // allows exactly one in-flight ReqQry* per session; a second query
+            // before the first stream completes fails locally with -2
+            // (未处理请求超过许可数) and is never put on the wire.
+            if (is_query_msg(msg)) {
+                if (qry_in_flight_) return -2;
+                qry_in_flight_ = true;
+            }
+            f.req_id = next_req_id_++;
+            Pending pd;
+            pd.req_id = f.req_id;
+            pd.req_msg = msg;
+            pd.n_request_id = n_request_id;
+            if (msg == msgs::REQ_ORDER_INSERT && len == sizeof(CThostFtdcInputOrderField)) {
+                memcpy(&pd.input_order, payload, sizeof(pd.input_order));
+            } else if (msg == msgs::REQ_ORDER_ACTION && len == sizeof(CThostFtdcInputOrderActionField)) {
+                memcpy(&pd.input_action, payload, sizeof(pd.input_action));
+            } else if ((msg == msgs::SUB_MD || msg == msgs::UNSUB_MD) &&
+                       len >= sizeof(CThostFtdcSpecificInstrumentField)) {
+                pd.expected_responses = static_cast<uint32_t>(len / sizeof(CThostFtdcSpecificInstrumentField));
+            }
+            pending_[f.req_id] = pd;
 
-        if (msg == msgs::REQ_USER_LOGIN && !authed_) {
-            if (len == sizeof(CThostFtdcReqUserLoginField)) {
-                const auto* req = static_cast<const CThostFtdcReqUserLoginField*>(payload);
-                auth_broker_ = cstr_of(req->BrokerID, sizeof(req->BrokerID));
-                auth_user_ = cstr_of(req->UserID, sizeof(req->UserID));
+            if (msg == msgs::REQ_USER_LOGIN && !authed_) {
+                if (len == sizeof(CThostFtdcReqUserLoginField)) {
+                    const auto* req = static_cast<const CThostFtdcReqUserLoginField*>(payload);
+                    auth_broker_ = cstr_of(req->BrokerID, sizeof(req->BrokerID));
+                    auth_user_ = cstr_of(req->UserID, sizeof(req->UserID));
+                }
+                if (has_stashed_login_) {
+                    // an earlier login is still waiting for AUTH: retire it now
+                    retired_nrid = take_pending(stashed_login_.req_id).n_request_id;
+                    retired_rsp.ErrorID = -3;
+                    set_cstr(retired_rsp.ErrorMsg, sizeof(retired_rsp.ErrorMsg), "重复的登录请求");
+                }
+                stashed_login_ = f;
+                has_stashed_login_ = true;
+                if (!auth_in_flight_) {
+                    auth_in_flight_ = true;
+                    send_auth_locked(auth_broker_.c_str(), auth_user_.c_str());
+                }
+            } else {
+                write_frame_locked(f);
             }
-            if (has_stashed_login_) {
-                // an earlier login is still waiting for AUTH: retire it now
-                retired_nrid = take_pending(stashed_login_.req_id).n_request_id;
-                retired_rsp.ErrorID = -3;
-                set_cstr(retired_rsp.ErrorMsg, sizeof(retired_rsp.ErrorMsg), "重复的登录请求");
-            }
-            stashed_login_ = f;
-            has_stashed_login_ = true;
-            if (!auth_in_flight_) {
-                auth_in_flight_ = true;
-                send_auth_locked(auth_broker_.c_str(), auth_user_.c_str());
-            }
-        } else {
-            write_frame_locked(f);
         }
     }
     if (retired_nrid >= 0) on_auth_failed(retired_nrid, retired_rsp);

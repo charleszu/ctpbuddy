@@ -44,6 +44,7 @@ from ctpbuddy.sdk import Admin  # noqa: E402
 SHIM_BIN = os.environ.get("CTPBUDDY_SHIM", os.path.join(REPO, "shim", "bin"))
 DEMO_EXE = os.path.join(SHIM_BIN, "demo_td.exe")
 DEMO_TIMEOUT_SEC = 90
+DEMO_MODE = os.environ.get("CTPBUDDY_SHIM_MODE", "")
 
 
 def find_demo() -> str:
@@ -64,7 +65,7 @@ def run_demo(front: str, admin: Admin, log: list) -> int:
     Returns the demo exit code; all output lines land in `log`.
     """
     proc = subprocess.Popen(
-        [DEMO_EXE, front, BROKER, INVESTOR],
+        [DEMO_EXE, front, BROKER, INVESTOR] + ([DEMO_MODE] if DEMO_MODE else []),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -153,6 +154,13 @@ def main() -> int:
         dt = time.time() - t0
         if code != 0:
             raise AssertionError("demo_td.exe exited %d (see demo output above)" % code)
+        if DEMO_MODE == "auth-check":
+            if not any(line.strip() == "AUTH CHECKS: PASS" for line in log):
+                raise AssertionError("auth checks did not report PASS")
+            print("[ok] explicit ReqAuthenticate callback/error/login checks")
+            admin.shutdown()
+            print("\nM1 SHIM AUTH E2E: PASS")
+            return 0
         if not any(line.strip() == "DEMO: PASS" for line in log):
             raise AssertionError("demo did not report PASS")
         print("[ok] full CTP round trip through the shim in %.1fs" % dt)

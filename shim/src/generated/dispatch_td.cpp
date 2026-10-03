@@ -392,6 +392,10 @@ void TraderApi::on_auth_failed(int n_request_id, const CThostFtdcRspInfoField& r
     static_cast<CThostFtdcTraderSpi*>(spi())->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
 }
 
+void TraderApi::on_authenticate_rsp(const CThostFtdcRspAuthenticateField* field, const CThostFtdcRspInfoField& rsp, int n_request_id) {
+    static_cast<CThostFtdcTraderSpi*>(spi())->OnRspAuthenticate(const_cast<CThostFtdcRspAuthenticateField*>(field), const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
+}
+
 void TraderApi::fire_front_connected() {
     static_cast<CThostFtdcTraderSpi*>(spi())->OnFrontConnected();
 }
