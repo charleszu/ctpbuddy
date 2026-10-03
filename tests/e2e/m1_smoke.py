@@ -25,6 +25,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "py"))
 
 from ctpbuddy.cli import main as cli_main  # noqa: E402
+from ctpbuddy.store import Projection, rebuild  # noqa: E402
 from ctpbuddy.scenario import normalize_spec  # noqa: E402
 from ctpbuddy.sdk import Admin, CTPError, Client  # noqa: E402
 from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
@@ -416,6 +417,29 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
     assert fills[0]["broker"] == BROKER and fills[0]["investor"] == INVESTOR, fills[0]
     assert all(e.get("seq", 0) > 0 for e in events), "seq missing"
     print("[ok] journal: %d events, types=%s" % (len(events), ",".join(sorted(set(types)))))
+    projection_db = os.path.join(data_dir, "ctpbuddy.db")
+    rebuilt = rebuild(journal_dir, projection_db)
+    assert rebuilt["events"] == len(events), rebuilt
+    with Projection(projection_db) as projection:
+        real_fills = projection.query("trade_record", broker=BROKER, investor=INVESTOR)
+        assert len(real_fills) == 2, real_fills
+        real_orders = projection.query("order_record", broker=BROKER, investor=INVESTOR)
+        assert any(row["order_sys_id"] for row in real_orders), real_orders
+        for fill in fills:
+            raw = fill["data"]
+            assert raw["direction"] in (48, 49) and raw["offset"] in (48, 49), raw
+            trade = next(row for row in real_fills if row["seq"] == fill["seq"])
+            assert trade["direction"] == chr(raw["direction"]) and trade["offset_flag"] == chr(raw["offset"]), trade
+            assert trade["price"] == raw["price"] and trade["volume"] == raw["volume"], trade
+            order = next(row for row in real_orders if row["order_sys_id"] == trade["order_sys_id"])
+            updates = [e for e in events if e["type"] == "order_update" and e["data"].get("order_sys_id") == trade["order_sys_id"]]
+            final = max(updates, key=lambda e: e["seq"])
+            assert order["status"] == final["data"]["status"] == "0", order
+            assert order["update_seq"] == final["seq"] and order["volume_traded"] == 1 and order["volume_total"] == 0, order
+            assert order["direction"] == trade["direction"] and order["offset_flag"] == trade["offset_flag"], order
+        account = projection.query("account", broker=BROKER, investor=INVESTOR)[0]
+        assert account["last_seq"] == max(e["seq"] for e in events if e.get("broker") == BROKER and e.get("investor") == INVESTOR), account
+    print("[ok] real journal projection: %d fills, final OrderSysID and account snapshot" % len(real_fills))
 
 
 if __name__ == "__main__":

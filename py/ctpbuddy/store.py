@@ -245,7 +245,9 @@ class Projection:
         for column, value in (("broker_id", broker), ("investor_id", investor), ("trading_day", trading_day)):
             if value is not None:
                 if table == "account" and column == "trading_day":
-                    raise ValueError("account 不支持 trading_day 筛选")
+                    clauses.append("EXISTS (SELECT 1 FROM journal_event e WHERE e.broker_id=account.broker_id AND e.investor_id=account.investor_id AND e.trading_day=?)")
+                    values.append(value)
+                    continue
                 clauses.append(column + "=?")
                 values.append(value)
         order = "broker_id,investor_id" if table == "account" else ("seq,ordinal" if table in {"account_snapshot", "position_snapshot"} else "seq")

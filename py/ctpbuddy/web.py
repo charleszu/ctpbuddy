@@ -93,8 +93,11 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
 
         def projection(self):
             if not database:
-                return self.reply(404, {"error": "未配置 SQLite 投影"})
-            query = parse_qs(urlsplit(self.path).query)
+                return self.reply(404, {"error": "未配置 SQLite 投影：先执行 ctpbuddy journal rebuild JOURNAL --db DB，再使用 ctpbuddy web --db DB 启动"})
+            query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            allowed = {"table", "broker", "investor", "trading_day", "limit", "offset"}
+            if set(query) - allowed or any(len(values) != 1 for values in query.values()):
+                return self.reply(400, {"error": "投影查询参数无效"})
             table = query.get("table", ["account"])[0]
             def one(name):
                 return query.get(name, [None])[0]
@@ -105,12 +108,13 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                     rows = projection.query(table, broker=one("broker"), investor=one("investor"),
                                             trading_day=one("trading_day"), limit=int(one("limit") or 100),
                                             offset=int(one("offset") or 0))
+                    snapshot = {row[0]: row[1] for row in projection.conn.execute("SELECT key,value FROM projection_meta")}
             except ValueError:
                 return self.reply(400, {"error": "投影查询参数无效"})
             except (OSError, sqlite3.Error, RuntimeError, JournalError):
                 # 不把 SQLite 的绝对路径或底层文件错误回显给浏览器。
                 return self.reply(503, {"error": "SQLite 投影不可用"})
-            return self.reply(200, {"table": table, "rows": rows})
+            return self.reply(200, {"table": table, "rows": rows, "snapshot": snapshot, "realtime": False})
 
         def do_POST(self):
             if not self.valid_source(write=True):

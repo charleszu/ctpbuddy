@@ -528,10 +528,17 @@ def test_web_projection() -> None:
         try:
             base = "http://127.0.0.1:%d" % server.server_address[1]
             host = "127.0.0.1:%d" % server.server_address[1]
+            page = urllib.request.urlopen(urllib.request.Request(base + "/", headers={"Host": host})).read().decode()
+            assert "SQLite 投影浏览" in page and "projectionTable" in page
+            assert "innerHTML" not in open(os.path.join(REPO, "py", "ctpbuddy", "assets", "settings.js"), encoding="utf-8").read()
             for table, key in (("account", "investor_id"), ("order_record", "order_ref"), ("trade_record", "trade_id"), ("audit_log", "action")):
-                request = urllib.request.Request(base + "/api/projection?table=" + table, headers={"Host": host})
+                request = urllib.request.Request(base + "/api/projection?table=" + table + "&trading_day=20261003", headers={"Host": host})
                 payload = json.loads(urllib.request.urlopen(request).read())
                 assert payload["rows"] and key in payload["rows"][0], (table, payload)
+                assert payload["snapshot"]["event_count"] == "4" and payload["realtime"] is False, payload
+            empty = urllib.request.Request(base + "/api/projection?table=account&broker=missing", headers={"Host": host})
+            empty_payload = json.loads(urllib.request.urlopen(empty).read())
+            assert empty_payload["rows"] == [] and empty_payload["realtime"] is False
             injected = urllib.request.Request(base + "/api/projection?table=account%20WHERE%201%3D1", headers={"Host": host})
             try:
                 urllib.request.urlopen(injected)

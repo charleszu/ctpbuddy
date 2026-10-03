@@ -28,6 +28,7 @@ def main() -> int:
                 rows = cli.qry_settlement_info("20261002")
                 assert len(rows) > 1, len(rows)
                 assert [r["SequenceNo"] for r in rows] == list(range(1, len(rows) + 1))
+                assert all(isinstance(r["Content"], bytes) for r in rows)
                 assert b"".join(r["Content"] for r in rows) == content
                 assert all(r["TradingDay"] == "20261002" and r["SettlementID"] == 7 and r["BrokerID"] == BROKER and r["InvestorID"] == "m35" for r in rows)
                 assert cli.qry_settlement_info("20990101") == []

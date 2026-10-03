@@ -349,7 +349,7 @@ assertions:             # 可选：场景内断言（CI 用）
 **落地口径（M2-2，2026-10-02）**：
 
 - pause/resume/step 随 M1 场景加载落地；**seek/loop 为 M2-2 新增**。`seek(target_ms)` 定位到首个 vt ≥ target 的 tick——跳过的 tick 永不投放，之后从该位续播；`loop(on)` 在流结束后重置 idx=0、virtual_time=ticks[0].vt 并重锚墙钟基线（引擎/账本状态**不**重置，账户重置走 `reset_account` 或重载场景）。
-- 控制入口三面齐全：ADMIN 帧（`pause`/`resume`/`step`/`seek`/`loop`/`set_speed`）、CLI（`ctpbuddy replay pause|resume|step|seek|loop|speed|status`）、Python SDK（`Admin.pause/seek/loop/set_speed/...`）；Web 后台入口留待 M3。
+- 控制入口三面齐全：ADMIN 帧（`pause`/`resume`/`step`/`seek`/`loop`/`set_speed`）、CLI（`ctpbuddy replay pause|resume|step|seek|loop|speed|status`）、Python SDK（`Admin.pause/seek/loop/set_speed/...`）；Web 后台已提供设置页和 SQLite 投影只读浏览；完整 Web 后台仍未完成。
 - `step` 在暂停时释放恰好一个 tick；loop 重启在暂停时同样发生（重置位置但不投放，随后一步即重播首 tick）——e2e 以此确定性验证。
 - 播放状态可观测：admin status 的 `playback` 暴露 loaded/idx/total/paused/speed/looping/virtual_time/trading_day。
 
@@ -964,15 +964,15 @@ CREATE TABLE audit_log (
 | M3-2 核心费率建模与按真实公式算账 | ✅ 2026-10-03 | `refdata.rs` 按四张官方查询结构体 + `TradingParams` 建模；保证金两项相加、手续费六费率按开仓/平昨/平今分腿、申报费报单撤单各一笔；`MarginPrice` 枚举把「昨仓恒昨结」做成类型级规则；`on_fill` 接受引擎权威昨结算价（首笔成交早于 mark-to-market，从持仓副本读会得 0）；平仓按开仓成本释放保证金；随包 789 个真实合约 + 公司费率快照（LocalCTP `instrument.csv` 导出）；refdata 单测 8 项 |
 | M3-3 四张费率查询接线 | ✅ 2026-10-03 | `ReqQryInstrumentMarginRate`/`CommissionRate`/`OrderCommRate`/`BrokerTradingParams` 四张查询从 `unsupported` 转为实装（shim 生成器 + 四处msg id 同步 + 查询在途闸门白名单）；官方语义逐字复刻（留空 = 持仓合约、必填项缺失 = 空流）；查询与账本共用同一张表并以 e2e 交叉核对；`m3_refdata.py` 八项断言，两种配置（随包 / `--refdata` 带费率）均绿 |
 | M3-4 持仓明细与先开先平逐明细盈亏 | ✅ 2026-10-02 | `PositionDetail`（OpenDate/TradeID/OpenPrice/Volume/Margin，每笔开仓成交一条）+ `take_details_filtered`（**先开先平只按开仓时间排序，平今/平昨只决定可动哪个年龄桶**——第一版写成「今仓取最新」被 e2e 抓出）；平仓盈亏逐明细算（昨仓按昨结算价、今仓按开仓价），**均价口径已删除**；保证金按该明细开仓实收额等比释放；`positions_of_ordered` 保证查询行序可复现；新增 `ReqQryInvestorPositionDetail`（0x1059/0x105A，四处 msg id 同步 + 生成器 + 闸门 + SDK）；`m3_detail.py` 五项断言；`tools/audit_real_accounts.py` 对 459 个真实账户日 + 770 份真实结算单逐项对账全绿（§8.7.1） |
-| M3-5 结算单供给与 SettlementInfo 分段查询 | ✅ 2026-10-03（本地） | ADMIN `settlement_report` 接受原始 GBK 正文并持久化；`ReqQrySettlementInfo` 按 500 字节分段返回、`SequenceNo` 递增并发送空终止回调；未命中与空账户返回空流；`tests/e2e/m3_5_settlement_info.py` 本地通过。尚未纳入当前 GitHub Actions e2e 矩阵 |
-| M3-6 Python SQLite journal 投影与可重建命令 | ✅ 2026-10-03（本地） | `py/ctpbuddy/store.py` 定义 schema/version、原子 rebuild、只读查询；SQLite 仅为 JSONL journal 投影，Rust 不依赖 SQLite；CLI `journal rebuild|query`，Web 配置 `--db` 后提供只读 `/api/projection`；Python 单测 + `tests/e2e/m3_6_projection.py` 本地覆盖确定性、损坏库删除重建、账户/订单/成交/持仓/资金观测/配置审计查询。尚未纳入当前 GitHub Actions e2e 矩阵 |
+| M3-5 结算单供给与 SettlementInfo 分段查询 | ✅ 2026-10-03（本地） | ADMIN `settlement_report` 接受原始 GBK 正文并持久化；`ReqQrySettlementInfo` 按 500 字节分段返回、`SequenceNo` 递增并发送空终止回调；未命中与空账户返回空流；`tests/e2e/m3_5_settlement_info.py` 已加入 CI 矩阵。本地通过，真实远端 CI 尚未执行 |
+| M3-6 Python SQLite journal 投影与可重建命令 | ✅ 2026-10-03（本地） | `py/ctpbuddy/store.py` 定义 schema/version、原子 rebuild、只读查询；SQLite 仅为 JSONL journal 投影，Rust 不依赖 SQLite；CLI `journal rebuild|query`，Web 配置 `--db` 后提供只读 `/api/projection`；设置页增加账户/订单/成交/审计浏览、筛选分页、快照与非实时提示；Python 单测 + `tests/e2e/m3_6_projection.py` 本地覆盖确定性、损坏库删除重建和查询，已加入 CI 矩阵。本地通过，真实远端 CI 尚未执行；完整 Web 后台未完成 |
 
 **M4 子项进度**（当前仅有基础实现，不能将 M4 总项标为完成）：
 
 | 子项 | 状态 | 交付物 / 出口标准 |
 |---|---|---|
 | M4-1 断言 DSL 与断言 CLI | 🟡 本地实现 | 场景断言规范化、服务端求值、`ctpbuddy assertions check` 退出码与 `--total` 校验已有 Python 单测；CI 目前只执行 `--help` 入口检查，尚无真实场景中的 CLI 断言 e2e |
-| M4-2 e2e CI | 🟡 部分实现 | 未跟踪的 `.github/workflows/core-tests.yml` 已覆盖 Rust/Python 单测与 `m1_smoke`/`m2_scenario`/`m2_journal`；尚未覆盖 M3-5、M3-6、M3 其余 e2e、Shim/真实下游、fresh venv demo 策略 |
+| M4-2 e2e CI | 🟡 部分实现 | `.github/workflows/core-tests.yml` 已加入显式 `cargo build`，并覆盖 Rust/Python 单测、M1/M2、M3 bootstrap/settlement/order_sysid/投影/结算单及 settings e2e；本地已验证，真实远端 CI 尚未执行，仍未覆盖 Shim/真实下游/fresh venv demo 策略 |
 | M4-3 三渠道发布与文档站 | ⬜ 未开始 | 尚未见对应发布流程或文档站交付物 |
 
 

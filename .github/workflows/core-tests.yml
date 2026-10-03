@@ -31,6 +31,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Rust 单元测试
         run: cargo test --locked --workspace --manifest-path core/Cargo.toml
+      - name: Rust 核心构建（确保 server exe 存在）
+        run: cargo build --locked --bin ctpbuddy-server --manifest-path core/Cargo.toml
       - name: Python 单元测试
         run: python tests/test_py.py
 
@@ -40,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [m1_smoke, m2_scenario, m2_journal]
+        suite: [m1_smoke, m2_scenario, m2_journal, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, settings]
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
