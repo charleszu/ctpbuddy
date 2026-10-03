@@ -105,6 +105,8 @@ pub struct OrderRecord {
     pub stop_price: f64,
     pub force_close_reason: u8,
     pub request_id: i32,
+    /// 内部关联号始终存在；对外系统号仅在交易所接受边界后发布。
+    pub internal_sys_id: [u8; 21],
     pub order_sys_id: [u8; 21],
     pub front_id: i32,
     pub session_id: i32,
@@ -411,7 +413,8 @@ impl MatchingEngine {
             stop_price: intent.stop_price,
             force_close_reason: intent.force_close_reason,
             request_id: intent.request_id,
-            order_sys_id: to_fixed(&sys_id),
+            internal_sys_id: to_fixed(&sys_id),
+            order_sys_id: [0u8; 21],
             front_id: intent.front_id,
             session_id: intent.session_id,
             insert_ms: ctx.now_ms,
@@ -797,6 +800,7 @@ impl MatchingEngine {
         rec.volume_traded += volume;
         rec.volume_total -= volume;
         rec.status = if rec.volume_total == 0 { b'0' } else { b'1' };
+        rec.order_sys_id = rec.internal_sys_id;
         fak_fills.push((before, rec.clone(), price, volume, trade_id.to_string()));
     }
 
@@ -839,6 +843,8 @@ impl MatchingEngine {
         events: &mut Vec<EngineEvent>,
         ctx: &ClockCtx,
     ) {
+        // 撤余量是交易所接受后的终态，不是交易所拒单；CancelFirst 在此首次发布。
+        rec.order_sys_id = rec.internal_sys_id;
         match layout {
             IocLayout::CancelFirst => {
                 // 场景 8: cancel row first, and its VolumeTraded already
@@ -868,6 +874,7 @@ impl MatchingEngine {
                         row.status = b'1';
                         row.volume_traded = after.volume_traded;
                         row.volume_total = after.volume_total;
+                        row.order_sys_id = after.order_sys_id;
                         row.notify_seq = seq;
                         events.push(EngineEvent::Order(build_order_field(&row, ctx, seq)));
                         self.trade_event(&row, *price, *volume, trade_id, seq, ctx)
@@ -1027,6 +1034,7 @@ impl MatchingEngine {
         rec.volume_traded += volume;
         rec.volume_total -= volume;
         rec.status = if rec.volume_total == 0 { b'0' } else { b'1' };
+        rec.order_sys_id = rec.internal_sys_id;
         let seq_new = self.next_notify_seq();
         rec.notify_seq = seq_new;
         events.push(EngineEvent::Order(build_order_field(rec, ctx, seq_new)));
@@ -1042,6 +1050,8 @@ impl MatchingEngine {
         events: &mut Vec<EngineEvent>,
         ctx: &ClockCtx,
     ) {
+        // 单行确认或 transition 的新态才越过接受边界，前态保持原外部状态。
+        rec.order_sys_id = rec.internal_sys_id;
         rec.status = status;
         let seq = self.next_notify_seq();
         rec.notify_seq = seq;

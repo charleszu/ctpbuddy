@@ -644,6 +644,12 @@ DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨�
 - **为什么必须缓冲成交**：报告形状取决于**是否还有 leftover**（官方三场景只规定「部成部撤」），而上期所的撤单行还要排在成交行**之前**——撮合循环跑完前无法确定任何一行。所以 taker 侧每笔成交先记 `(前态快照, 新态快照, price, volume, trade_id)` 进 `fak_fills`，循环结束后由 `emit_fak_reports` 一次性铺开（`FakFill`）。非 FAK 走 `record_taker_fill` 的即时分支，行为与改动前逐字节一致。
 - **终态行只推一行**：三所收尾的都是**交易所主动撤单**（FAK 剩余量被交易所撤掉，不是客户端 `ReqOrderAction`），所以不带前态重复——这与 §8.9 场景 3/5 客户端主动撤单的前态+新态形状**刻意不同**。FAK 一手未成时同样只有 `a` → `5` 两行。
 - **FAK 全成无官方形状**：三场景都只写部成部撤。全成时退回 §8.9 场景 2 的一般规则（`a` → `a` → `0` + `OnRtnTrade`），大商所沿用 §3「不重复推送前一状态」的例外。
+
+### 8.14 OrderSysID 接受边界（任务43，2026-10-03）
+
+`OrderRecord` 同时保存不可见的 `internal_sys_id` 与对外 `order_sys_id`。前者从报单进入引擎即生成，专供引擎、账本冻结键关联及 journal 内部追踪；后者在首条 `OrderStatus='a'` 报单回报中保持为空。只有交易所确认/成交/交易所主动撤余量等按 `IocLayout` 确定的 accepted transition 才复制内部号到对外 `OrderSysID`，因此不能把“第 2 条回报”写成绝对规则：SHFE/FAK 的布局可能在不同位置首次发布。
+
+交易所层拒单不创建 `OrderRecord`，因此 `OnErrRtnOrderInsert` 及相关全程不含 `OrderSysID`。成交回报只从最终非空状态生成；普通未成交订单依靠 `(FrontID, SessionID, OrderRef)` 关联，接受后撤单既可继续用该三元组，也可使用最终 `OrderSysID`。`QryOrder` 按前端会话/Session/Ref 聚合状态，避免首条空号与后续系统号形成两条订单；journal 保留请求摘要并由 `order_update`/`fill` 记录最终汇总。
 - **账本释放顺序无副作用**：上期所 `CancelFirst` 下终态 `5` 事件先于 Trade 到达，`dispatch_event` 先 `unfreeze_order`（移除 `frozen` 条目、全额释放剩余），随后每笔 `on_fill` 因 `frozen.get_mut()` 返回 `None` 而释放 0。净额仍正确（pro-rata 本就按**原始**估算额 × 本次量/原申报量计算，佣金/保证金/持仓移动都在 `on_fill` 独立进行）。
 - **catalog 补齐**：`builtin()` 增加 CZCE `TA609`（3 位 `YMM` 后缀，`parse_delivery_ym` 加了 decade 分支：`2020 + decade`）与 GFEX `si2610`，使三个所族都可交易——否则 e2e 无法驱动场景 8/9/10。合约数 5 → 7，`m1_smoke` / `m2_book` 的 `instruments` 断言同步。
 - **回归**：engine.rs 新增 7 项单元测试（三所形状各自锁定 + 「三组互不相同」+ GFEX 随 DCE + 撤单行不重复计成交量 + 全撤单行 + 全成回落）；新增 `tests/e2e/m2_ioc.py` 走完整线路（shim → 引擎 → ledger → 客户端）并排断言四所形状 `a55` / `a315` / `a3315` / `a315`。`m2_book` 的 C3 断言从 `a,a,1,1,1,1,5` 改为 `a,5,5,5`（场景 8 形状），账目/持仓/成交条数全部未变，仅终态 `5` 从 5 条变 7 条（C3 现在有 3 行）。

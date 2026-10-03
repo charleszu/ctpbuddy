@@ -616,7 +616,9 @@ impl World {
                 for ev in events {
                     match &ev {
                         ctpbuddy_matching::EngineEvent::Order(o) => {
-                            if sys_id.is_empty() {
+                            if o.FrontID == front_id && o.SessionID == session_id
+                                && cstr(&o.OrderRef) == order_ref
+                            {
                                 sys_id = cstr(&o.OrderSysID);
                             }
                         }
@@ -642,6 +644,9 @@ impl World {
                     json::obj_sorted(vec![
                         ("order_ref".into(), json::s(&order_ref)),
                         ("order_sys_id".into(), json::s(&sys_id)),
+                        ("order_key".into(), json::s(&order_key)),
+                        ("summary_kind".into(), json::s("request_with_final_outcome")),
+                        ("final_order_sys_id".into(), json::s(&sys_id)),
                         ("instrument".into(), json::s(&instrument)),
                         ("exchange".into(), json::s(&exchange)),
                         ("direction".into(), json::n(direction.as_ctp() as f64)),
@@ -1143,7 +1148,8 @@ impl World {
             if !sys.is_empty() && cstr(&o.OrderSysID) != sys {
                 continue;
             }
-            let key = format!("{}/{}", cstr(&o.OrderSysID), cstr(&o.OrderRef));
+            // 首条 OrderSysID 为空，按稳定的前置/会话/引用关联整个生命周期。
+            let key = format!("{}/{}/{}", o.FrontID, o.SessionID, cstr(&o.OrderRef));
             if !latest.contains_key(&key) {
                 keys.push(key.clone());
             }

@@ -457,7 +457,7 @@ FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、同用�
 | 6 | 查询无数据回**空指针 + `bIsLast=true`**，不回全零记录 | notes/14 §B4-5 | **✅ 已核**：Core 空流统一发送 `QRY_LAST`；shim dispatch 回调 `nullptr, bIsLast=true`；Python `_query_stream` 返回 `[]`，真实 shim demo 已补断言 | ~~中~~ 已清 |
 | 7 | `YdPosition` 是静态昨仓初值，不随平昨减少 | notes/14 §B2 | **✅ 任务41已落地**：逐笔初仓供给初始化静态值；当前昨仓仍由 `Position−TodayPosition` 表示；无初仓时不伪造静态值；**✅ 任务42**：显式日结后 `YdPosition=当前 volume`、`TodayPosition=0`，保留明细 key | 日结已实现；SettlementInfo 查询回报仍不伪造 |
 | 8 | `TradeType` `'0'`/`'4'`（组合单生成成交） | notes/14 §B6 | 未建模（v1 不做组合；大商所盘后自动组合会产生 `'4'`） | 低 |
-| 9 | `OrderSysID` 第 1 次回报为空、第 2 次才有 | notes/13 §E | 需核（下游方案 01 依赖此形状） | 低 |
+| 9 | `OrderSysID` 首条回报为空，交易所接受边界后按布局填充（不能绝对化为第 2 条） | notes/13 §E、DESIGN §8.14 | **✅ 任务43**：内部号与外部号分离；SHFE/FAK、DCE/FAK按布局；拒单全程为空 | 高 |
 
 **本批复核暴露的最大数值偏差现已修复**：保证金优惠按用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按交易所 + 品种聚合，多空取大；`ReqQryInvestorProductGroupMargin` 与账户 `CurrMargin` 共用同一聚合计算，单边仍保持求和。真实数据量尺 `tools/audit_real_accounts.py::audit_hedged_margin`（64/64）继续用于防回归。跨品种映射、套利取高、仓单折抵仍未实现，见 §10.2 第 11 条、DESIGN §8.7.2、notes/04 C4。
 
