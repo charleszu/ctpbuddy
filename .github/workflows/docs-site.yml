@@ -1,0 +1,44 @@
+name: OINK documentation site
+
+on:
+  push:
+    paths:
+      - "docs-site-oink/**"
+      - ".github/workflows/docs-site.yml"
+  pull_request:
+    paths:
+      - "docs-site-oink/**"
+      - ".github/workflows/docs-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Hugo Extended
+        shell: pwsh
+        run: choco install hugo-extended --version=0.167.0 -y --no-progress
+      - name: Build OINK site
+        shell: pwsh
+        run: |
+          hugo --source docs-site-oink --cleanDestinationDir --gc --minify `
+            --environment production --printPathWarnings --panicOnWarning
+      - name: Verify generated site
+        shell: pwsh
+        run: |
+          $index = Join-Path $env:GITHUB_WORKSPACE "docs-site-oink/public/index.html"
+          if (-not (Test-Path $index)) { throw "Missing generated index.html" }
+          $css = Get-ChildItem "docs-site-oink/public" -Recurse -Filter "*.css"
+          if (-not $css) { throw "Missing generated CSS" }
+          $html = Get-Content $index -Raw
+          if ($html -notmatch "CTPBuddy") { throw "Site title is missing" }
+      - name: Check no build output is tracked
+        shell: pwsh
+        run: |
+          $tracked = git ls-files docs-site-oink/public docs-site-oink/resources
+          if ($tracked) { throw "Generated output must not be tracked: $tracked" }

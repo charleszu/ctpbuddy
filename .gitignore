@@ -6,6 +6,9 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+# OINK vendored runtime distributions are source dependencies, not our builds.
+!docs-site-oink/themes/oink/assets/third_party/**/dist/
+!docs-site-oink/themes/oink/assets/third_party/**/dist/**
 .venv/
 
 # Shim 编译产物（DLL / obj / 导入库，由 shim/build_msvc.py 生成）
