@@ -153,7 +153,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_web(args: argparse.Namespace) -> int:
     from .web import serve
-    return serve(args.host, args.port, args.admin, args.db)
+    return serve(args.host, args.port, args.admin, args.db, args.workspace)
 
 
 def cmd_install_shim(args: argparse.Namespace) -> int:
@@ -515,6 +515,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--port", type=int, default=8080)
     sp.add_argument("--admin", default="127.0.0.1:5561")
     sp.add_argument("--db", default=None, help="SQLite journal 投影路径，启用只读查询 API")
+    sp.add_argument("--workspace", default=".", help="Web 场景 workspace；只浏览 workspace/scenarios")
     sp.set_defaults(func=cmd_web)
 
     sp = sub.add_parser("install-shim", help="安全安装受支持的 shim DLL（默认 dry-run）")

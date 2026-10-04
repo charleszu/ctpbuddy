@@ -351,7 +351,7 @@ assertions:             # 可选：场景内断言（CI 用）
 **落地口径（M2-2，2026-10-02）**：
 
 - pause/resume/step 随 M1 场景加载落地；**seek/loop 为 M2-2 新增**。`seek(target_ms)` 定位到首个 vt ≥ target 的 tick——跳过的 tick 永不投放，之后从该位续播；`loop(on)` 在流结束后重置 idx=0、virtual_time=ticks[0].vt 并重锚墙钟基线（引擎/账本状态**不**重置，账户重置走 `reset_account` 或重载场景）。
-- 控制入口：ADMIN 帧、CLI、Python SDK 已覆盖完整回放控制；Web 设置页当前仅开放真实 ADMIN 的 `status`、`pause`、`resume`、`step`、`set_speed` 与可选 `loop`，不开放 `seek`、场景加载或危险管理命令；SQLite 投影仍是非实时查询；完整 Web 后台仍未完成。
+- 控制入口：ADMIN 帧、CLI、Python SDK 已覆盖完整回放控制；Web 只开放真实 ADMIN 的 `status`、`pause`、`resume`、`step`、`set_speed`、可选 `loop`，以及受确认/CSRF/白名单保护的 workspace 场景加载；不开放 `seek`、reset、shutdown、任意 ADMIN、任意 cmd 或 SQL。场景仅允许 `workspace/scenarios/<name>` 直接子目录和其安全 CSV/spec 文件，路径必须为 workspace 相对路径且拒绝 `..`、绝对路径、NUL、命令执行。账户/初始持仓为只读摘要；实时账户来自已有 ADMIN status，Core 未提供实时持仓查询时明确显示不可用，持仓只读查看 journal 快照。SQLite 投影仍是非实时查询；结算报告/`settle_day` 沿用已有受控写入口并写审计。
 - `step` 在暂停时释放恰好一个 tick；loop 重启在暂停时同样发生（重置位置但不投放，随后一步即重播首 tick）——e2e 以此确定性验证。
 - 播放状态可观测：admin status 的 `playback` 暴露 loaded/idx/total/paused/speed/looping/virtual_time/trading_day。
 
@@ -986,9 +986,10 @@ CREATE TABLE audit_log (
 | M4-1 断言 DSL 与断言 CLI | 🟡 本地实现 | 场景断言规范化、服务端求值、`ctpbuddy assertions check` 退出码与 `--total` 校验已有 Python 单测；CI 目前只执行 `--help` 入口检查，尚无真实场景中的 CLI 断言 e2e |
 | M4-2 e2e CI | 🟡 部分实现 | `.github/workflows/core-tests.yml` 已加入显式 `cargo build`，并覆盖 Rust/Python 单测、M1/M2、M3 bootstrap/settlement/order_sysid/投影/结算单及 settings e2e；已核实远端 runs `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success，仍未覆盖 Shim/真实下游/fresh venv demo 策略，因此 M4 总项不标完成 |
 | M4-3 三渠道发布与文档站 | 🟡 文档站已具备 | `docs-site-oink/` 使用 OINK v1.1.0、Hugo Extended 0.167.0，75 pages/22 static严格构建；`.github/workflows/docs-site.yml` 已远端成功（37173389551）；发布渠道和真实域名授权仍未完成 |
-| M4-4 Shim 安全安装与真实构建验收 | 🟡 基础+本机真实构建 | CLI `install-shim --target-dir DIR --shim-dir DIR` 默认 dry-run，只有显式 `--apply` 才替换；仅接受 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 白名单，支持 manifest 版本/架构元数据，安装前备份、原子复制、恢复和 SHA 保护。已在本机用 MSVC 实际构建两个 x64 DLL 与 `demo_td.exe`；PE Machine=0x8664，真实 DLL 临时目录 dry-run/apply/restore 与 SHA 校验通过；`m1_shim_e2e.py` 真实下游全链路 PASS。产物仍被 `.gitignore` 忽略，未触碰真实 CTP 安装目录。 |
+| M4-4 Shim 安全安装与真实构建验收 | 🟡 基础+本机真实构建 | CLI `install-shim --target-dir DIR --shim-dir DIR` 默认 dry-run，只有显式 `--apply` 才替换；仅接受 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 白名单，支持 manifest 版本/架构元数据，安装前备份、原子复制、恢复和 SHA 保护。已在本机用 MSVC 实际构建两个 x64 DLL 与 `demo_td.exe`；PE Machine=0x8664，真实 DLL 临时目录 dry-run/apply/restore 与 SHA 校验通过；`m1_shim_e2e.py` 真实下游全链路 PASS。产物仍被 `.gitignore` 忽略，未触碰真实 CTP 安装目录。Linux Docker 验收明确不运行 Windows Shim。 |
 | M4-5 真实导出回放审计 | 🟡 受控成交回放已实现 | `tools/real_replay_audit.py` 严格扫描432个真实交易文件；完整账户重演仍无候选（期权/RefData缺口），不伪造通过。新增 `tests/e2e/m4_real_replay.py`：从真实导出动态选取一笔普通期货成交，重建最小行情/报单并逐字段核对 ExchangeID/InstrumentID/Direction/OffsetFlag/Price/Volume；无外部真实数据时安全 SKIP，已加入CI矩阵。该项证明成交ABI路径，不等价于整账户日结重演。 |
 | M4-6 三表确定性源对齐 | 🟡 第一阶段 | `tools/audit_three_way.py` 按交易日+账号对齐前一日结算单基线、当日order/trade/account和当日结算单；当前验证20个样本的1764条成交全部可按OrderSysID/字段关联，但仅为源数据对齐，不推断期权盈亏、不替代Core账本重演。 |
+| M4-7 Linux Docker 验收与 Windows 发布包 | 🟡 本地实现 | `docker/Dockerfile` + `docker/compose.yml` 只验收 Python wheel/CLI、Rust core build/run、refdata 与可选 Hugo/OINK；`tools/docker_acceptance.py` 在无 Docker/daemon 时安全 SKIP。`tools/release_package.py` 只从本机 `shim/bin/` 白名单复制 DLL 与可选 demo 到临时 dist，生成含 version/commit/sha256/PE machine/SDK 6.7.13/architecture 的 manifest、LICENSE、INSTALL.txt；不复制 `ctpsdk` 或真实 `data`，不在 Linux 容器执行 Shim；`tests/e2e/release_package.py` 默认 fixture，真实产物显式 opt-in。 |
 
 
 ### 12.3 后续

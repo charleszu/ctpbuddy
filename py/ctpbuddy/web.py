@@ -12,9 +12,11 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .scenario import ScenarioError, load_scenario_spec
 from .sdk import Admin
 
 MAX_BODY = 8192
+MAX_SCENARIO_NAME = 160
 PLAYBACK_COMMANDS = {"pause", "resume", "step", "set_speed", "loop"}
 WEB_PROJECTION_TABLES = {"account", "position_snapshot", "account_snapshot", "order_record", "trade_record", "audit_log", "settlement_report"}
 MAX_PLAYBACK_SPEED = 1000.0
@@ -31,7 +33,49 @@ def _strict_object(pairs):
     return result
 
 
-def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None):
+def _workspace_path(workspace, relative):
+    if (not isinstance(relative, str) or not relative or len(relative) > MAX_SCENARIO_NAME
+            or any(c in relative for c in ("\\", ":", "\x00"))
+            or relative.startswith("/") or any(p in ("", ".", "..") for p in relative.split("/"))):
+        raise ValueError("仅允许无穿越的 workspace 相对路径")
+    path = workspace.joinpath(relative)
+    if not path.resolve().is_relative_to(workspace):
+        raise ValueError("场景路径超出 workspace")
+    return path
+
+
+def _scenario_view(workspace, relative):
+    path = _workspace_path(workspace, relative)
+    if not relative.startswith("scenarios/") or len(relative.split("/")) != 2 or not path.is_dir():
+        raise ValueError("场景必须位于 workspace/scenarios 的直接子目录")
+    for name in ("scenario.json", "scenario.yaml", "ticks.csv"):
+        candidate = path / name
+        if candidate.exists() and not candidate.resolve().is_relative_to(workspace):
+            raise ValueError("场景文件超出 workspace")
+    spec = load_scenario_spec(str(path))
+    source = spec.get("source", {"kind": "csv", "path": "ticks.csv"})
+    if not isinstance(source, dict) or source.get("kind", "csv") != "csv":
+        raise ValueError("Web 仅允许 CSV 场景源")
+    source_path = source.get("path", "ticks.csv")
+    if isinstance(source_path, str) and source_path.startswith("./"):
+        source_path = source_path[2:]
+    ticks = _workspace_path(workspace, relative + "/" + source_path) if isinstance(source_path, str) else None
+    if ticks is None or not ticks.is_file():
+        raise ValueError("场景 CSV 不可用")
+    refdata = path / "refdata"
+    if refdata.exists():
+        if not refdata.resolve().is_relative_to(workspace):
+            raise ValueError("RefData 超出 workspace")
+        for item in refdata.rglob("*"):
+            if not item.resolve().is_relative_to(workspace):
+                raise ValueError("RefData 文件超出 workspace")
+    json.dumps(spec, allow_nan=False)
+    return path, spec, {"path": relative, "name": spec.get("name") or path.name,
+                        "accounts": spec.get("accounts", []), "readonly": True,
+                        "positions_state": "scenario_initial_only_not_live"}
+
+
+def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None, workspace=None):
     if host == "loopback":
         host = "127.0.0.1"
     if host == "localhost":
@@ -42,6 +86,9 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
     addresses = socket.getaddrinfo(ahost.strip("[]"), int(aport), type=socket.SOCK_STREAM)
     if not addresses or any(not ipaddress.ip_address(a[4][0]).is_loopback for a in addresses):
         raise ValueError("ADMIN 必须是回环地址")
+    workspace = Path(workspace or Path.cwd()).resolve()
+    if not workspace.is_dir():
+        raise ValueError("workspace 必须是已有目录")
     token = secrets.token_urlsafe(32)
     slots = threading.BoundedSemaphore(8)
     replay_write = threading.Lock()
@@ -99,9 +146,39 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 return self.projection()
             if path == "/api/replay/status":
                 return self.playback_status()
+            if path == "/api/scenarios":
+                return self.scenarios()
+            if path == "/api/scenario":
+                return self.scenario_details(query=parse_qs(urlsplit(self.path).query, keep_blank_values=True))
             if self.path != "/api/settings":
                 return self.reply(404, {"error": "路径不存在"})
             self.invoke()
+
+        def scenarios(self):
+            if self.path != "/api/scenarios":
+                return self.reply(400, {"error": "场景目录不接受查询参数"})
+            rows = []
+            root = workspace / "scenarios"
+            if root.is_dir():
+                for path in sorted(root.iterdir()):
+                    if not path.is_dir() or path.is_symlink():
+                        continue
+                    relative = "scenarios/" + path.name
+                    try:
+                        _, _, view = _scenario_view(workspace, relative)
+                    except (OSError, ScenarioError, ValueError, TypeError, json.JSONDecodeError):
+                        continue
+                    rows.append(view)
+            return self.reply(200, {"workspace": ".", "scenarios": rows, "readonly": True})
+
+        def scenario_details(self, query):
+            if set(query) != {"path"} or len(query.get("path", [])) != 1:
+                return self.reply(400, {"error": "场景查询必须提供单一 path"})
+            try:
+                _, _, view = _scenario_view(workspace, query["path"][0])
+            except (OSError, ScenarioError, ValueError, TypeError, json.JSONDecodeError):
+                return self.reply(400, {"error": "场景文件或路径无效"})
+            return self.reply(200, view)
 
         def projection(self):
             if not database:
@@ -133,7 +210,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
         def do_POST(self):
             if not self.valid_source(write=True):
                 return self.reply(403, {"error": "同源或 CSRF 校验失败"})
-            if self.path not in ("/api/settings", "/api/replay", "/api/admin/settlement_report", "/api/admin/settle_day"):
+            route = urlsplit(self.path).path
+            if self.path != route or route not in ("/api/settings", "/api/replay", "/api/scenario/load", "/api/admin/settlement_report", "/api/admin/settle_day"):
                 return self.reply(404, {"error": "路径不存在"})
             if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                 return self.reply(400, {"error": "需要单一 Content-Length"})
@@ -151,20 +229,24 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                     raise ValueError("非有限数字: " + s)
                 value = json.loads(body, object_pairs_hook=_strict_object, parse_constant=invalid_constant)
                 json.dumps(value, allow_nan=False)
-                if self.path == "/api/replay":
+                if route == "/api/replay":
                     self.validate_playback(value)
-                elif self.path == "/api/settings":
+                elif route == "/api/scenario/load":
+                    self.validate_scenario_load(value)
+                elif route == "/api/settings":
                     if not isinstance(value, dict) or set(value) != {"patch"} or not isinstance(value["patch"], dict):
                         raise ValueError("仅允许 patch 对象")
                 elif self.path == "/api/admin/settlement_report":
                     self.validate_settlement_report(value)
                 else:
                     self.validate_settle_day(value)
-            except (ValueError, UnicodeError, OSError) as e:
-                return self.reply(400, {"error": str(e)})
-            if self.path == "/api/replay":
+            except (ValueError, UnicodeError, OSError, ScenarioError, TypeError) as e:
+                return self.reply(400, {"error": "场景文件或路径无效" if route == "/api/scenario/load" else str(e)})
+            if route == "/api/replay":
                 self.invoke(playback=value)
-            elif self.path == "/api/settings":
+            elif route == "/api/scenario/load":
+                self.invoke(scenario=value)
+            elif route == "/api/settings":
                 self.invoke(value["patch"])
             elif self.path == "/api/admin/settlement_report":
                 reports = []
@@ -206,6 +288,11 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 if not isinstance(instrument, str) or not instrument or len(instrument) > 31 or not isinstance(price, (int, float)) or isinstance(price, bool) or not math.isfinite(price) or price <= 0:
                     raise ValueError("日结结算价无效")
 
+        def validate_scenario_load(self, value):
+            if not isinstance(value, dict) or set(value) != {"path", "confirmed"} or value["confirmed"] is not True:
+                raise ValueError("场景加载必须明确 confirmed=true，且只提供 path")
+            _scenario_view(workspace, value["path"])
+
         def validate_playback(self, value):
             if not isinstance(value, dict) or not isinstance(value.get("cmd"), str) or value["cmd"] not in PLAYBACK_COMMANDS:
                 raise ValueError("未知回放命令")
@@ -229,12 +316,14 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             status = client.status()
             pb = status["playback"]
             return {"ok": True, "scenario": status["scenario"], "playback": dict(pb, finished=pb["loaded"] and pb["idx"] >= pb["total"]),
+                    "accounts": status.get("accounts", []), "broker_id": status.get("broker_id"),
+                    "open_orders": status.get("open_orders"), "positions_state": "admin_live_positions_unavailable",
                     "realtime": True, "speed_range": {"min": 0, "max": MAX_PLAYBACK_SPEED}}
 
-        def invoke(self, patch=None, playback=None, admin_cmd=None, admin_args=None):
+        def invoke(self, patch=None, playback=None, scenario=None, admin_cmd=None, admin_args=None):
             if not slots.acquire(blocking=False):
                 return self.reply(429, {"error": "并发请求过多"})
-            writing = (playback is not None and playback["cmd"] != "status") or admin_cmd is not None
+            writing = (playback is not None and playback["cmd"] != "status") or scenario is not None or admin_cmd is not None
             if writing and not replay_write.acquire(blocking=False):
                 slots.release()
                 return self.reply(429, {"error": "回放命令正在执行"})
@@ -242,6 +331,15 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 with Admin(admin, timeout=3) as client:
                     if admin_cmd is not None:
                         result = client.cmd(admin_cmd, **admin_args)
+                    elif scenario is not None:
+                        status = client.status()
+                        if status.get("open_orders", 0) != 0 or any(a.get("used_margin", 0) != 0 for a in status.get("accounts", [])):
+                            return self.reply(409, {"error": "加载前必须无活动订单且无持仓保证金；Web 不重置账户"})
+                        if status.get("playback", {}).get("loaded") and not status["playback"].get("paused"):
+                            return self.reply(409, {"error": "加载前必须暂停当前回放"})
+                        relative = scenario["path"]
+                        path, spec, _ = _scenario_view(workspace, relative)
+                        result = client.start_scenario(str(path), paused=True, spec=spec)
                     elif playback is not None:
                         cmd = playback["cmd"]
                         if cmd == "status":
@@ -259,7 +357,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                         result = client.settings() if patch is None else client.update_settings(patch)
                 self.reply(200, result)
             except RuntimeError as e:
-                return self.reply(409 if playback is not None or admin_cmd else 400, {"error": str(e)})
+                return self.reply(409 if playback is not None or admin_cmd or scenario is not None else 400,
+                                  {"error": "核心拒绝场景加载，请检查本地核心日志" if scenario is not None else str(e)})
             except (OSError, ValueError, ConnectionError) as e:
                 return self.reply(503 if playback is not None or admin_cmd else 502, {"error": "ADMIN 不可用"})
             finally:
@@ -278,8 +377,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
     return Server((host, port), Handler)
 
 
-def serve(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None):
-    server = make_server(host, port, admin, database)
+def serve(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None, workspace=None):
+    server = make_server(host, port, admin, database, workspace)
     print("[ctpbuddy] 本地参数后台 http://%s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
     try:
         server.serve_forever()

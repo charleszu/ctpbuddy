@@ -1,15 +1,16 @@
 {
   "schema": "ctpbuddy.trading-calendar-manifest/v1",
-  "version": "2026-10-04-r1",
+  "version": "2026-10-04-r2",
   "created_at": "2026-10-04",
   "scope": "futures",
   "runtime": "offline-only",
-  "status": "sample-and-gap",
+  "status": "complete-day-session-partial-night",
   "coverage": {
-    "start": "2025-12-31",
-    "end": "2026-01-05",
-    "complete_range": false,
-    "missing": "未取得覆盖所有交易日的官方逐日生产日历；当前仅固化上期所2026元旦休市公告样本。不得据此推断全年交易日。"
+    "start": "2026-01-01",
+    "end": "2026-12-31",
+    "complete_range": true,
+    "scope": "day-session-only",
+    "night_complete": false
   },
   "snapshots": [
     {
@@ -19,6 +20,52 @@
       "authority": "上海期货交易所",
       "scope": "SHFE 2026元旦休市安排及2025-12-31夜盘边界",
       "sha256": "3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a"
+    },
+    {
+      "path": "cn-futures-day-2026.snapshot.json",
+      "sha256": "b9217ede09a806e99d3819331367b76731bf4407fade96f2a02ed3123fdb71e3",
+      "source_revision": "six-exchange-extract-20261004-r1",
+      "sources": [
+        {
+          "exchange": "SHFE",
+          "revision": "2025-12-17-[2025]157",
+          "url": "https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html?updatetime=short",
+          "verified": "official-page"
+        },
+        {
+          "exchange": "INE",
+          "revision": "2025-12-17-[2025]114",
+          "url": "https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html",
+          "verified": "official-search-excerpt"
+        },
+        {
+          "exchange": "CZCE",
+          "revision": "2025-12-17-[2025]939",
+          "url": "https://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2025/12/528a2b72a3c949ae88ee93391e1d6c0f.htm?t=aged&updatetime=short",
+          "verified": "official-search-excerpt"
+        },
+        {
+          "exchange": "DCE",
+          "revision": "2026-holiday-page-extract-20261004",
+          "url": "http://www.dce.com.cn/dce/channel/list/226.html",
+          "verified": "official-search-excerpt; 页面注明仅做参考，以交易所公布为准；未取得固定公告正文"
+        },
+        {
+          "exchange": "GFEX",
+          "revision": "2025-12-17-[2025]414",
+          "url": "https://www.gfex.com.cn/gfex/tzts/202512/0134914f8c674fa68c2ba9041a5cd798.shtml",
+          "verified": "official-search-excerpt"
+        },
+        {
+          "exchange": "CFFEX",
+          "revision": "2025-12-17-[2025]55",
+          "url": "http://www.cffex.com.cn/cn/jystz/20251217/47006.html",
+          "verified": "official-search-excerpt"
+        }
+      ],
+      "facts_sha256": "e9b8d61e22b52c29baf8f45e0175e58f5795b0eb34a8808132875cb1e73c78ed",
+      "authority": "项目离线事实整理，非官方逐日数据库",
+      "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市"
     }
   ],
   "not_authoritative": [
@@ -29,8 +76,11 @@
     }
   ],
   "gaps": [
-    "未将周末或节假日规则扩展为全年交易日；缺失自然日不等于休市。",
-    "未取得上期所、能源中心、大商所、郑商所、广期所、中金所覆盖完整2026逐日快照。",
-    "夜盘仅记录官方明确的关闭边界；未从交易所名称或周末规则推断ActionDay/TradingDay。"
+    "完整365个自然日日盘状态不是完整官方逐日TradingDay/ActionDay数据库；不得把每个自然日直接当TradingDay。",
+    "六所公布的节假日日盘关闭区间一致；周末不因民用调休上班而开市，不供给民用工作日日历。",
+    "SHFE/INE/CZCE/DCE仅记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。其他夜盘未知，不由日盘或周末推断。",
+    "GFEX/CFFEX未在本快照填充夜盘；未核验官方逐日open映射，绝不推断。",
+    "除SHFE外来源为官方域名搜索摘录；DCE为动态参考页，未取得固定原公告正文。需使用者复核后用于生产。",
+    "不覆盖临时停市、品种交易时段、公告后修订、2027下一交易日；快照年末next_trading_day超范围必须失败。"
   ]
 }

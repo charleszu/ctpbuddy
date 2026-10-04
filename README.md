@@ -153,11 +153,36 @@ with Admin(calendar=calendar) as admin:
 
 自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中显式标记：开放时同时提供 `night_action_day` 和 `night_trading_day`，官方明确关闭时使用 `{"status":"closed"}`；缺失时拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
 
-生产目录 `calendar/production/` 当前只提交了 `shfe-2026-new-year.sample.json` 和 `MANIFEST.json`：其固定来源为上期所 2025-12-17〔2025〕157号公告，覆盖 2025-12-31 至 2026-01-05 的元旦样本及 2025-12-31 夜盘关闭边界，快照 SHA256 为 `3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a`。这不是完整 2026 生产日历；manifest 明确记录了缺口，不能把缺失日期解释为休市，也不能离线自动补全。
+`calendar/production/cn-futures-day-2026.snapshot.json` 是项目离线快照：完整覆盖 2026 自然日的“周一至周五且不在六所同日公开节假日区间”的日盘候选，并将其明确标为 `scope: day-session-only`；它不是六所官方逐日 TradingDay 数据库，也不把民用调休工作日直接当期货交易日。六所来源、提取 revision、事实 hash、DCE 动态参考页及夜盘缺口均登记在 `calendar/production/MANIFEST.json`。夜盘只固化公告明确的 closed 边界，未知 open/closed 一律拒绝推断；生产使用前须复核公告并固定 SHA256。`build_2026.py` 仅是可审计的离线生成器，不访问网络。
+
+生产目录仍保留 `shfe-2026-new-year.sample.json`：固定来源为上期所 2025-12-17〔2025〕157号公告，覆盖 2025-12-31 至 2026-01-05 的元旦样本及 2025-12-31 夜盘关闭边界，SHA256 为 `3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a`。新增全年日盘快照 SHA256 为 `b9217ede09a806e99d3819331367b76731bf4407fade96f2a02ed3123fdb71e3`，覆盖 365 自然日、24 条显式夜盘关闭记录；完整逐日夜盘仍未取得，manifest 明确记录缺口。不能把缺失夜盘解释为关闭或开放。
+
+Web 启动可指定 `ctpbuddy web --workspace . --db data/ctpbuddy.db`；目录与详情为只读，场景加载只接受 `scenarios/<name>` 和 `confirmed=true`。加载前必须暂停已有回放、无活动订单且无持仓保证金，不自动重置账户；账户实时摘要、初始持仓与历史投影各有独立状态标识。页面提供场景、账户/持仓、订单/成交、结算/审计和回放导航，不实现 Core 不存在的功能。
 
 用户覆盖通过 `calendar.with_overrides(user_snapshot)` 或 `load_calendar(path, override=...)` 完成，按自然日整条替换并重新计算快照 SHA256。推荐在 CI 中固定并校验 SHA256；不要把未核验的外部数据写入仓库。
 
 已核查的外部数据源示例：`gerrymanoim/exchange_calendars`，Apache-2.0，固定 commit `bbda29fed902374bdb75acab008f421fbd567823`。其 README 明确定位为证券交易所日历、日历由用户贡献维护，并将常规交易时段外（含盘前/盘后/竞价/午休）视为关闭；仓库包含上海证券交易所 XSHG，但不提供 CTP 期货夜盘 ActionDay/TradingDay 语义。因此本项目不在运行时依赖它，也不将其数据直接作为期货快照。
+
+## Docker 验收与发布包
+
+Linux 容器验收只覆盖不依赖 Windows ABI 的边界：Python wheel/CLI、Rust `ctpbuddy-server` build/run、随包 `refdata`，以及 Web/OINK（镜像没有 Hugo 二进制时明确 `SKIP`，可在独立 Hugo 环境构建）。容器**绝不运行 Windows Shim**，也不复制 `ctpsdk/`、Windows DLL/EXE 或真实账户/行情数据。
+
+```bash
+python tools/docker_acceptance.py       # 无 Docker 或 daemon 不可用时安全 SKIP
+# CI / 本机 Docker：
+docker compose -f docker/compose.yml build
+docker compose -f docker/compose.yml run --rm acceptance
+```
+
+Windows Shim 发布包只从本机已构建的 `shim/bin/` 白名单复制 `thosttraderapi_se.dll`、`thostmduserapi_se.dll`，以及存在时的 `demo_td.exe`：
+
+```bash
+python tools/release_package.py          # 输出系统临时目录中的 dist
+python tests/e2e/release_package.py      # 临时 PE fixture；真实产物可选
+CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py
+```
+
+包内有 `manifest.json`（version、commit、逐文件 SHA256、PE machine、architecture、SDK `6.7.13`）、`LICENSE`、`INSTALL.txt` 和 `shim/ctpbuddy-shim-manifest.json`。脚本不读取/复制原始 `ctpsdk`，不读取/复制 `data`，不构建或执行 Shim；真实产物验收必须在 Windows 上单独完成。
 
 ## 结构
 
@@ -169,5 +194,5 @@ core/                    # Rust workspace：wire / market / matching / ledger / 
 py/                      # Python 包 ctpbuddy
 scenarios/               # 示例场景与 tick 数据
 tests/e2e/               # 端到端测试
-docker/                  # 团队部署
+docker/                  # Linux 验收镜像与 compose
 ```

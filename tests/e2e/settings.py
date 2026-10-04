@@ -58,7 +58,7 @@ def main():
             fresh.close()
         finally: fresh.close()
         # HTTP settings page and POST use the real ADMIN; save is verified by a second ADMIN read.
-        web=make_server("127.0.0.1",0,addr); t=threading.Thread(target=web.serve_forever,daemon=True); t.start(); wp=web.server_address[1]
+        web=make_server("127.0.0.1",0,addr,workspace=data); t=threading.Thread(target=web.serve_forever,daemon=True); t.start(); wp=web.server_address[1]
         base=f"http://127.0.0.1:{wp}"; host=f"127.0.0.1:{wp}"
         good=urllib.request.Request(base+"/",headers={"Host":host})
         assert urllib.request.urlopen(good).status == 200
@@ -90,14 +90,32 @@ def main():
         try: replay({"cmd":"step"}); raise AssertionError("无场景应拒绝")
         except urllib.error.HTTPError as e: assert e.code == 409
         from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical
-        scenario=os.path.join(data,"web-scenario")
+        scenario=os.path.join(data,"scenarios","web-scenario")
         rows=[]
         for minute in range(3):
             row={column:"" for column in CANONICAL_COLUMNS}
             row.update(instrument="rb2601",exchange="SHFE",trading_day="20261002",update_time=f"09:{30+minute}:00",update_millisec="0",last_price=str(3500+minute),volume=str(minute+1),upper="3850",lower="3150",bid1="3498",ask1="3502",bidvol1="5",askvol1="5")
             rows.append(row)
         write_canonical(scenario,rows)
-        with Admin(addr) as a: a.start_scenario(scenario,paused=True,speed=.01)
+        def web_request(path, body=None):
+            headers={"Host":host}
+            raw=None
+            if body is not None:
+                raw=json.dumps(body).encode()
+                headers.update({"Origin":base,"Content-Type":"application/json","X-CSRF-Token":sess["token"]})
+            return json.loads(urllib.request.urlopen(urllib.request.Request(base+path,data=raw,headers=headers),timeout=5).read())
+        catalog=web_request("/api/scenarios")
+        assert catalog["scenarios"][0]["path"] == "scenarios/web-scenario"
+        details=web_request("/api/scenario?path=scenarios/web-scenario")
+        assert details["readonly"] and details["positions_state"] == "scenario_initial_only_not_live"
+        for bad in ({"path":"../web-scenario","confirmed":True}, {"path":scenario,"confirmed":True},
+                    {"path":"scenarios/web-scenario","confirmed":False},
+                    {"path":"scenarios/web-scenario","confirmed":True,"cmd":"shutdown"}):
+            try: web_request("/api/scenario/load",bad); raise AssertionError("非法加载被接受")
+            except urllib.error.HTTPError as e: assert e.code == 400
+        loaded=web_request("/api/scenario/load",{"path":"scenarios/web-scenario","confirmed":True})
+        assert loaded["ok"] and loaded["paused"]
+        with Admin(addr) as a: a.set_speed(.01)
         state=replay(); assert state["playback"]["idx"] == 0 and state["realtime"] is True
         with Admin(addr) as a:
             for bad in ({}, {"speed":True}, {"speed":"2"}, {"speed":-1}, {"speed":1001}, {"speed":1e309}, {"speed":2,"extra":1}):
@@ -135,7 +153,7 @@ def main():
         restored=wait_admin(addr); assert restored["settings"]["initial_funds"] == 123456.5
         with Admin(addr) as a: a.shutdown()
         proc.wait(timeout=5)
-        web=make_server("127.0.0.1",0,addr); t=threading.Thread(target=web.serve_forever,daemon=True); t.start(); wp=web.server_address[1]
+        web=make_server("127.0.0.1",0,addr,workspace=data); t=threading.Thread(target=web.serve_forever,daemon=True); t.start(); wp=web.server_address[1]
         good=urllib.request.Request(f"http://127.0.0.1:{wp}/",headers={"Host":f"127.0.0.1:{wp}"})
         assert urllib.request.urlopen(good).status == 200
         evil=urllib.request.Request(f"http://127.0.0.1:{wp}/api/settings",headers={"Host":f"evil:{wp}"})

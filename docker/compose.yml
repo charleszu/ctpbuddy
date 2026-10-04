@@ -1,0 +1,7 @@
+services:
+  acceptance:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ctpbuddy-acceptance:local
+    command: ["ctpbuddy-docker-acceptance"]

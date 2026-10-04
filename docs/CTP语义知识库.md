@@ -62,7 +62,13 @@
 
 历史口径（2009 FAQ 时代）：查询每秒 1 次 + 在途 1 个，交易指令默认每会话 6 笔/秒、同账户最多 6 会话，超限**排队不报错**（【技术指南】Q19、客户端指南 4.14）。注意这是「无错误」与「90/-2」两种形态的区别：查询超限有明确拒绝，交易指令超限只排队。
 
-### 1.0.1 断连原因码 `nReason`（notes/11 §E.2，SDK 头文件口径）
+### 1.0.1 Web 控制面、快照与日历边界
+
+Web 不是 Core 的替代实现：场景目录只允许 `workspace/scenarios/<name>` 的直接子目录，加载入口只接受 workspace 相对路径，拒绝绝对路径、`..`、NUL、非 CSV source 和任意命令；写操作必须确认、同源、CSRF、字段白名单，并进入既有审计。账户与初始持仓展示分为三层：ADMIN `status` 的账户实时摘要、场景 spec 的初始持仓摘要、journal SQLite 的历史持仓快照；Core 没有提供的实时持仓查询必须标明不可用，不能用投影或初始值冒充。
+
+`calendar/production/cn-futures-day-2026.snapshot.json` 的 `TradingCalendar` 日期记录是离线日盘候选快照，不等于交易所逐日 TradingDay；民用调休工作日不会自动成为期货交易日。六所同日节假日关闭区间、来源 URL、固定 revision、事实 hash 和不确定边界在 `MANIFEST.json` 登记。夜盘只有公告明确的 `closed` 或显式 ActionDay/TradingDay 才可查询；缺失就报错，不从周末、交易所名称或股票日历推断。
+
+### 1.0.2 断连原因码 `nReason`（notes/11 §E.2，SDK 头文件口径）
 
 `OnFrontDisconnected` 的 `nReason` 取值——**诊断 4097 循环的第一依据**：
 
