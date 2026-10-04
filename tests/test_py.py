@@ -842,15 +842,13 @@ def test_shim_install_faults() -> None:
             assert "拒绝覆盖" in str(exc)
         os.unlink(script)
 
-        real_replace = os.replace
+        from ctpbuddy import shim_install as shim_mod
+        real_copy_atomic = shim_mod._copy_atomic
         def fail_second(source, destination):
-            # _copy_atomic receives the final destination as a normalized
-            # string; match the target DLL by basename so this fault fixture
-            # behaves identically on Windows path/resolve variants.
-            if os.path.basename(os.fspath(destination)) == "thostmduserapi_se.dll" and os.path.dirname(os.fspath(destination)) == os.path.abspath(target):
-                raise OSError("injected second os.replace failure")
-            return real_replace(source, destination)
-        with patch("ctpbuddy.shim_install.os.replace", side_effect=fail_second):
+            if os.path.basename(os.fspath(destination)) == "thostmduserapi_se.dll":
+                raise OSError("injected second replacement failure")
+            return real_copy_atomic(source, destination)
+        with patch("ctpbuddy.shim_install._copy_atomic", side_effect=fail_second):
             try:
                 install_shim(target, shim, apply=True)
                 raise AssertionError("第二文件失败应抛错")
