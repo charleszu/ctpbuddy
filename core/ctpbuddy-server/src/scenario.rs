@@ -88,6 +88,10 @@ pub struct Assertion {
     pub evaluated: bool,
     pub pass: bool,
     pub actual: f64,
+    /// Why the one-shot result is what it is (`ok` / `account_not_found` /
+    /// `unknown_metric` / `not_finite`); empty until evaluated. Mirrors the
+    /// journal `assertion` row so admin `status` can show the same reason.
+    pub status: &'static str,
 }
 
 /// A normalized scenario spec (the JSON form of scenario.yaml).
@@ -329,6 +333,7 @@ pub fn parse_spec(v: &Value) -> Result<Spec, String> {
                 evaluated: false,
                 pass: false,
                 actual: f64::NAN,
+                status: "",
             });
         }
     }

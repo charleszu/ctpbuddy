@@ -147,7 +147,9 @@ impl Instrument {
             end_deliv_date: String::new(),
             inst_life_phase: b'1',
             is_trading: true,
-            position_type: b'1',
+            // `THOST_FTDC_PT_*`: '1' Net 净持仓; '2' Gross 综合持仓。国内期货合约
+            // 一律综合持仓（随包 refdata 里全是 '2'），合成合约跟它保持一致。
+            position_type: b'2',
             // `THOST_FTDC_PDT_*` (ThostFtdcUserApiDataType.h): '1' UseHistory =
             // 使用历史持仓（分今昨仓，上期所/能源中心）; '2' NoUseHistory = 不使用
             // 历史持仓（不分今昨，其他四所）。合成合约默认分今昨；refdata 有值时

@@ -31447,6 +31447,16 @@
     }
   },
   "messages": {
+    "PING": {
+      "id": 1,
+      "struct": null,
+      "payload": "json"
+    },
+    "PONG": {
+      "id": 2,
+      "struct": null,
+      "payload": "json"
+    },
     "AUTH": {
       "id": 257,
       "struct": null,
@@ -31514,13 +31524,13 @@
     },
     "RSP_ORDER_INSERT": {
       "id": 4113,
-      "struct": "CThostFtdcRspInfoField",
-      "payload": "raw-struct"
+      "struct": null,
+      "payload": "json"
     },
     "ERR_RTN_ORDER_INSERT": {
       "id": 4114,
-      "struct": "CThostFtdcRspInfoField",
-      "payload": "raw-struct"
+      "struct": null,
+      "payload": "json"
     },
     "RTN_ORDER": {
       "id": 4115,
@@ -31539,13 +31549,13 @@
     },
     "RSP_ORDER_ACTION": {
       "id": 4118,
-      "struct": "CThostFtdcRspInfoField",
-      "payload": "raw-struct"
+      "struct": null,
+      "payload": "json"
     },
     "ERR_RTN_ORDER_ACTION": {
       "id": 4119,
-      "struct": "CThostFtdcRspInfoField",
-      "payload": "raw-struct"
+      "struct": null,
+      "payload": "json"
     },
     "SUB_MD": {
       "id": 4128,
@@ -31554,12 +31564,22 @@
     },
     "RSP_SUB_MD": {
       "id": 4129,
-      "struct": "CThostFtdcRspInfoField",
+      "struct": "CThostFtdcSpecificInstrumentField",
       "payload": "raw-struct"
     },
     "RTN_DEPTH_MD": {
       "id": 4130,
       "struct": "CThostFtdcDepthMarketDataField",
+      "payload": "raw-struct"
+    },
+    "UNSUB_MD": {
+      "id": 4131,
+      "struct": null,
+      "payload": "json"
+    },
+    "RSP_UNSUB_MD": {
+      "id": 4132,
+      "struct": "CThostFtdcSpecificInstrumentField",
       "payload": "raw-struct"
     },
     "RSP_ERROR": {
@@ -31575,6 +31595,121 @@
     "RSP_QRY_SETTLEMENT_INFO": {
       "id": 4146,
       "struct": "CThostFtdcSettlementInfoField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_INSTRUMENT": {
+      "id": 4160,
+      "struct": "CThostFtdcQryInstrumentField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_INSTRUMENT": {
+      "id": 4161,
+      "struct": "CThostFtdcInstrumentField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_TRADING_ACCOUNT": {
+      "id": 4162,
+      "struct": "CThostFtdcQryTradingAccountField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_TRADING_ACCOUNT": {
+      "id": 4163,
+      "struct": "CThostFtdcTradingAccountField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_INVESTOR_POSITION": {
+      "id": 4164,
+      "struct": "CThostFtdcQryInvestorPositionField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_INVESTOR_POSITION": {
+      "id": 4165,
+      "struct": "CThostFtdcInvestorPositionField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_ORDER": {
+      "id": 4166,
+      "struct": "CThostFtdcQryOrderField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_ORDER": {
+      "id": 4167,
+      "struct": "CThostFtdcOrderField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_TRADE": {
+      "id": 4168,
+      "struct": "CThostFtdcQryTradeField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_TRADE": {
+      "id": 4169,
+      "struct": "CThostFtdcTradeField",
+      "payload": "raw-struct"
+    },
+    "QRY_LAST": {
+      "id": 4176,
+      "struct": null,
+      "payload": "json"
+    },
+    "REQ_QRY_INSTRUMENT_MARGIN_RATE": {
+      "id": 4177,
+      "struct": "CThostFtdcQryInstrumentMarginRateField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_INSTRUMENT_MARGIN_RATE": {
+      "id": 4178,
+      "struct": "CThostFtdcInstrumentMarginRateField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_INSTRUMENT_COMMISSION_RATE": {
+      "id": 4179,
+      "struct": "CThostFtdcQryInstrumentCommissionRateField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_INSTRUMENT_COMMISSION_RATE": {
+      "id": 4180,
+      "struct": "CThostFtdcInstrumentCommissionRateField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_INSTRUMENT_ORDER_COMM_RATE": {
+      "id": 4181,
+      "struct": "CThostFtdcQryInstrumentOrderCommRateField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_INSTRUMENT_ORDER_COMM_RATE": {
+      "id": 4182,
+      "struct": "CThostFtdcInstrumentOrderCommRateField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_BROKER_TRADING_PARAMS": {
+      "id": 4183,
+      "struct": "CThostFtdcQryBrokerTradingParamsField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_BROKER_TRADING_PARAMS": {
+      "id": 4184,
+      "struct": "CThostFtdcBrokerTradingParamsField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_INVESTOR_POSITION_DETAIL": {
+      "id": 4185,
+      "struct": "CThostFtdcQryInvestorPositionDetailField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_INVESTOR_POSITION_DETAIL": {
+      "id": 4186,
+      "struct": "CThostFtdcInvestorPositionDetailField",
+      "payload": "raw-struct"
+    },
+    "REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN": {
+      "id": 4187,
+      "struct": "CThostFtdcQryInvestorProductGroupMarginField",
+      "payload": "raw-struct"
+    },
+    "RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN": {
+      "id": 4188,
+      "struct": "CThostFtdcInvestorProductGroupMarginField",
       "payload": "raw-struct"
     }
   },

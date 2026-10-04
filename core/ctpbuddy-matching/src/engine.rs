@@ -232,6 +232,16 @@ enum Counterpart {
     },
 }
 
+/// What `terminal_refs` remembers about a filled / cancelled order.
+#[derive(Clone, Copy, Debug)]
+struct TerminalOrder {
+    /// Final OrderStatus ('0' all traded / '5' cancelled).
+    #[allow(dead_code)]
+    status: u8,
+    /// Owner — a cancel from any other investor answers 25, not 26.
+    investor_id: [u8; 13],
+}
+
 #[derive(Clone)]
 pub struct MatchingEngine {
     catalog: Catalog,
@@ -242,12 +252,17 @@ pub struct MatchingEngine {
     /// for the life of the session, so a ref reused after its order filled
     /// or was cancelled is still DUPLICATE_ORDER_REF (22). One set per
     /// session keeps the growth proportional to orders actually placed.
+    /// Cleared together with `terminal_refs` on 日结 (`advance_trading_day`):
+    /// orders live in a trading day, so the next day starts a fresh ref
+    /// space — insert (22) and cancel (25/26) then agree on what a reused
+    /// ref means.
     used_refs: HashMap<(i32, i32), HashSet<[u8; 13]>>,
     /// Terminal orders (filled '0' / cancelled '5') kept so a later cancel of
     /// the same key answers the official INSUITABLE_ORDER_STATUS (26) instead
     /// of ORDER_NOT_FOUND (25) — real CTP distinguishes the two (报单回调
-    /// 规则 场景 6/7).
-    terminal_refs: HashMap<(i32, i32, [u8; 13]), u8>,
+    /// 规则 场景 6/7). The owning investor is stored alongside the status:
+    /// another account's cancel must see 25, not learn that the key exists.
+    terminal_refs: HashMap<(i32, i32, [u8; 13]), TerminalOrder>,
     next_sys: u64,
     next_trade: u64,
     next_notify: i32,
@@ -285,11 +300,17 @@ impl MatchingEngine {
         self.self_trade_prevention
     }
 
-    /// Retire an order: remember its terminal status for later cancel-answer
-    /// fidelity. The ref stays in `used_refs` — it can never be reused
-    /// within the session.
-    fn retire(&mut self, key: (i32, i32, [u8; 13]), status: u8) {
-        self.terminal_refs.insert(key, status);
+    /// Retire an order: remember its terminal status (and owner) for later
+    /// cancel-answer fidelity. The ref stays in `used_refs` — it can never
+    /// be reused within the session on the same trading day.
+    fn retire(&mut self, rec: &OrderRecord, status: u8) {
+        self.terminal_refs.insert(
+            (rec.front_id, rec.session_id, rec.order_ref),
+            TerminalOrder {
+                status,
+                investor_id: rec.investor_id,
+            },
+        );
     }
 
     pub fn catalog(&self) -> &Catalog {
@@ -332,9 +353,12 @@ impl MatchingEngine {
             .collect()
     }
 
-    /// 日结后不让上一日行情再次盯市；保留全局编号计数器。
+    /// 日结后不让上一日行情再次盯市；保留全局编号计数器。昨日的报单键空间
+    /// 一并作废：`used_refs` 与 `terminal_refs` 同时清空，隔日同会话复用
+    /// OrderRef 既不是重复报单（22）、撤它也是找不到（25），口径一致。
     pub fn advance_trading_day(&mut self) {
         self.last_md.clear();
+        self.used_refs.clear();
         self.terminal_refs.clear();
     }
 
@@ -413,7 +437,6 @@ impl MatchingEngine {
         }
         // OrderRef uniqueness is per session for its whole life: a ref that
         // once named a filled or cancelled order is still taken (22).
-        let key = (intent.front_id, intent.session_id, intent.order_ref);
         let session_refs = self
             .used_refs
             .entry((intent.front_id, intent.session_id))
@@ -503,7 +526,7 @@ impl MatchingEngine {
             };
             if avail < threshold {
                 self.push_transition(&mut rec, b'5', &mut events, ctx);
-                self.retire(key, b'5');
+                self.retire(&rec, b'5');
                 return SubmitOutcome::Accepted { events };
             }
         }
@@ -573,7 +596,7 @@ impl MatchingEngine {
                         insert_resting(book, maker);
                     } else {
                         // maker fully filled by this match: terminal '0'
-                        self.retire((maker.front_id, maker.session_id, maker.order_ref), b'0');
+                        self.retire(&maker, b'0');
                     }
                     remaining -= take;
                 }
@@ -608,10 +631,10 @@ impl MatchingEngine {
             if is_fak {
                 // 官方《报单回调规则》场景 8/9/10：FAK 部成部撤的回报按所分流
                 self.emit_fak_reports(&mut rec, &fak_fills, layout, &mut events, ctx);
-                self.retire(key, b'5');
+                self.retire(&rec, b'5');
             } else if is_ioc {
                 self.push_transition(&mut rec, b'5', &mut events, ctx);
-                self.retire(key, b'5');
+                self.retire(&rec, b'5');
             } else {
                 if rec.volume_traded == 0 && !confirmed {
                     // exchange 报单确认: a single '3' push, no 前态 duplicate
@@ -629,7 +652,7 @@ impl MatchingEngine {
                 self.emit_fak_full(&mut rec, &fak_fills, layout, &mut events, ctx);
             }
             // fully filled at arrival: terminal '0'
-            self.retire(key, b'0');
+            self.retire(&rec, b'0');
         }
         SubmitOutcome::Accepted { events }
     }
@@ -658,7 +681,9 @@ impl MatchingEngine {
             None => {
                 // official split (报单回调规则 场景 6/7): an unknown ref is
                 // ORDER_NOT_FOUND (25); a ref that already reached a terminal
-                // state is INSUITABLE_ORDER_STATUS (26)
+                // state is INSUITABLE_ORDER_STATUS (26). Like the active
+                // routes, only the owner's terminal orders count — another
+                // investor's key is simply "not found".
                 let key = (q.front_id, q.session_id, {
                     let mut r = [0u8; 13];
                     let b = q.order_ref.as_bytes();
@@ -666,7 +691,11 @@ impl MatchingEngine {
                     r[..n].copy_from_slice(&b[..n]);
                     r
                 });
-                return if self.terminal_refs.contains_key(&key) {
+                let own_terminal = self
+                    .terminal_refs
+                    .get(&key)
+                    .is_some_and(|t| cstr(&t.investor_id) == q.investor_id);
+                return if own_terminal {
                     Err((
                         ERR_ORDER_STATUS_UNSUITABLE,
                         "CTP:报单已全成交或已撤销，不能再撤".into(),
@@ -683,7 +712,7 @@ impl MatchingEngine {
             &mut book.asks
         };
         let mut rec = side.remove(pos);
-        self.retire((rec.front_id, rec.session_id, rec.order_ref), b'5');
+        self.retire(&rec, b'5');
         let mut events = Vec::new();
         self.push_transition(&mut rec, b'5', &mut events, ctx);
         Ok(events)
@@ -742,7 +771,7 @@ impl MatchingEngine {
                 }
             } else {
                 // tick filled the resting order: terminal '0'
-                self.retire((rec.front_id, rec.session_id, rec.order_ref), b'0');
+                self.retire(&rec, b'0');
             }
         }
         if !leftover.is_empty() {
@@ -1808,6 +1837,68 @@ mod tests {
         let mut other = maker("rb2601", "SHFE", 3500.0, 1);
         other.session_id = 2;
         accepted(e.submit(&other, &ctx()));
+    }
+
+    // 终态单的 25/26 区分也只对本账户成立：A 撤 B 已撤的单得到 25（找不到），
+    // B 自己再撤才是 26（状态不符）。
+    #[test]
+    fn terminal_cancel_split_is_per_investor() {
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        let mut b = maker("rb2601", "SHFE", 3500.0, 1);
+        b.investor_id = *b"INV0002\0\0\0\0\0\0";
+        accepted(e.submit(&b, &ctx()));
+        let own = CancelQuery {
+            front_id: 1,
+            session_id: 1,
+            order_ref: "M1".into(),
+            investor_id: "INV0002".into(),
+            ..Default::default()
+        };
+        e.cancel(&own, &ctx()).expect("B cancels its own order");
+        assert_eq!(
+            cancel_err(&mut e, &own),
+            ERR_ORDER_STATUS_UNSUITABLE,
+            "owner: already cancelled"
+        );
+        let foreign = CancelQuery {
+            investor_id: "INV0001".into(),
+            ..own.clone()
+        };
+        assert_eq!(
+            cancel_err(&mut e, &foreign),
+            ERR_ORDER_NOT_FOUND,
+            "another account: not found"
+        );
+    }
+
+    /// Error id of a cancel that must be rejected.
+    fn cancel_err(e: &mut MatchingEngine, q: &CancelQuery) -> i32 {
+        match e.cancel(q, &ctx()) {
+            Err((id, _)) => id,
+            Ok(_) => panic!("cancel must be rejected: {q:?}"),
+        }
+    }
+
+    // 日结后昨日的报单键空间作废：同会话复用昨日 ref 可以报单（不是 22），
+    // 撤昨日的终态单是 25（不是 26）——两边口径一致。
+    #[test]
+    fn advance_trading_day_resets_the_session_ref_space() {
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        accepted(e.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()));
+        let q = CancelQuery {
+            front_id: 1,
+            session_id: 1,
+            order_ref: "M1".into(),
+            investor_id: "INV0001".into(),
+            ..Default::default()
+        };
+        e.cancel(&q, &ctx()).expect("cancel own order");
+        assert_eq!(cancel_err(&mut e, &q), ERR_ORDER_STATUS_UNSUITABLE);
+
+        e.advance_trading_day();
+        assert_eq!(cancel_err(&mut e, &q), ERR_ORDER_NOT_FOUND);
+        accepted(e.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()));
+        assert_eq!(e.open_order_count(), 1, "yesterday's ref is free again");
     }
 
     // refdata `is_trading = 0` / 非期货 product_class → 17 合约不能交易。

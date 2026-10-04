@@ -714,6 +714,8 @@ impl World {
                     ),
                     ("pass".into(), json::b(a.pass)),
                     ("evaluated".into(), json::b(a.evaluated)),
+                    // same reason vocabulary as the journal `assertion` row
+                    ("status".into(), json::s(a.status)),
                 ])
             })
             .collect();
@@ -761,6 +763,7 @@ impl World {
                 a.actual = actual;
                 a.pass = status == ASSERTION_OK && a.op.apply(actual, a.value);
                 a.evaluated = true;
+                a.status = status;
                 (a.op.symbol(), a.value, a.pass)
             };
             self.journal_record_json(

@@ -68,6 +68,10 @@ def run_demo(front: str, admin: Admin, log: list) -> int:
         [DEMO_EXE, front, BROKER, INVESTOR] + ([DEMO_MODE] if DEMO_MODE else []),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        # demo_td prints UTF-8 (ErrorMsg is converted from GBK before printing);
+        # never let a stray byte kill the pump thread mid-run.
+        encoding="utf-8",
+        errors="replace",
         text=True,
         bufsize=1,
         cwd=SHIM_BIN,
@@ -137,6 +141,8 @@ def main() -> int:
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        encoding="utf-8",
+        errors="replace",
         text=True,
     )
     try:
