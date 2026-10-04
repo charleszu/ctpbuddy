@@ -569,6 +569,159 @@ def test_web_projection() -> None:
     print("[ok] web projection: account/order/trade/audit, table allowlist and path-safe errors")
 
 
+def test_web_replay() -> None:
+    from unittest.mock import patch
+    from ctpbuddy.web import make_server
+
+    class FakeAdmin:
+        state = {"loaded": True, "idx": 0, "total": 2, "paused": True, "speed": 1.0, "looping": False,
+                 "virtual_time": "09:30:00.000", "trading_day": "20261002"}
+        calls = []
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def status(self):
+            return {"scenario": "web-fixture", "playback": dict(self.state)}
+
+        def cmd(self, name, **kwargs):
+            self.calls.append((name, kwargs))
+            if name == "pause":
+                self.state["paused"] = True
+            elif name == "resume":
+                self.state["paused"] = False
+            elif name == "step":
+                assert self.state["paused"]
+                self.state["idx"] += 1
+                self.state["virtual_time"] = "09:30:01.000"
+            elif name == "set_speed":
+                self.state["speed"] = kwargs["speed"]
+            elif name == "loop":
+                self.state["looping"] = kwargs["on"]
+            return {"ok": True, "cmd": name}
+
+    with patch("ctpbuddy.web.Admin", FakeAdmin):
+        server = make_server("127.0.0.1", 0, "127.0.0.1:1")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            base = "http://127.0.0.1:%d" % server.server_address[1]
+            host = "127.0.0.1:%d" % server.server_address[1]
+            def request(path, data=None, method="GET", token=None, extra=None):
+                headers = {"Host": host}
+                if data is not None:
+                    raw = data if isinstance(data, bytes) else json.dumps(data).encode()
+                    headers.update({"Origin": base, "Content-Type": "application/json", "Content-Length": str(len(raw)), "X-CSRF-Token": token or csrf})
+                else:
+                    raw = None
+                headers.update(extra or {})
+                return urllib.request.urlopen(urllib.request.Request(base + path, data=raw, method=method, headers=headers), timeout=5)
+            csrf = json.loads(request("/api/session").read())["token"]
+            status = json.loads(request("/api/replay/status").read())
+            assert status["playback"]["idx"] == 0 and status["realtime"] is True
+            pause = json.loads(request("/api/replay", {"cmd": "pause"}, "POST").read())
+            assert pause["playback"]["paused"]
+            step = json.loads(request("/api/replay", {"cmd": "step"}, "POST").read())
+            assert step["playback"]["idx"] == 1 and step["playback"]["virtual_time"] == "09:30:01.000"
+            speed = json.loads(request("/api/replay", {"cmd": "set_speed", "speed": 2.5}, "POST").read())
+            assert speed["playback"]["speed"] == 2.5
+            loop = json.loads(request("/api/replay", {"cmd": "loop", "on": True}, "POST").read())
+            assert loop["playback"]["looping"]
+            bad_commands = ({"cmd": "shutdown"}, {"cmd": "reset_account"}, {"cmd": "start_scenario", "path": "x"}, {"cmd": "settle_day"}, {"cmd": "seek"}, {"cmd": "pause", "extra": 1}, {"cmd": "set_speed"}, {"cmd": "set_speed", "speed": float("nan")}, {"cmd": "set_speed", "speed": float("inf")}, {"cmd": "set_speed", "speed": -1}, {"cmd": "set_speed", "speed": 1001}, {"cmd": "set_speed", "speed": True}, {"cmd": "set_speed", "speed": "2"}, {"cmd": "loop", "on": 1}, {"cmd": []}, [], b'{"cmd":"pause","cmd":"resume"}', b'{"cmd":"set_speed","speed":1e309}', b'{"cmd":"set_speed","speed":' + b'9'*350 + b'}')
+            for bad in bad_commands:
+                try:
+                    request("/api/replay", bad, "POST")
+                    raise AssertionError("非法回放命令被接受: %r" % (bad,))
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == 400, (bad, exc.code)
+            no_csrf = urllib.request.Request(base + "/api/replay", data=json.dumps({"cmd": "pause"}).encode(), method="POST", headers={"Host": host, "Origin": base, "Content-Type": "application/json"})
+            try:
+                urllib.request.urlopen(no_csrf)
+                raise AssertionError("缺失 CSRF 被接受")
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 403
+            assert [name for name, _ in FakeAdmin.calls] == ["pause", "step", "set_speed", "loop"]
+            def rejected(path, data, expected, extra=None):
+                count = len(FakeAdmin.calls)
+                try:
+                    request(path, data, "POST" if data is not None else "GET", extra=extra)
+                    raise AssertionError("非法 HTTP 请求被接受")
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == expected, (path, exc.code, expected)
+                assert len(FakeAdmin.calls) == count
+            for extra in ({"Host": "evil.invalid"}, {"Origin": "http://evil.invalid"}, {"Origin": "null"}, {"Sec-Fetch-Site": "cross-site"}, {"X-CSRF-Token": "wrong"}):
+                rejected("/api/replay", {"cmd": "pause"}, 403, extra)
+            rejected("/api/replay/status", None, 403, {"Host": "evil.invalid"})
+            rejected("/api/replay/status?cmd=shutdown", None, 400)
+            rejected("/api/replay?cmd=pause", {"cmd": "pause"}, 404)
+            rejected("/api/replay", {"cmd": "pause"}, 415, {"Content-Type": "text/plain"})
+            rejected("/api/replay", b"x" * 8193, 413)
+            rejected("/api/replay", {"cmd": "pause"}, 400, {"Transfer-Encoding": "chunked"})
+            import http.client
+            for duplicate in ("Host", "Origin", "X-CSRF-Token", "Content-Length"):
+                connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+                raw = b'{"cmd":"pause"}'
+                values = {"Host": host, "Origin": base, "X-CSRF-Token": csrf, "Content-Length": str(len(raw)), "Content-Type": "application/json"}
+                connection.putrequest("POST", "/api/replay", skip_host=True)
+                for key, value in values.items():
+                    connection.putheader(key, value)
+                    if key == duplicate:
+                        connection.putheader(key, value)
+                connection.endheaders(raw)
+                response = connection.getresponse()
+                assert response.status == (400 if duplicate == "Content-Length" else 403)
+                response.read()
+                connection.close()
+            FakeAdmin.state["loaded"] = False
+            rejected("/api/replay", {"cmd": "pause"}, 409)
+            FakeAdmin.state.update(loaded=True, idx=2)
+            assert json.loads(request("/api/replay/status").read())["playback"]["finished"]
+            rejected("/api/replay", {"cmd": "resume"}, 409)
+            FakeAdmin.state.update(idx=1, paused=False)
+            rejected("/api/replay", {"cmd": "step"}, 409)
+            assert not json.loads(request("/api/replay", {"cmd": "resume"}, "POST").read())["playback"]["paused"]
+            for speed in (0, 1000):
+                assert json.loads(request("/api/replay", {"cmd": "set_speed", "speed": speed}, "POST").read())["playback"]["speed"] == speed
+            with patch("ctpbuddy.web.Admin", side_effect=ConnectionRefusedError("offline")):
+                rejected("/api/replay/status", None, 503)
+            with patch.object(FakeAdmin, "cmd", side_effect=RuntimeError("核心拒绝")):
+                rejected("/api/replay", {"cmd": "pause"}, 409)
+            from concurrent.futures import ThreadPoolExecutor
+            active = threading.Condition()
+            release = threading.Event()
+            entered = 0
+            original_status = FakeAdmin.status
+            def blocked_status(client):
+                nonlocal entered
+                with active:
+                    entered += 1
+                    active.notify_all()
+                assert release.wait(5)
+                return original_status(client)
+            with patch.object(FakeAdmin, "status", blocked_status), ThreadPoolExecutor(max_workers=8) as pool:
+                futures = [pool.submit(lambda: request("/api/replay/status").read()) for _ in range(8)]
+                try:
+                    with active:
+                        assert active.wait_for(lambda: entered == 8, timeout=5)
+                    rejected("/api/replay/status", None, 429)
+                finally:
+                    release.set()
+                assert all(json.loads(future.result())["realtime"] for future in futures)
+            assert json.loads(request("/api/replay/status").read())["realtime"]
+            js = open(os.path.join(REPO, "py", "ctpbuddy", "assets", "settings.js"), encoding="utf-8").read()
+            assert "innerHTML" not in js and "textContent" in js
+        finally:
+            server.shutdown()
+            server.server_close()
+    print("[ok] web replay: real HTTP boundary, strict commands, CSRF, status/pause/step/speed/loop")
+
+
 def test_assertions_cli() -> None:
     from unittest.mock import patch
     from ctpbuddy.cli import main as cli_main
@@ -604,6 +757,7 @@ def main() -> int:
     test_journal_hash()
     test_journal_projection()
     test_web_projection()
+    test_web_replay()
     print("\nPY UNIT: PASS")
     return 0
 

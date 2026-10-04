@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import secrets
 import socket
 import sqlite3
@@ -14,6 +15,8 @@ from pathlib import Path
 from .sdk import Admin
 
 MAX_BODY = 8192
+PLAYBACK_COMMANDS = {"pause", "resume", "step", "set_speed", "loop"}
+MAX_PLAYBACK_SPEED = 1000.0
 
 
 def _strict_object(pairs):
@@ -38,6 +41,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
         raise ValueError("ADMIN 必须是回环地址")
     token = secrets.token_urlsafe(32)
     slots = threading.BoundedSemaphore(8)
+    replay_write = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -64,6 +68,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             # Browsers and local preview proxies may resolve the same loopback
             # server through either localhost or 127.0.0.1. Treat those two
             # authorities as equivalent, but never accept a non-loopback host.
+            if any(len(self.headers.get_all(name, [])) > 1 for name in ("Origin", "X-CSRF-Token", "Sec-Fetch-Site")):
+                return False
             if len(hosts) != 1 or hosts[0] not in authorities:
                 return False
             expected_origins = {"http://" + authority for authority in authorities}
@@ -85,8 +91,11 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 return self.reply(200, (Path(__file__).parent / "assets" / name).read_bytes(), kind + "; charset=utf-8")
             if self.path == "/api/session":
                 return self.reply(200, {"token": token})
-            if urlsplit(self.path).path == "/api/projection":
+            path = urlsplit(self.path).path
+            if path == "/api/projection":
                 return self.projection()
+            if path == "/api/replay/status":
+                return self.playback_status()
             if self.path != "/api/settings":
                 return self.reply(404, {"error": "路径不存在"})
             self.invoke()
@@ -119,7 +128,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
         def do_POST(self):
             if not self.valid_source(write=True):
                 return self.reply(403, {"error": "同源或 CSRF 校验失败"})
-            if self.path != "/api/settings":
+            if self.path not in ("/api/settings", "/api/replay"):
                 return self.reply(404, {"error": "路径不存在"})
             if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                 return self.reply(400, {"error": "需要单一 Content-Length"})
@@ -136,25 +145,75 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 def invalid_constant(s):
                     raise ValueError("非有限数字: " + s)
                 value = json.loads(body, object_pairs_hook=_strict_object, parse_constant=invalid_constant)
-                if not isinstance(value, dict) or set(value) != {"patch"} or not isinstance(value["patch"], dict):
-                    raise ValueError("仅允许 patch 对象")
                 json.dumps(value, allow_nan=False)
+                if self.path == "/api/replay":
+                    self.validate_playback(value)
+                elif not isinstance(value, dict) or set(value) != {"patch"} or not isinstance(value["patch"], dict):
+                    raise ValueError("仅允许 patch 对象")
             except (ValueError, UnicodeError, OSError) as e:
                 return self.reply(400, {"error": str(e)})
-            self.invoke(value["patch"])
+            if self.path == "/api/replay":
+                self.invoke(playback=value)
+            else:
+                self.invoke(value["patch"])
 
-        def invoke(self, patch=None):
+        def validate_playback(self, value):
+            if not isinstance(value, dict) or not isinstance(value.get("cmd"), str) or value["cmd"] not in PLAYBACK_COMMANDS:
+                raise ValueError("未知回放命令")
+            cmd = value["cmd"]
+            fields = {"cmd", "speed"} if cmd == "set_speed" else ({"cmd", "on"} if cmd == "loop" else {"cmd"})
+            if set(value) != fields:
+                raise ValueError("回放命令字段无效")
+            if cmd == "set_speed":
+                speed = value["speed"]
+                if type(speed) not in (int, float) or not 0 <= speed <= MAX_PLAYBACK_SPEED or not math.isfinite(speed):
+                    raise ValueError("speed 必须为 0–1000 的有限数字（0 为不限速）")
+            if cmd == "loop" and type(value["on"]) is not bool:
+                raise ValueError("on 必须为布尔值")
+
+        def playback_status(self):
+            if self.path != "/api/replay/status":
+                return self.reply(400, {"error": "回放状态不接受查询参数"})
+            self.invoke(playback={"cmd": "status"})
+
+        def replay_view(self, client):
+            status = client.status()
+            pb = status["playback"]
+            return {"ok": True, "scenario": status["scenario"], "playback": dict(pb, finished=pb["loaded"] and pb["idx"] >= pb["total"]),
+                    "realtime": True, "speed_range": {"min": 0, "max": MAX_PLAYBACK_SPEED}}
+
+        def invoke(self, patch=None, playback=None):
             if not slots.acquire(blocking=False):
                 return self.reply(429, {"error": "并发请求过多"})
+            writing = playback is not None and playback["cmd"] != "status"
+            if writing and not replay_write.acquire(blocking=False):
+                slots.release()
+                return self.reply(429, {"error": "回放命令正在执行"})
             try:
                 with Admin(admin, timeout=3) as client:
-                    result = client.settings() if patch is None else client.update_settings(patch)
+                    if playback is not None:
+                        cmd = playback["cmd"]
+                        if cmd == "status":
+                            result = self.replay_view(client)
+                        else:
+                            state = self.replay_view(client)["playback"]
+                            if not state["loaded"] or state["finished"]:
+                                return self.reply(409, {"error": "未加载场景或回放已完成"})
+                            if cmd == "step" and not state["paused"]:
+                                return self.reply(409, {"error": "单步前必须暂停回放"})
+                            kwargs = {key: value for key, value in playback.items() if key != "cmd"}
+                            client.cmd(cmd, **kwargs)
+                            result = self.replay_view(client)
+                    else:
+                        result = client.settings() if patch is None else client.update_settings(patch)
                 self.reply(200, result)
             except RuntimeError as e:
-                self.reply(400, {"error": str(e)})
+                return self.reply(409 if playback is not None else 400, {"error": str(e)})
             except (OSError, ValueError, ConnectionError) as e:
-                self.reply(502, {"error": "ADMIN 不可用: " + str(e)})
+                return self.reply(503 if playback is not None else 502, {"error": "ADMIN 不可用: " + str(e)})
             finally:
+                if writing:
+                    replay_write.release()
                 slots.release()
 
     class Server(ThreadingHTTPServer):

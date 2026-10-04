@@ -77,6 +77,57 @@ def main():
         bad_schema=urllib.request.Request(base+"/api/settings",data=unknown,method="POST",headers={"Host":host,"Origin":base,"Content-Type":"application/json","Content-Length":str(len(unknown)),"X-CSRF-Token":sess["token"]})
         try: urllib.request.urlopen(bad_schema); raise AssertionError("未知 schema 键被接受")
         except urllib.error.HTTPError as e: assert e.code == 400
+        # 独立临时 core 的真实回放：HTTP 命令必须推进核心 tick，而非浏览器模拟。
+        def replay(body=None):
+            headers={"Host":host}
+            if body is not None:
+                raw=json.dumps(body).encode()
+                headers.update({"Origin":base,"Content-Type":"application/json","X-CSRF-Token":sess["token"]})
+            else: raw=None
+            req=urllib.request.Request(base+("/api/replay" if body is not None else "/api/replay/status"),data=raw,headers=headers)
+            return json.loads(urllib.request.urlopen(req,timeout=5).read())
+        assert replay()["playback"]["loaded"] is False
+        try: replay({"cmd":"step"}); raise AssertionError("无场景应拒绝")
+        except urllib.error.HTTPError as e: assert e.code == 409
+        from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical
+        scenario=os.path.join(data,"web-scenario")
+        rows=[]
+        for minute in range(3):
+            row={column:"" for column in CANONICAL_COLUMNS}
+            row.update(instrument="rb2601",exchange="SHFE",trading_day="20261002",update_time=f"09:{30+minute}:00",update_millisec="0",last_price=str(3500+minute),volume=str(minute+1),upper="3850",lower="3150",bid1="3498",ask1="3502",bidvol1="5",askvol1="5")
+            rows.append(row)
+        write_canonical(scenario,rows)
+        with Admin(addr) as a: a.start_scenario(scenario,paused=True,speed=.01)
+        state=replay(); assert state["playback"]["idx"] == 0 and state["realtime"] is True
+        with Admin(addr) as a:
+            for bad in ({}, {"speed":True}, {"speed":"2"}, {"speed":-1}, {"speed":1001}, {"speed":1e309}, {"speed":2,"extra":1}):
+                try: a.cmd("set_speed",**bad); raise AssertionError("核心非法速度被接受")
+                except RuntimeError: pass
+            assert a.status()["playback"]["speed"] == .01
+        def wait_tick(idx):
+            end=time.monotonic()+3
+            while time.monotonic()<end:
+                state=replay()
+                if state["playback"]["idx"] == idx: return state
+                time.sleep(.02)
+            raise AssertionError("HTTP 回放没有推进 tick %d" % idx)
+        replay({"cmd":"pause"}); replay({"cmd":"step"})
+        stepped=wait_tick(1)
+        assert stepped["playback"]["paused"] and stepped["playback"]["virtual_time"].startswith("09:30:00")
+        with Admin(addr) as a: assert a.status()["playback"]["idx"] == 1
+        time.sleep(.06); assert replay()["playback"]["idx"] == 1
+        assert replay({"cmd":"set_speed","speed":.02})["playback"]["speed"] == .02
+        assert replay({"cmd":"loop","on":True})["playback"]["looping"] is True
+        replay({"cmd":"loop","on":False})
+        assert replay({"cmd":"resume"})["playback"]["paused"] is False
+        assert replay({"cmd":"pause"})["playback"]["paused"] is True
+        replay({"cmd":"step"}); stepped=wait_tick(2)
+        assert stepped["playback"]["virtual_time"].startswith("09:31:00")
+        replay({"cmd":"set_speed","speed":0}); replay({"cmd":"resume"})
+        finished=wait_tick(3); assert finished["playback"]["finished"]
+        try: replay({"cmd":"step"}); raise AssertionError("已完成应拒绝")
+        except urllib.error.HTTPError as e: assert e.code == 409
+        print("[ok] WEB REPLAY: 实时 ADMIN status/pause/resume/step/speed/loop 与 tick/虚拟时间/完成边界")
         with Admin(addr) as a: a.shutdown()
         web.shutdown(); web.server_close()
         proc.wait(timeout=5)

@@ -395,8 +395,8 @@ O = 现手 / 2 − S
 
 - 流程：`ReqQrySettlementInfoConfirm` 查当天是否已确认 → 未确认才 `ReqQrySettlementInfo`（不填日期取上一交易日）+ 确认前展示 → `ReqSettlementInfoConfirm`（只需 BrokerID+InvestorID）。
 - 结算单 `Content` **分多条返回**，中文可能在两条交界处被拆半个字符——必须用大 char 数组/byte 数组拼接全部响应后统一解码（CTP 字符串一律 GBK，UTF8 终端显示即乱码）。
-- 结算行为：持仓明细按结算价重算盈亏/保证金；到期合约模拟强平；昨仓合并进今仓（LocalCTP 口径）；`PreBalance=Balance`、`PreSettlementPrice=SettlementPrice`、`YdPosition=Position`，当日字段清零；tradingDay 推进。字段级重置清单见 `docs/notes/03`。
-- 长假/节假日识别是常见简化点（LocalCTP 未识别；CTPBuddy 亦 TODO）。
+- CTPBuddy 当前日结是显式 `ADMIN settle_day`，要求暂停回放、无活动订单和用户供给结算价/下一交易日；按最终结算价盯市，`PreBalance` 滚存最终动态权益，剩余今仓转静态昨仓，当日资金/盈亏/手续费/冻结清零、存续持仓保证金保留、TradingDay 推进，不按 17:00 自动触发。到期合约自动强平尚未实现；LocalCTP 的历史重置参考清单见 `docs/notes/03`，不能等同当前实现。
+- 长假/节假日识别不是运行时自动推断；CTPBuddy 仅接受用户提供并校验的离线 `TradingCalendar` 快照，calendar provider 不联网。
 
 ---
 
@@ -434,7 +434,7 @@ O = 现手 / 2 − S
 6. **FAK/FOK** ✅（M2-1 落地）：TC+VC 组合语义、FOK=整单成交否则全撤、FAK 最小成交量整笔撤销规则；条件单触发转新报单未做（§4.1）。
 7. **交易所差异归一化** ✅（M2-1 落地）：平今转换（非上期所一律 Close）、市价单按所语义；郑商所 FAK-only 规则表待注入；TradingDay 各所混乱见 §7（§4.1-4.3、§7）。
 8. **成交开平标志 ≠ 报单开平标志** ✅（M2-1 落地）：非上期所平仓回 '1'（§4.3）。
-9. **结算流程**：ReqSettlementInfoConfirm 前置已校验（M1）；结算字段重置、长假识别、日结仍 TODO（§8）。柜台参数 `settlement_required` 默认开启；登录后未对当前交易日确认时，报单前置返回官方 `42 SETTLEMENT_INFO_NOT_CONFIRMED`「CTP:结算结果未确认」，确认后允许报单；关闭开关仅用于兼容旧测试行为。
+9. **结算流程**：ReqSettlementInfoConfirm 前置已校验；当前日结为显式 `ADMIN settle_day`，要求用户供给结算价、下一期货交易日、暂停 playback 且无活动订单，完成字段重置与账本滚存；不按固定 17:00 自动触发，不把离线 calendar provider 当在线市场服务。柜台参数 `settlement_required` 默认开启；登录后未对当前交易日确认时，报单前置返回官方 `42 SETTLEMENT_INFO_NOT_CONFIRMED`「CTP:结算结果未确认」，确认后允许报单；关闭开关仅用于兼容旧测试行为。
 10. **错误码全集对账** ✅（#42 落地）：error.xml 299 条逐条标注 → **19 已实现**（推送面全部对齐）/ **51 可落地**（语义在范围内但无代码路径发出，缺口清单见 [`docs/错误码全集.md`](错误码全集.md)）/ **229 暂不可达**（业务域未实现）。状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成，改代码后重跑。
 11. **LEDGER 扩展**：MarginPriceType 配置 ✅、平今/平昨费率 ✅、FrozenCommission 报单估算+释放 ✅（M3-2/M3-3 已补齐，2026-10-03 复核）；**品种内保证金优惠已实现**——用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按 broker/investor/exchange/ProductID 聚合；账本与 `ReqQryInvestorProductGroupMargin` 共用唯一计算，冻结计待成交开仓后的增量、成交/撤单/平仓及 mark-to-market 后重算。跨品种映射、套利取高仍不支持；当前仅投机、空投资单元，其他报单明确拒绝（§6.3、notes/04 C4）；期权权利金（§6）。
 12. **费率查询接口** ✅（M3-3 落地，2026-10-03）：`ReqQryInstrumentMarginRate` / `ReqQryInstrumentCommissionRate` / `ReqQryInstrumentOrderCommRate` / `ReqQryBrokerTradingParams` 四张由 `unsupported` 转为实装，官方语义逐字复刻——**`InstrumentID` 留空 = 返回该投资者持仓对应合约的费率（不是全市场，「目前无法通过一次查询得到所有合约保证金率」）**，`BrokerID`/`InvestorID`（及 `CurrencyID`）必填、「不填则返回值为空」。定位上四张表与账本计算**共用同一份 `RefData`**，客户端交叉核对 `ReqQryInstrumentMarginRate` 与 `ReqQryTradingAccount.CurrMargin` 时数字必然一致（§9、DESIGN §6.4/§8.6.1）。

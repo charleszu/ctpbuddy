@@ -296,10 +296,18 @@ impl World {
     }
 
     fn admin_set_speed(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+        if !matches!(v, Value::Obj(fields) if fields.len() == 2 && fields.iter().filter(|(key, _)| key == "cmd").count() == 1 && fields.iter().filter(|(key, _)| key == "speed").count() == 1) {
+            return self.admin_error(conn_id, req_id, "set_speed 仅允许 cmd 与 speed");
+        }
+        let Some(speed) = v.get("speed").and_then(Value::as_num) else {
+            return self.admin_error(conn_id, req_id, "speed 必须为数字");
+        };
+        if !speed.is_finite() || !(0.0..=1000.0).contains(&speed) {
+            return self.admin_error(conn_id, req_id, "speed 必须为 0–1000 的有限数字（0 为不限速）");
+        }
         let Some(pb) = self.playback.as_mut() else {
             return self.admin_error(conn_id, req_id, "未加载场景（先 start_scenario）");
         };
-        let speed = v.get_num("speed").unwrap_or(0.0);
         pb.set_speed(speed);
         self.admin_reply(
             conn_id,
