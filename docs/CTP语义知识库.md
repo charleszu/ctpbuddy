@@ -284,9 +284,9 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 
 结算单（`ReqQrySettlementInfo` 正文）是**另一套口径**，别与上面混用：
 
-- CTPBuddy 支持通过 ADMIN `settlement_report` 供给并保存 `trading_day/settlement_id/broker/investor/content_bytes`；Python SDK 的 `content` 会以 GBK 转为原始字节。
-- 查询响应严格按 `Content` 每 500 字节分段，`SequenceNo` 从 1 递增；各段重复携带 `TradingDay/SettlementID/BrokerID/InvestorID`，最终空查询回调对应 `bIsLast=true`。
-- 未供给正文时，`settle_day` 仅生成 `modeled_ledger_minimal` 最小可审计文本，明确声明非官方结算单，不补写未建模字段；无匹配日期返回空数据终止回调。
+- CTPBuddy 支持通过 ADMIN `settlement_report` 供给并保存 `trading_day/settlement_id/broker/investor/content_bytes`；Python SDK 的 `content` 会以 GBK 转为原始字节。正文持久化后可跨 core 重启、重新登录查询，重复 `(broker, investor, trading_day)` 拒绝覆盖；空正文、NUL 或非 `1..255` 字节拒绝。
+- 查询响应严格按 `Content` 每 500 字节分段，`SequenceNo` 从 1 递增；各段重复携带 `TradingDay/SettlementID/BrokerID/InvestorID`，最终空查询回调对应 `bIsLast=true`。默认日期选择最近的严格早于当前 `TradingDay` 的已供给报告。
+- 未供给正文时，`settle_day` 仅生成 `modeled_ledger_minimal` 最小可审计文本，明确声明非官方结算单，不补写未建模字段；无匹配日期返回空数据终止回调。真实 `ctp_settlement` 的验证仅允许抽取一份样本的结构元数据和原始 TXT hash，供给→查询→拼接 hash 只证明传输往返，不证明账本重演或字段对账。
 ```
 期末结存 = 期初结存 + Σ(出入金明细 入金−出金) + 持仓盯市盈亏 + 平仓盈亏
            − 手续费 + 权利金收入 − 权利金支出

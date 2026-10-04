@@ -10,10 +10,12 @@ from pathlib import Path
 
 from .journal import JournalError, hash_stream, journal_paths, load_events
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 APPLICATION_ID = 0x43545042
 TABLES = ("journal_event", "account", "order_record", "trade_record",
-          "position_change", "position_snapshot", "account_snapshot", "audit_log")
+          "position_change", "position_snapshot", "account_snapshot", "audit_log", "settlement_report")
+WEB_TABLES = ("account", "position_snapshot", "account_snapshot", "order_record",
+              "trade_record", "audit_log", "settlement_report")
 SCHEMA = """
 CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE journal_event (
@@ -56,6 +58,10 @@ CREATE TABLE audit_log (
  seq INTEGER PRIMARY KEY, trading_day TEXT NOT NULL, broker_id TEXT NOT NULL,
  investor_id TEXT NOT NULL, ts_wall TEXT NOT NULL, actor TEXT,
  action TEXT NOT NULL, detail TEXT NOT NULL);
+CREATE TABLE settlement_report (
+ seq INTEGER PRIMARY KEY, trading_day TEXT NOT NULL, broker_id TEXT NOT NULL,
+ investor_id TEXT NOT NULL, settlement_id INTEGER, account_id TEXT,
+ currency_id TEXT, source TEXT, content_bytes TEXT NOT NULL, data TEXT NOT NULL);
 """
 
 
@@ -128,6 +134,12 @@ def _project(conn, events):
             if delta is not None and offset != "0":
                 delta = -delta
             conn.execute("INSERT INTO position_change VALUES (?,?,?,?,?,?,?,?,?)", (s, day, b, i, d.get("instrument"), side, offset, delta, raw))
+        if t == "settlement_report":
+            content_bytes = d.get("content_bytes", [])
+            conn.execute("INSERT INTO settlement_report VALUES (?,?,?,?,?,?,?,?,?,?)", (
+                s, day, b, i, d.get("settlement_id"), d.get("account_id", ""),
+                d.get("currency_id", ""), d.get("source", "user_supplied"),
+                _json(content_bytes), raw))
         if t in {"admin", "settings_updated", "scenario_loaded", "reset_account",
                  "deposit", "withdraw", "settle", "settlement", "settlement_report"}:
             conn.execute("INSERT INTO audit_log VALUES (?,?,?,?,?,?,?,?)", (

@@ -37,7 +37,7 @@ M1（核心闭环 + Shim 全链路）已完成：
 - [x] 任务42第一阶段显式日结：ADMIN `settle_day` 接收用户供给的 `settlement_prices` 与严格递增 `next_trading_day`；要求 playback 暂停且无活动订单；账本先暂存校验再原子替换，最终按供给结算价盯市，动态权益滚存至 `PreBalance`，清零当日资金/盈亏/手续费/冻结，今仓转静态昨仓，清理当日订单成交与旧确认；不自动按固定时刻触发、不复用 `reset_account`、不伪造 SettlementInfo 查询
 - [x] 任务43 `OrderSysID`：内部订单号继续用于引擎/账本/journal关联；首条对外 OrderSysID 为空，按交易所布局在 accepted 边界后填充，交易所拒单全程为空；Trade/QryOrder/撤单使用最终非空系统号，覆盖 SHFE GFD、拒单、DCE/FAK 布局与最终关联
 - [x] M3-5（本地）：结算单原始 GBK 供给与 `ReqQrySettlementInfo` 分段查询；`tests/e2e/m3_5_settlement_info.py` 已加入 CI 矩阵，本地通过，远端 CI 已核实成功（37157525169 / 3d42505、37124374367 / 12d55e8、37124336391 / 394bff9）
-- [x] M3-6（本地 + 已验证远端）：JSONL journal 的 SQLite 投影、原子 rebuild 与只读 CLI/Web 查询；设置页已增加账户/订单/成交/审计只读浏览、broker/investor/day 筛选与分页；`tests/e2e/m3_6_projection.py` 已加入 CI 矩阵，本地通过，远端 CI `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success；完整 Web 后台未完成
+- [x] M3-6（本地 + 已验证远端）：JSONL journal 的 SQLite 投影、原子 rebuild 与只读 CLI/Web 查询；设置页已增加账户/持仓/资金快照/订单/成交/审计/结算报告只读浏览、broker/investor/day 筛选与分页；Web API 采用白名单、textContent 防注入、非实时快照边界和路径安全错误；仅开放带确认/CSRF/严格校验/审计的 `settlement_report`、`settle_day` 写入口，不暴露 reset/shutdown/任意 admin/SQL；`tests/e2e/m3_6_projection.py` 已加入 CI 矩阵，本地通过，远端 CI `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success
 - [ ] M4 交付：断言 CLI 有本地实现和单测；当前只完成部分 e2e CI，三渠道发布与文档站仍未完成，不将 M4 总项标为完成
 
 ## 快速开始
@@ -89,7 +89,7 @@ python tools/audit_real_accounts.py    # 资金恒等式逐项核对真实账户
 目录可用 `CTPBUDDY_EXPORT_DIR` / `CTPBUDDY_SETTLEMENT_DIR` 指定；未提供则跳过，
 不影响上面的回归。口径细节见 DESIGN §8.7.1。
 
-M3-6 存储投影：Rust 核心只写 `data/journal/*.jsonl`，Python 标准库 `sqlite3` 通过 `ctpbuddy journal rebuild` 原子生成 `data/ctpbuddy.db`；数据库可以直接删除后重建，重建依据 journal 顺序与 full hash，结果确定。`journal query` 和配置了 `--db` 的 Web `/api/projection?table=...` 只读查询账户、订单、成交、持仓变动/快照、资金观测和配置审计。SQLite 损坏时不要修复数据文件，删除后重新 rebuild。
+M3-6 存储投影：Rust 核心只写 `data/journal/*.jsonl`，Python 标准库 `sqlite3` 通过 `ctpbuddy journal rebuild` 原子生成 `data/ctpbuddy.db`；数据库可以直接删除后重建，重建依据 journal 顺序与 full hash，结果确定。`journal query` 和配置了 `--db` 的 Web `/api/projection?table=...` 只读查询账户、持仓/资金快照、订单、成交、审计及用户供给的结算报告；快照非实时，缺失字段不编造。SQLite 损坏时不要修复数据文件，删除后重新 rebuild。
 
 核心支持 `--qry-freq <n>`（env `CTPBUDDY_QRY_FREQ`）调前置每秒查询预算：超过即回 `OnRspError[90]`「CTP：查询未就绪，请稍后重试」，与真实 CTP 前置一致（DESIGN §8.8）。除行情与 RefData 外，可用本地 Web 后台配置已实现的柜台参数：`ctpbuddy web --host loopback --port 8080 --admin 127.0.0.1:5561`。可配置 `qry_freq`、`order_freq`（报单/撤单独立额度）、`max_user_sessions`（0 为关闭限制）、`settlement_required`（默认开启，未确认报单返回官方 42「CTP:结算结果未确认」）、`initial_funds`（仅首次开户）。Web 通过 ADMIN 单一真相读写，绑定回环地址、同源/CSRF、严格 schema 校验；设置写入 `data_dir/settings.json` 并原子替换，已有账户资金不改。启动覆盖优先级为 CLI > env > 持久化 > 默认，覆盖字段会明确显示；不可用 data_dir 时更新拒绝。
 
@@ -139,9 +139,11 @@ with Admin(calendar=calendar) as admin:
 }
 ```
 
-`ctpbuddy calendar validate calendar.json` 输出规范化内容 SHA256；再用 `--sha256 <固定值>` 校验。SHA256 不包含 JSON 缩进差异，但包含版本、来源和全部映射。来源元数据只是可追溯声明，结构校验不能证明市场数据权威性，真实快照需由用户核验。GitHub 来源需 `kind: github`、`name: owner/repo`、`revision: <40位commit SHA>`、明确 `license` 和 `scope: futures`。用户/fixture 来源也必须给出固定 revision。
+`ctpbuddy calendar validate calendar.json` 输出规范化内容 SHA256 和实际覆盖范围；再用 `--sha256 <固定值>` 校验。SHA256 不包含 JSON 缩进差异，但包含版本、来源和全部映射。来源元数据只是可追溯声明，结构校验不能证明市场数据权威性，真实快照需由用户核验。GitHub 来源需 `kind: github`、`name: owner/repo`、`revision: <40位commit SHA>`、明确 `license` 和 `scope: futures`。官方来源需 `kind: official`、固定公告 URL 和固定摘录 revision。
 
-自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中同时显式提供 `night_action_day` 和 `night_trading_day`，缺失时拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
+自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中显式标记：开放时同时提供 `night_action_day` 和 `night_trading_day`，官方明确关闭时使用 `{"status":"closed"}`；缺失时拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
+
+生产目录 `calendar/production/` 当前只提交了 `shfe-2026-new-year.sample.json` 和 `MANIFEST.json`：其固定来源为上期所 2025-12-17〔2025〕157号公告，覆盖 2025-12-31 至 2026-01-05 的元旦样本及 2025-12-31 夜盘关闭边界，快照 SHA256 为 `3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a`。这不是完整 2026 生产日历；manifest 明确记录了缺口，不能把缺失日期解释为休市，也不能离线自动补全。
 
 用户覆盖通过 `calendar.with_overrides(user_snapshot)` 或 `load_calendar(path, override=...)` 完成，按自然日整条替换并重新计算快照 SHA256。推荐在 CI 中固定并校验 SHA256；不要把未核验的外部数据写入仓库。
 

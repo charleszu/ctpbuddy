@@ -12,6 +12,8 @@
 
 Python 侧 `ctpbuddy.calendar.TradingCalendar` 使用固定版本 JSON 快照，运行时不联网。快照区分自然日（`YYYY-MM-DD`）、期货交易日（`TradingDay=YYYYMMDD`）和夜盘的 `ActionDay`/`TradingDay`；缺失日期不是休市，缺失夜盘映射也不允许推断。`Admin.settle_day` 的 `next_trading_day` 可省略，此时仅由已加载快照根据当前期货 TradingDay 推导；显式参数仍保留。
 
+官方交易日历只能按交易所/中期协公开公告固定版本落地；公告可能只给节假日休市安排，不等价于全年逐日交易日快照。当前 `calendar/production/` 仅固化上期所公告〔2025〕157号的元旦样本，manifest 记录公告 URL、固定摘录 revision、覆盖范围、SHA256 和缺口。未取得完整逐日资料时不得用工作日规则、股票日历或周末规则伪造全年期货日历。夜盘开放记录必须同时给出 ActionDay/TradingDay；官方明确关闭记录用 `status: closed`，其余缺失一律拒绝查询。
+
 GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 commit、许可证和覆盖边界后人工生成快照。已核查 `gerrymanoim/exchange_calendars`（Apache-2.0，commit `bbda29fed902374bdb75acab008f421fbd567823`）：其 README 说明这是证券交易所常规时段日历，且用户贡献维护；不含 CTP 期货夜盘字段，因此不能直接替代期货日历。用户快照可通过 `with_overrides` 按自然日整条覆盖，并用 SHA256 固定复现。
 
 ## 1. 项目定位
@@ -700,7 +702,7 @@ report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
 
 ### 9.4 内部 ADMIN API
 
-当前 Web 仅将上述限定回放 API 转发至真实 ADMIN `status`、`pause`、`resume`、`step`、`set_speed`、`loop`，不提供任意 ADMIN proxy，也不暴露 `seek`、`start_scenario`、`reset_account`、`settle_day` 或 `shutdown`。其余 REST/JSON 面仍属规划，不应按已实现描述。
+当前 Web 仅将限定回放 API 转发至真实 ADMIN `status`、`pause`、`resume`、`step`、`set_speed`、`loop`，并提供 SQLite 投影的账户、持仓/资金快照、订单、成交、审计、结算报告只读浏览。投影明确标记为 journal rebuild 快照、非实时，数据缺失时不补造；查询表和参数采用白名单，前端表格使用 `textContent`。写入口仅为 `settlement_report` 与 `settle_day`，要求同源/CSRF、确认字段、严格参数校验并由核心 journal 审计；不提供任意 ADMIN proxy、reset、shutdown、任意 admin 命令或任意 SQL。`seek`、`start_scenario` 等仍不暴露。
 
 ---
 
@@ -890,9 +892,9 @@ CREATE TABLE audit_log (
 );
 ```
 
-#### 11.3.1 M3-6 已实现投影 schema v1
+#### 11.3.1 M3-6 已实现投影 schema v2
 
-上面的 SQL 是目标模型，不是当前 journal 载荷已经具备的事实。M3-6 以 `py/ctpbuddy/store.py` 的 `SCHEMA` 为实际 schema：`PRAGMA application_id=0x43545042`、`user_version=1`，`projection_meta` 保存版本、事件数、最后序号及 journal full hash；版本不符要求 rebuild，不隐式迁移。
+上面的 SQL 是目标模型，不是当前 journal 载荷已经具备的事实。M3-6 以 `py/ctpbuddy/store.py` 的 `SCHEMA` 为实际 schema：`PRAGMA application_id=0x43545042`、`user_version=2`，`projection_meta` 保存版本、事件数、最后序号及 journal full hash；版本不符要求 rebuild，不隐式迁移。v2 增加 `settlement_report` 只读投影，正文保留为字节数组 JSON，不将其解码或重算成官方结算口径。
 
 - `journal_event` 完整保存事件（含墙钟与未知类型），账户表仅保存观察到的账户身份；不把 SQLite 称为余额权威。
 - `order_record` 一条请求总结对应一行，保留 `order_key` 和最终系统号，按记录序关联回报，避免总结晚于回报时覆盖最终状态。`trade_record` 以事件序号为键，双方共用 TradeID 不会丢一腿，也不把 outcome.fills 重复计为成交。
@@ -964,7 +966,7 @@ CREATE TABLE audit_log (
 | M3-2 核心费率建模与按真实公式算账 | ✅ 2026-10-03 | `refdata.rs` 按四张官方查询结构体 + `TradingParams` 建模；保证金两项相加、手续费六费率按开仓/平昨/平今分腿、申报费报单撤单各一笔；`MarginPrice` 枚举把「昨仓恒昨结」做成类型级规则；`on_fill` 接受引擎权威昨结算价（首笔成交早于 mark-to-market，从持仓副本读会得 0）；平仓按开仓成本释放保证金；随包 789 个真实合约 + 公司费率快照（LocalCTP `instrument.csv` 导出）；refdata 单测 8 项 |
 | M3-3 四张费率查询接线 | ✅ 2026-10-03 | `ReqQryInstrumentMarginRate`/`CommissionRate`/`OrderCommRate`/`BrokerTradingParams` 四张查询从 `unsupported` 转为实装（shim 生成器 + 四处msg id 同步 + 查询在途闸门白名单）；官方语义逐字复刻（留空 = 持仓合约、必填项缺失 = 空流）；查询与账本共用同一张表并以 e2e 交叉核对；`m3_refdata.py` 八项断言，两种配置（随包 / `--refdata` 带费率）均绿 |
 | M3-4 持仓明细与先开先平逐明细盈亏 | ✅ 2026-10-02 | `PositionDetail`（OpenDate/TradeID/OpenPrice/Volume/Margin，每笔开仓成交一条）+ `take_details_filtered`（**先开先平只按开仓时间排序，平今/平昨只决定可动哪个年龄桶**——第一版写成「今仓取最新」被 e2e 抓出）；平仓盈亏逐明细算（昨仓按昨结算价、今仓按开仓价），**均价口径已删除**；保证金按该明细开仓实收额等比释放；`positions_of_ordered` 保证查询行序可复现；新增 `ReqQryInvestorPositionDetail`（0x1059/0x105A，四处 msg id 同步 + 生成器 + 闸门 + SDK）；`m3_detail.py` 五项断言；`tools/audit_real_accounts.py` 对 459 个真实账户日 + 770 份真实结算单逐项对账全绿（§8.7.1） |
-| M3-5 结算单供给与 SettlementInfo 分段查询 | ✅ 2026-10-03（本地） | ADMIN `settlement_report` 接受原始 GBK 正文并持久化；`ReqQrySettlementInfo` 按 500 字节分段返回、`SequenceNo` 递增并发送空终止回调；未命中与空账户返回空流；`tests/e2e/m3_5_settlement_info.py` 已加入 CI 矩阵。本地通过，远端 CI 已成功（37157525169 / 3d42505，37124374367 / 12d55e8，37124336391 / 394bff9） |
+| M3-5 结算单供给与 SettlementInfo 分段查询 | ✅ 2026-10-04（本地验证） | ADMIN `settlement_report` 接受并持久化原始 GBK bytes；重复 `(broker, investor, trading_day)` 拒绝覆盖，非法 bytes（空/NUL/非 1..255）拒绝；`ReqQrySettlementInfo` 按 500 字节分段返回、`SequenceNo` 递增并发送空终止回调；未命中/空账户返回空流；默认日期选择最近的严格早于当前 `vt_trading_day` 的报告。新增测试覆盖供给→查询→拼接 SHA-256、core 重启/重新登录后的字节一致性。真实 `ctp_settlement` 仅可选读取一份样本的结构元数据与 TXT 原始文本 hash，不复制正文入仓库；这只是传输往返验证，不是账本重演或业务字段对账。 |
 | M3-6 Python SQLite journal 投影与可重建命令 | ✅ 2026-10-03（本地） | `py/ctpbuddy/store.py` 定义 schema/version、原子 rebuild、只读查询；SQLite 仅为 JSONL journal 投影，Rust 不依赖 SQLite；CLI `journal rebuild|query`，Web 配置 `--db` 后提供只读 `/api/projection`；设置页增加账户/订单/成交/审计浏览、筛选分页、快照与非实时提示；Python 单测 + `tests/e2e/m3_6_projection.py` 本地覆盖确定性、损坏库删除重建和查询，已加入 CI 矩阵。本地通过，远端已成功运行（37157525169 / 37124374367 / 37124336391 对应提交均 success）；完整 Web 后台未完成 |
 
 **M4 子项进度**（当前仅有基础实现，不能将 M4 总项标为完成）：

@@ -31,6 +31,7 @@ class CalendarDay:
     night_trading_day: Optional[str] = None
     night_action_day: Optional[str] = None
     exchange: Optional[str] = None
+    night_status: Optional[str] = None
 
 
 def _date(value: Any, field: str, compact: bool = False) -> str:
@@ -85,12 +86,16 @@ class TradingCalendar:
         if not isinstance(version, str) or not version.strip() or version.lower() in {"latest", "head", "main", "master"}:
             raise CalendarError("必须提供固定的非空 version，而非浮动分支")
         source = snapshot.get("source")
-        _keys(source, {"kind", "name", "revision", "license", "scope"}, "source")
+        _keys(source, {"kind", "name", "revision", "license", "scope", "url"}, "source")
         for key in ("kind", "name", "revision", "license", "scope"):
             if not isinstance(source.get(key), str) or not source[key].strip():
                 raise CalendarError("source.%s 必须是非空字符串" % key)
-        if source["kind"] not in {"fixture", "user", "github"}:
-            raise CalendarError("source.kind 必须是 fixture/user/github")
+        if "url" in source and (not isinstance(source["url"], str) or not source["url"].strip()):
+            raise CalendarError("source.url 必须是非空字符串")
+        if source["kind"] not in {"fixture", "user", "github", "official"}:
+            raise CalendarError("source.kind 必须是 fixture/user/github/official")
+        if source["kind"] == "official" and "url" not in source:
+            raise CalendarError("official 来源必须提供 source.url")
         if source["scope"] != "futures":
             raise CalendarError("仅接受经过用户校验的 futures 快照，不能直接使用股票日历")
         if source["kind"] == "github" and not re.fullmatch(r"[0-9a-f]{40}", source["revision"]):
@@ -121,13 +126,29 @@ class TradingCalendar:
             for exchange, night in exchanges.items():
                 if not isinstance(exchange, str) or not exchange.strip():
                     raise CalendarError("exchange 必须是非空字符串")
-                _keys(night, {"night_action_day", "night_trading_day"}, "night")
+                _keys(night, {"status", "night_action_day", "night_trading_day"}, "night")
+                status = night.get("status", "open")
+                if status not in {"open", "closed"}:
+                    raise CalendarError("night.status 必须是 open/closed")
+                if status == "closed":
+                    if night.get("night_action_day") is not None or night.get("night_trading_day") is not None:
+                        raise CalendarError("关闭夜盘不能设置 ActionDay/TradingDay")
+                    self._nights[(date, exchange)] = CalendarDay(date, opened, trading, exchange=exchange, night_status=status)
+                    continue
                 action = _date(night.get("night_action_day"), "night_action_day")
                 _date(night.get("night_trading_day"), "night_trading_day", True)
-                self._nights[(date, exchange)] = CalendarDay(date, opened, trading, night["night_trading_day"], action.replace("-", ""), exchange)
+                self._nights[(date, exchange)] = CalendarDay(date, opened, trading, night["night_trading_day"], action.replace("-", ""), exchange, status)
         self._json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
         self.sha256 = hashlib.sha256(self._json.encode("utf-8")).hexdigest()
         self.metadata = MappingProxyType({"schema": self.SCHEMA, "version": version, "source": MappingProxyType(dict(source)), "sha256": self.sha256})
+
+    @property
+    def coverage(self) -> Mapping[str, Any]:
+        dates = sorted(self._days)
+        expected = (dt.date.fromisoformat(dates[-1]) - dt.date.fromisoformat(dates[0])).days + 1
+        return MappingProxyType({"start": dates[0], "end": dates[-1], "days": len(dates),
+                                 "missing_days": expected - len(dates),
+                                 "night_records": len(self._nights)})
 
     @classmethod
     def from_json(cls, value: Union[str, bytes, Mapping[str, Any]]) -> "TradingCalendar":
@@ -178,6 +199,8 @@ class TradingCalendar:
     def night_session(self, date: DateLike, exchange: str) -> Tuple[str, str]:
         """按实际自然日查询显式 CTP ActionDay/TradingDay，不做兜底推断。"""
         row = self.day(date, exchange)
+        if row.night_status == "closed":
+            raise CalendarError("%s 的 %s 夜盘明确休市" % (_date(date, "date"), exchange))
         return row.night_action_day, row.night_trading_day
 
 

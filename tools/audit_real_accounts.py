@@ -74,7 +74,9 @@ Run:  python tools/audit_real_accounts.py
 """
 from __future__ import annotations
 
+import argparse
 import csv
+import hashlib
 import io
 import json
 import os
@@ -449,7 +451,34 @@ def audit_statements(settlement_dir):
     return checked, failures, skipped
 
 
+def audit_ledger_replay(export_dir):
+    """Optional order/trade field-audit boundary, without inventing fills.
+
+    A complete ledger replay needs a matching order/trade/account day with the
+    project's supported venue and offset semantics. This hook reports the
+    available field coverage and explicitly skips when the real export cannot
+    establish that scenario; it never turns an incomplete fixture into PASS.
+    """
+    if not os.path.isdir(export_dir):
+        return {"status": "skipped", "reason": "export directory not found"}
+    order_files = sorted(f for f in os.listdir(export_dir) if f.endswith("_order.csv"))
+    trade_files = sorted(f for f in os.listdir(export_dir) if f.endswith("_trade.csv"))
+    if not order_files or not trade_files:
+        return {"status": "skipped", "reason": "matching order/trade exports unavailable"}
+    order_fields = set(read_table(os.path.join(export_dir, order_files[0]))[0]) if read_table(os.path.join(export_dir, order_files[0])) else set()
+    trade_fields = set(read_table(os.path.join(export_dir, trade_files[0]))[0]) if read_table(os.path.join(export_dir, trade_files[0])) else set()
+    required_order = {"InstrumentID", "Direction", "CombOffsetFlag", "VolumeTotalOriginal"}
+    required_trade = {"InstrumentID", "Direction", "OffsetFlag", "Volume"}
+    missing = sorted((required_order - order_fields) | (required_trade - trade_fields))
+    if missing:
+        return {"status": "skipped", "reason": "required replay fields missing: " + ", ".join(missing)}
+    return {"status": "skipped", "reason": "field coverage exists, but no complete order/trade-to-ledger replay is implemented"}
+
+
 def main():
+    parser = argparse.ArgumentParser(description="审计真实柜台导出，不写入或复制账号正文")
+    parser.add_argument("--ledger-replay-audit", action="store_true", help="报告 ledger replay 字段覆盖；不完整场景明确跳过")
+    args = parser.parse_args()
     export = audit_accounts(EXPORT_DIR)
     detail = audit_detail_pnl(SETTLEMENT_DIR)
     settled = audit_statements(SETTLEMENT_DIR)
@@ -483,6 +512,10 @@ def main():
             print("FAIL: %s — %d rows disagree" % (label, len(failures)))
             for f in failures[:10]:
                 print("   %s %s: reported %.4f, identity says %.4f" % f)
+    if args.ledger_replay_audit:
+        replay = audit_ledger_replay(EXPORT_DIR)
+        print("[{}] ledger replay audit: {}".format(replay["status"], replay["reason"]))
+
     if pairs is not None:
         checked, missing, mismatches, samples, incomplete = pairs
         label = "FAIL" if mismatches else "ok"

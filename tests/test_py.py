@@ -351,6 +351,15 @@ def test_calendar() -> None:
             raise AssertionError("未配置日历时不能自动结算")
         except ValueError:
             pass
+    sample_path = os.path.join(REPO, "calendar", "production", "shfe-2026-new-year.sample.json")
+    sample = TradingCalendar.from_file(sample_path)
+    assert sample.coverage == {"start": "2025-12-31", "end": "2026-01-05", "days": 6, "missing_days": 0, "night_records": 1}
+    try:
+        sample.night_session("2025-12-31", "SHFE")
+        raise AssertionError("官方明确关闭的夜盘不能返回映射")
+    except CalendarError as exc:
+        assert "明确休市" in str(exc)
+    assert cli_main(["calendar", "validate", sample_path]) == 0
     print("[ok] calendar: offline validation/hash/CLI, coverage, override, explicit nights and Admin compatibility")
 
 
@@ -515,7 +524,8 @@ def test_web_projection() -> None:
             {"seq": 1, "ts_wall": "2026-10-03T09:30:00+08:00", "trading_day": "20261003", "vt_ms": 1, "type": "session_login", "broker": "8888", "investor": "web1", "data": {}},
             {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "web1", "data": {"order_ref": "w1", "order_sys_id": "1", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "limit_price": 3500, "volume": 1, "outcome": {"accepted": True}}},
             {"seq": 3, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "fill", "broker": "8888", "investor": "web1", "data": {"trade_id": "t1", "order_sys_id": "1", "order_ref": "w1", "instrument": "rb2601", "direction": 0, "offset": 0, "price": 3500, "volume": 1}},
-            {"seq": 4, "ts_wall": "2026-10-03T09:30:03+08:00", "trading_day": "20261003", "vt_ms": 4, "type": "settings_updated", "data": {"after": {"qry_freq": 2}}},
+            {"seq": 4, "ts_wall": "2026-10-03T09:30:03+08:00", "trading_day": "20261003", "vt_ms": 4, "type": "settlement_report", "broker": "8888", "investor": "web1", "data": {"settlement_id": 1, "account_id": "web1", "currency_id": "CNY", "source": "user_supplied", "content_bytes": [65, 66]}},
+            {"seq": 5, "ts_wall": "2026-10-03T09:30:04+08:00", "trading_day": "20261003", "vt_ms": 5, "type": "settings_updated", "data": {"after": {"qry_freq": 2}}},
         ]
         with open(os.path.join(journal, "20261003.jsonl"), "w", encoding="utf-8") as fh:
             for event in events:
@@ -531,11 +541,11 @@ def test_web_projection() -> None:
             page = urllib.request.urlopen(urllib.request.Request(base + "/", headers={"Host": host})).read().decode()
             assert "SQLite 投影浏览" in page and "projectionTable" in page
             assert "innerHTML" not in open(os.path.join(REPO, "py", "ctpbuddy", "assets", "settings.js"), encoding="utf-8").read()
-            for table, key in (("account", "investor_id"), ("order_record", "order_ref"), ("trade_record", "trade_id"), ("audit_log", "action")):
+            for table, key in (("account", "investor_id"), ("order_record", "order_ref"), ("trade_record", "trade_id"), ("audit_log", "action"), ("settlement_report", "settlement_id")):
                 request = urllib.request.Request(base + "/api/projection?table=" + table + "&trading_day=20261003", headers={"Host": host})
                 payload = json.loads(urllib.request.urlopen(request).read())
                 assert payload["rows"] and key in payload["rows"][0], (table, payload)
-                assert payload["snapshot"]["event_count"] == "4" and payload["realtime"] is False, payload
+                assert payload["snapshot"]["event_count"] == "5" and payload["realtime"] is False, payload
             empty = urllib.request.Request(base + "/api/projection?table=account&broker=missing", headers={"Host": host})
             empty_payload = json.loads(urllib.request.urlopen(empty).read())
             assert empty_payload["rows"] == [] and empty_payload["realtime"] is False

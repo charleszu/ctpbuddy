@@ -52,6 +52,9 @@ def cmd_calendar_validate(args: argparse.Namespace) -> int:
         calendar.metadata["source"]["license"],
     ))
     print("sha256       %s" % calendar.sha256)
+    coverage = calendar.coverage
+    print("coverage     %s..%s (%d rows, %d missing natural days, %d night records)" % (
+        coverage["start"], coverage["end"], coverage["days"], coverage["missing_days"], coverage["night_records"]))
     return 0
 
 

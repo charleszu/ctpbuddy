@@ -16,7 +16,10 @@ from .sdk import Admin
 
 MAX_BODY = 8192
 PLAYBACK_COMMANDS = {"pause", "resume", "step", "set_speed", "loop"}
+WEB_PROJECTION_TABLES = {"account", "position_snapshot", "account_snapshot", "order_record", "trade_record", "audit_log", "settlement_report"}
 MAX_PLAYBACK_SPEED = 1000.0
+MAX_SETTLEMENT_REPORTS = 16
+MAX_SETTLEMENT_CONTENT = 512 * 1024
 
 
 def _strict_object(pairs):
@@ -108,6 +111,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             if set(query) - allowed or any(len(values) != 1 for values in query.values()):
                 return self.reply(400, {"error": "投影查询参数无效"})
             table = query.get("table", ["account"])[0]
+            if table not in WEB_PROJECTION_TABLES:
+                return self.reply(400, {"error": "投影表不在 Web 白名单中"})
             def one(name):
                 return query.get(name, [None])[0]
             try:
@@ -128,7 +133,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
         def do_POST(self):
             if not self.valid_source(write=True):
                 return self.reply(403, {"error": "同源或 CSRF 校验失败"})
-            if self.path not in ("/api/settings", "/api/replay"):
+            if self.path not in ("/api/settings", "/api/replay", "/api/admin/settlement_report", "/api/admin/settle_day"):
                 return self.reply(404, {"error": "路径不存在"})
             if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                 return self.reply(400, {"error": "需要单一 Content-Length"})
@@ -148,14 +153,58 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 json.dumps(value, allow_nan=False)
                 if self.path == "/api/replay":
                     self.validate_playback(value)
-                elif not isinstance(value, dict) or set(value) != {"patch"} or not isinstance(value["patch"], dict):
-                    raise ValueError("仅允许 patch 对象")
+                elif self.path == "/api/settings":
+                    if not isinstance(value, dict) or set(value) != {"patch"} or not isinstance(value["patch"], dict):
+                        raise ValueError("仅允许 patch 对象")
+                elif self.path == "/api/admin/settlement_report":
+                    self.validate_settlement_report(value)
+                else:
+                    self.validate_settle_day(value)
             except (ValueError, UnicodeError, OSError) as e:
                 return self.reply(400, {"error": str(e)})
             if self.path == "/api/replay":
                 self.invoke(playback=value)
-            else:
+            elif self.path == "/api/settings":
                 self.invoke(value["patch"])
+            elif self.path == "/api/admin/settlement_report":
+                reports = []
+                for report in value["reports"]:
+                    item = dict(report)
+                    content = item.pop("content")
+                    item["content_bytes"] = list(content.encode("gbk", "strict"))
+                    reports.append(item)
+                self.invoke(admin_cmd="settlement_report", admin_args={"reports": reports})
+            else:
+                self.invoke(admin_cmd="settle_day", admin_args={"settlement_prices": value["settlement_prices"], "next_trading_day": value["next_trading_day"]})
+
+        def validate_settlement_report(self, value):
+            if not isinstance(value, dict) or set(value) != {"confirmed", "reports"} or value["confirmed"] is not True:
+                raise ValueError("结算报告写入必须明确 confirmed=true")
+            reports = value["reports"]
+            if not isinstance(reports, list) or not 0 < len(reports) <= MAX_SETTLEMENT_REPORTS:
+                raise ValueError("reports 数量无效")
+            for report in reports:
+                if not isinstance(report, dict) or not {"broker", "investor", "trading_day", "settlement_id", "content"}.issubset(report):
+                    raise ValueError("结算报告字段无效")
+                if set(report) - {"broker", "investor", "trading_day", "settlement_id", "account_id", "currency_id", "content", "source"}:
+                    raise ValueError("结算报告含未知字段")
+                if not all(isinstance(report.get(k), str) and report[k] for k in ("broker", "investor", "trading_day")):
+                    raise ValueError("结算报告身份字段无效")
+                if not isinstance(report["settlement_id"], int) or isinstance(report["settlement_id"], bool) or report["settlement_id"] < 1:
+                    raise ValueError("settlement_id 无效")
+                content = report["content"]
+                if not isinstance(content, str) or not content or len(content.encode("gbk", "strict")) > MAX_SETTLEMENT_CONTENT:
+                    raise ValueError("结算报告正文无效")
+
+        def validate_settle_day(self, value):
+            if not isinstance(value, dict) or set(value) != {"confirmed", "settlement_prices", "next_trading_day"} or value["confirmed"] is not True:
+                raise ValueError("日结写入必须明确 confirmed=true")
+            prices, day = value["settlement_prices"], value["next_trading_day"]
+            if not isinstance(prices, dict) or not prices or len(prices) > 1000 or not isinstance(day, str) or len(day) != 8 or not day.isdigit():
+                raise ValueError("日结参数无效")
+            for instrument, price in prices.items():
+                if not isinstance(instrument, str) or not instrument or len(instrument) > 31 or not isinstance(price, (int, float)) or isinstance(price, bool) or not math.isfinite(price) or price <= 0:
+                    raise ValueError("日结结算价无效")
 
         def validate_playback(self, value):
             if not isinstance(value, dict) or not isinstance(value.get("cmd"), str) or value["cmd"] not in PLAYBACK_COMMANDS:
@@ -182,16 +231,18 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             return {"ok": True, "scenario": status["scenario"], "playback": dict(pb, finished=pb["loaded"] and pb["idx"] >= pb["total"]),
                     "realtime": True, "speed_range": {"min": 0, "max": MAX_PLAYBACK_SPEED}}
 
-        def invoke(self, patch=None, playback=None):
+        def invoke(self, patch=None, playback=None, admin_cmd=None, admin_args=None):
             if not slots.acquire(blocking=False):
                 return self.reply(429, {"error": "并发请求过多"})
-            writing = playback is not None and playback["cmd"] != "status"
+            writing = (playback is not None and playback["cmd"] != "status") or admin_cmd is not None
             if writing and not replay_write.acquire(blocking=False):
                 slots.release()
                 return self.reply(429, {"error": "回放命令正在执行"})
             try:
                 with Admin(admin, timeout=3) as client:
-                    if playback is not None:
+                    if admin_cmd is not None:
+                        result = client.cmd(admin_cmd, **admin_args)
+                    elif playback is not None:
                         cmd = playback["cmd"]
                         if cmd == "status":
                             result = self.replay_view(client)
@@ -208,9 +259,9 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                         result = client.settings() if patch is None else client.update_settings(patch)
                 self.reply(200, result)
             except RuntimeError as e:
-                return self.reply(409 if playback is not None else 400, {"error": str(e)})
+                return self.reply(409 if playback is not None or admin_cmd else 400, {"error": str(e)})
             except (OSError, ValueError, ConnectionError) as e:
-                return self.reply(503 if playback is not None else 502, {"error": "ADMIN 不可用: " + str(e)})
+                return self.reply(503 if playback is not None or admin_cmd else 502, {"error": "ADMIN 不可用"})
             finally:
                 if writing:
                     replay_write.release()
