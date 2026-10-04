@@ -501,7 +501,9 @@ assertions:             # 可选：场景内断言（CI 用）
 
 `ReqQryOrder` / `ReqQryTrade` 期望来自当日查询快照 CSV，仅用于查询快照字段和唯一关联检查，不视为完整历史回报。`ReqQryInvestorPosition` / `ReqQryInvestorPositionDetail` 的数量期望由前一日结算 `positions_detail`/`positions_summary` 加当日成交计算，再与同日结算单核对；只核数量、方向、合约、hedge、InvestUnit。非 SHFE/INE 平仓年龄及 FIFO 信息不足时记 ambiguity，不能从今平量猜昨仓。期权只允许数量变动校验，不把权利金或期权保证金期货化。缺少 actual query 回报时必须是 `not_evaluated`，不是通过；缺源显式 skip，坏数据 fail 非零。
 
-该审计目前**不是 Core 账本重演**，报告明确保留此边界。默认报告匿名化账号/客户标识，不保存真实正文。支持 `--date`、`--investor`、`--limit`、`--report`；stdlib 合成覆盖见 `tests/test_query_expectations.py`。
+该审计目前**不是完整 Core 账本重演**，报告明确保留此边界。默认报告匿名化账号/客户标识，不保存真实正文。支持 `--date`、`--investor`、`--limit`、`--report`；stdlib 合成覆盖见 `tests/test_query_expectations.py`。
+
+`tests/e2e/m4_real_replay.py` 已对真实普通期货开仓的一笔受控子集调用实际四查询（QryOrder/QryTrade/QryInvestorPosition/QryInvestorPositionDetail），但不代表完整账户等价：真实成交严格 OffsetFlag=0，RefData exchange/instrument 匹配且 expiry 覆盖 TradingDay，投机 HedgeFlag=1、InvestUnit 空；订单唯一关联 broker/investor/day/exchange/sys，CombOffsetFlag=0 与 Direction/Instrument 必须一致，仅一笔 fully filled 且原始订单量等于成交量。请求保留真实 order LimitPrice/VolumeTotalOriginal/TC/VC/MinVolume，不把成交价量改写为订单。匿名账户资金是独立 fixture，不是前日权益；empty 初仓只属于这个隔离开仓子集。买 ask/卖 bid 受控设为真实 trade price，涨跌停范围为人为 fixture，不声称实际历史行情。真实内部系统号/成交号不得回填源 ID。默认使用临时目录，不写 outputs；显式 --report 可生成匿名 core-query-subset-audit.json 汇总。无外部目录可 SKIP，有源而零候选不可 PASS；坏数据记录 skip reason，断言失败非零。
 
 #### 8.7.3 保证金优惠：历史复核与当前实现（2026-10-03）
 

@@ -17,6 +17,7 @@ from audit_three_way import (  # noqa: E402
     read_csv,
     settlement_positions,
 )
+from e2e.m4_real_replay import controlled_quotes  # noqa: E402
 
 
 class QueryExpectationTests(unittest.TestCase):
@@ -50,6 +51,17 @@ class QueryExpectationTests(unittest.TestCase):
         got, _ = expected_positions(prior, [self.trade("MO2601-C-6000", "CFFEX", volume=2)], "20260105")
         self.assertEqual(got[(("CFFEX", "MO2601-C-6000", "", "投机"), "long")], 3)
         self.assertNotIn("premium", str(got).lower())
+
+    def test_bad_offset_join_is_rejected(self):
+        order = {"BrokerID": "B", "InvestorID": "I", "TradingDay": "20260105", "ExchangeID": "SHFE", "OrderSysID": "7", "CombOffsetFlag": "0", "InstrumentID": "rb2601", "Direction": "0"}
+        trade = dict(order, OffsetFlag="1", Volume="1")
+        matched, reasons = match_trades_orders([trade], [order])
+        self.assertEqual(matched, 0)
+        self.assertEqual(reasons["order_trade_offset_mismatch"], 1)
+
+    def test_sell_controlled_quote_hits_trade_price(self):
+        self.assertEqual(controlled_quotes("1", 3500.0), (3500.0, 3500.01))
+        self.assertEqual(controlled_quotes("0", 3500.0), (3499.99, 3500.0))
 
     def test_duplicate_order_sysid_is_ambiguous(self):
         base = {"BrokerID": "B", "InvestorID": "I", "TradingDay": "20260105", "ExchangeID": "SHFE", "OrderSysID": "7", "OrderRef": "9", "FrontID": "1", "SessionID": "2", "InstrumentID": "rb2601", "Direction": "0"}

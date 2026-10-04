@@ -228,6 +228,11 @@ def match_trades_orders(trades, orders):
                 reasons["order_trade_field_mismatch"] += 1
                 break
         else:
+            trade_offset = trim(trade.get("OffsetFlag"))
+            order_offset = trim(order.get("CombOffsetFlag"))
+            if trade_offset and order_offset and trade_offset != order_offset:
+                reasons["order_trade_offset_mismatch"] += 1
+                continue
             matched += 1
     return matched, reasons
 
@@ -253,6 +258,8 @@ def canonical_exchange(value):
 
 def canonical_hedge(value):
     value = trim(value)
+    if value in ("49", "50", "51"):
+        value = chr(int(value))
     return HEDGE_ALIASES.get(value, value)
 
 

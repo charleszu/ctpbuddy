@@ -83,7 +83,10 @@ ctpbuddy status                  # 另开一个终端
 ```
 python tools/audit_real_accounts.py    # 资金恒等式逐项核对真实账户日与结算单
 python tools/audit_query_expectations.py --limit 20 --report C:/temp/query-audit.json
+python tests/e2e/m4_real_replay.py --report C:/temp/core-query-subset-audit.json
 ```
+
+M4 真实回放只验收 `controlled futures subset`：动态选择 RefData 覆盖交易日的普通期货、`OffsetFlag=0`、`HedgeFlag=1`、空投资单元、唯一关联且一笔完全成交的真实 order/trade。回放在临时目录和匿名隔离账户中使用原 order 的 LimitPrice/VolumeTotalOriginal/TimeCondition/VolumeCondition/MinVolume；卖单 bid 使用真实成交价，买单 ask 使用真实成交价。报告仅保存匿名计数与 skip 原因，不生成真实正文；未提供外部目录时 SKIP，有数据但无合法候选时失败。它不声称真实账户前日权益或完整账户重演，初仓 empty 仅指该隔离 controlled open 子集。
 
 `audit_query_expectations.py` 从严格同交易日、同账号的 `order.csv` / `trade.csv` 与结算单构建
 `ReqQryOrder`、`ReqQryTrade`、`ReqQryInvestorPosition`、`ReqQryInvestorPositionDetail` 的可核期望。

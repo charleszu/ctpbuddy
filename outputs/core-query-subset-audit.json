@@ -1,0 +1,18 @@
+{
+  "status": "pass",
+  "scope": "controlled_real_futures_open_subset; not_full_account_replay",
+  "account_scope": "isolated_anonymous_fixture; no_claim_of_real_account_empty_baseline",
+  "candidate_count": 1,
+  "checks": {
+    "qry_order_core_fields": 1,
+    "qry_trade_core_fields": 1,
+    "qry_investor_position_qty_today": 1,
+    "qry_investor_position_detail_open": 1
+  },
+  "skips": {
+    "refdata_missing": 13,
+    "trade_not_open": 47
+  },
+  "errors": [],
+  "error_count": 0
+}
