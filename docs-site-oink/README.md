@@ -33,6 +33,7 @@ hugo --cleanDestinationDir --gc --minify --environment production \
 
 内容采用本地摘要与原仓库链接：
 
-- 首页、项目、架构、开发指南、语义知识库、API 原文索引、路线图由 `content/` 维护。
+- 首页、项目、架构、开发指南、语义知识库、API 原文索引、路线图由 `content/` 维护；源码反向索引优先链接真实 `core/`、`py/`、`tools/` 与 `.github/workflows/` 路径。
 - 根项目的 `README.md`、`DESIGN.md` 和 `docs/` 是事实来源；不要在本站复制整份官方 API HTML。
+- 详细源码页是非官方项目说明，按来源 commit 标注实现边界；源码未覆盖的交易所规则、夜盘日历和完整账本不从文档推断。
 - 若以后需要完整章节，应优先按章节导入并保留来源说明，而不是批量拷贝生成物。

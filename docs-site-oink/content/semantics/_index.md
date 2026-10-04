@@ -14,4 +14,6 @@ menus:
 - [流控全景](flow-control/)
 - [生命周期与会话](lifecycle/)
 - [回报时序与状态机](order-state/)
-- [资金、持仓与结算](accounting/)
+- [资金、持仓与结算]({{< relref "accounting" >}})
+- [撮合与交易所回报]({{< relref "matching-reports" >}})
+- [Ledger、FIFO 与显式日结]({{< relref "ledger-fifo-settlement" >}})
