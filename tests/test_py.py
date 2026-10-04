@@ -811,8 +811,102 @@ def test_shim_install_security() -> None:
     print("[ok] shim install: dry-run/apply, allowlist, backup/restore, sha guard, overlap/traversal")
 
 
+def test_shim_install_faults() -> None:
+    from unittest.mock import patch
+    from ctpbuddy.shim_install import ShimInstallError, install_shim, restore_shim
+
+    def fixture(root):
+        target = os.path.join(root, "target")
+        shim = os.path.join(root, "shim")
+        os.mkdir(target)
+        os.mkdir(shim)
+        for name, data in (("thosttraderapi_se.dll", b"td"), ("thostmduserapi_se.dll", b"md")):
+            with open(os.path.join(shim, name), "wb") as fh:
+                fh.write(data)
+        with open(os.path.join(shim, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": "fault-fixture", "artifacts": list((
+                {"name": "thosttraderapi_se.dll"}, {"name": "thostmduserapi_se.dll"}))}, fh)
+        for name, data in (("thosttraderapi_se.dll", b"original-td"), ("thostmduserapi_se.dll", b"original-md")):
+            with open(os.path.join(target, name), "wb") as fh:
+                fh.write(data)
+        return target, shim
+
+    with tempfile.TemporaryDirectory() as root:
+        target, shim = fixture(root)
+        script = os.path.join(target, "restore_shim.py")
+        open(script, "w", encoding="utf-8").close()
+        try:
+            install_shim(target, shim, apply=True)
+            raise AssertionError("已有恢复脚本不得覆盖")
+        except ShimInstallError as exc:
+            assert "拒绝覆盖" in str(exc)
+        os.unlink(script)
+
+        real_replace = os.replace
+        def fail_second(source, destination):
+            if os.fspath(destination) == os.path.join(target, "thostmduserapi_se.dll"):
+                raise OSError("injected second os.replace failure")
+            return real_replace(source, destination)
+        with patch("ctpbuddy.shim_install.os.replace", side_effect=fail_second):
+            try:
+                install_shim(target, shim, apply=True)
+                raise AssertionError("第二文件失败应抛错")
+            except ShimInstallError:
+                pass
+        assert open(os.path.join(target, "thosttraderapi_se.dll"), "rb").read() == b"td"
+        assert os.path.exists(os.path.join(target, ".ctpbuddy-shim-install.json"))
+        restore_shim(target)
+        assert open(os.path.join(target, "thosttraderapi_se.dll"), "rb").read() == b"original-td"
+        assert open(os.path.join(target, "thostmduserapi_se.dll"), "rb").read() == b"original-md"
+        install_shim(target, shim, apply=True)
+        restore_shim(target)
+        install_shim(target, shim, apply=True)
+        with open(os.path.join(target, ".ctpbuddy-shim-install.json"), "r", encoding="utf-8") as fh:
+            backup = json.load(fh)["backup_dir"]
+        with open(os.path.join(backup, "thostmduserapi_se.dll.backup"), "ab") as fh:
+            fh.write(b"corrupt")
+        try:
+            restore_shim(target)
+            raise AssertionError("损坏第二备份应拒绝且不改第一文件")
+        except ShimInstallError as exc:
+            assert "备份文件" in str(exc)
+        assert open(os.path.join(target, "thosttraderapi_se.dll"), "rb").read() == b"td"
+        restore_dir = os.path.join(target, ".ctpbuddy-backup")
+        assert os.path.exists(restore_dir)
+        # 重建临时 fixture，验证正常恢复后可再次安装。
+        with tempfile.TemporaryDirectory() as retry_root:
+            retry_target, retry_shim = fixture(retry_root)
+            install_shim(retry_target, retry_shim, apply=True)
+            restore_shim(retry_target)
+            install_shim(retry_target, retry_shim, apply=True)
+            restore_shim(retry_target)
+
+    with tempfile.TemporaryDirectory() as root:
+        target, shim = fixture(root)
+        marker = os.path.join(target, ".ctpbuddy-shim-install.json")
+        open(marker, "w", encoding="utf-8").close()
+        try:
+            install_shim(target, shim, apply=True)
+            raise AssertionError("已有 marker 不得覆盖")
+        except ShimInstallError as exc:
+            assert "已有" in str(exc)
+        os.unlink(marker)
+        try:
+            os.symlink(os.path.join(root, "outside.dll"), os.path.join(target, "thostmduserapi_se.dll"))
+        except (OSError, NotImplementedError):
+            pass
+        else:
+            try:
+                install_shim(target, shim, apply=True)
+                raise AssertionError("目标 symlink 应拒绝")
+            except ShimInstallError as exc:
+                assert "符号链接" in str(exc)
+    print("[ok] shim install faults: second replace, pre-state restore, marker/script lock, links, reinstall")
+
+
 def main() -> int:
     test_shim_install_security()
+    test_shim_install_faults()
     test_assertions_cli()
     test_struct_layout()
     test_frames()
