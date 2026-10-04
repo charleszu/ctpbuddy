@@ -1,4 +1,6 @@
 # 改编自 pgsty/oink-starter，commit 137843b25bacd76ddd1f7ce71330bf2e3155b954。
+# OINK 固定 v1.1.0（vendor），主题官方项目钩子见 assets/scss/_variables_project.scss。
+# 已验证 Hugo Extended v0.167.0；Go 1.27.0 未安装，因此构建使用本地 vendor。
 # 仅用于本地预览，不代表获得 oink.pgsty.com 或任何生产域名的授权。
 title: &siteTitle CTPBuddy
 baseURL: http://localhost:1313/
@@ -42,10 +44,10 @@ params:
     sidebar_menu_foldable: true
     sidebar_icon_policy: groups
     backlinks: true
+# Hugo 0.167.0 loads the pinned local module archive without invoking Go;
+# go.mod/go.sum retain the upstream module identity and pin.
+theme: oink
 module:
-  imports:
-    - path: github.com/pgsty/oink
   hugoVersion:
     extended: true
     min: 0.165.0
-    max: 0.165.0

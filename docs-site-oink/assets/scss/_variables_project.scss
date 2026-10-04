@@ -1,0 +1,85 @@
+/*
+  CTPBuddy brand override for OINK v1.1.0.
+  Palette migrated from docs-site/assets/site.css; keep the theme's native
+  shell and component structure, and override only its documented project hook.
+*/
+
+:root,
+[data-bs-theme='light'] {
+  --bs-body-bg: #f6f8fb;
+  --bs-body-bg-rgb: 246, 248, 251;
+  --bs-body-color: #172033;
+  --bs-body-color-rgb: 23, 32, 51;
+  --bs-emphasis-color: #172033;
+  --bs-emphasis-color-rgb: 23, 32, 51;
+  --bs-secondary-color: #667085;
+  --bs-secondary-color-rgb: 102, 112, 133;
+  --bs-tertiary-color: #667085;
+  --bs-tertiary-color-rgb: 102, 112, 133;
+  --bs-secondary-bg: #eaf1ff;
+  --bs-secondary-bg-rgb: 234, 241, 255;
+  --bs-tertiary-bg: #f1f4f8;
+  --bs-tertiary-bg-rgb: 241, 244, 248;
+  --bs-border-color: #dfe5ee;
+  --bs-border-color-translucent: rgba(223, 229, 238, 0.9);
+  --bs-link-color: #2563eb;
+  --bs-link-color-rgb: 37, 99, 235;
+  --bs-link-hover-color: #1d4ed8;
+  --bs-link-hover-color-rgb: 29, 78, 216;
+  --td-accent: #2563eb;
+  --td-accent-rgb: 37, 99, 235;
+  --td-accent-hover: #1d4ed8;
+  --bs-focus-ring-color: rgba(37, 99, 235, 0.4);
+  --bs-code-color: #172033;
+  --td-pre-bg: #f1f4f8;
+  --td-brand-elev: #ffffff;
+  --td-brand-silk: #667085;
+  --td-brand-copper: #087443;
+  --td-brand-copper-dim: rgba(8, 116, 67, 0.6);
+  --td-brand-line-strong: #dfe5ee;
+  --td-brand-header-bg: rgba(255, 255, 255, 0.94);
+  --td-brand-shadow-sm: 0 2px 10px rgba(24, 39, 75, 0.06);
+  --td-brand-shadow-md: 0 8px 24px rgba(24, 39, 75, 0.06);
+  --td-brand-mark-from: #2563eb;
+  --td-brand-mark-to: #087443;
+  --td-brand-mark-gradient: linear-gradient(115deg, #2563eb 6%, #087443 94%);
+}
+
+[data-bs-theme='dark'] {
+  --bs-body-bg: #172033;
+  --bs-body-bg-rgb: 23, 32, 51;
+  --bs-body-color: #f6f8fb;
+  --bs-body-color-rgb: 246, 248, 251;
+  --bs-emphasis-color: #ffffff;
+  --bs-emphasis-color-rgb: 255, 255, 255;
+  --bs-secondary-color: #c5ccda;
+  --bs-secondary-color-rgb: 197, 204, 218;
+  --bs-tertiary-color: #9aa6ba;
+  --bs-tertiary-color-rgb: 154, 166, 186;
+  --bs-secondary-bg: #202b42;
+  --bs-secondary-bg-rgb: 32, 43, 66;
+  --bs-tertiary-bg: #25324c;
+  --bs-tertiary-bg-rgb: 37, 50, 76;
+  --bs-border-color: rgba(197, 204, 218, 0.2);
+  --bs-border-color-translucent: rgba(197, 204, 218, 0.2);
+  --bs-link-color: #8fb2ff;
+  --bs-link-color-rgb: 143, 178, 255;
+  --bs-link-hover-color: #b5caff;
+  --bs-link-hover-color-rgb: 181, 202, 255;
+  --td-accent: #8fb2ff;
+  --td-accent-rgb: 143, 178, 255;
+  --td-accent-hover: #b5caff;
+  --bs-focus-ring-color: rgba(143, 178, 255, 0.55);
+  --bs-code-color: #ffb3bd;
+  --td-pre-bg: #101827;
+  --td-brand-elev: #202b42;
+  --td-brand-silk: #c5ccda;
+  --td-brand-copper: #57c58b;
+  --td-brand-copper-dim: rgba(87, 197, 139, 0.55);
+  --td-brand-line-strong: rgba(197, 204, 218, 0.3);
+  --td-brand-header-bg: rgba(23, 32, 51, 0.94);
+  --td-brand-shadow-sm: 0 4px 18px rgba(5, 12, 26, 0.35);
+  --td-brand-shadow-md: 0 14px 44px rgba(5, 12, 26, 0.45);
+  --td-brand-mark-from: #8fb2ff;
+  --td-brand-mark-to: #57c58b;
+}
