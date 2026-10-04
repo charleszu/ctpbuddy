@@ -13,6 +13,7 @@ import csv
 import glob
 import json
 import os
+import re
 from collections import Counter
 
 
@@ -40,7 +41,11 @@ def ref_instruments(ref_dir):
 
 def option_like(instrument):
     value = instrument.strip().upper()
-    return "-C-" in value or "-P-" in value or value.endswith("C") or value.endswith("P")
+    # CTP exports use several option spellings: MO2506-C-6100,
+    # ag2507C8700, and ag2507P8700. A letter C/P followed by a strike
+    # distinguishes these from ordinary futures symbols.
+    return bool(re.search(r"(?:-C-|[-_]C|C)[0-9]+$", value) or
+                re.search(r"(?:-P-|[-_]P|P)[0-9]+$", value))
 
 
 def inspect(path, known):
