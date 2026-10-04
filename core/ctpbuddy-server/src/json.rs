@@ -25,7 +25,9 @@ impl Value {
     }
 
     pub fn get_str(&self, key: &str) -> Option<String> {
-        self.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+        self.get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     }
 
     pub fn get_num(&self, key: &str) -> Option<f64> {
@@ -176,7 +178,10 @@ impl Parser {
     }
 
     fn skip_ws(&mut self) {
-        while matches!(self.peek(), Some(' ') | Some('\t') | Some('\n') | Some('\r')) {
+        while matches!(
+            self.peek(),
+            Some(' ') | Some('\t') | Some('\n') | Some('\r')
+        ) {
             self.pos += 1;
         }
     }
@@ -275,7 +280,8 @@ impl Parser {
                         for _ in 0..4 {
                             let c = self.next().ok_or("unexpected end in \\u")?;
                             code = code * 16
-                                + c.to_digit(16).ok_or_else(|| format!("bad hex digit {c:?}"))?;
+                                + c.to_digit(16)
+                                    .ok_or_else(|| format!("bad hex digit {c:?}"))?;
                         }
                         out.push(char::from_u32(code).unwrap_or('\u{FFFD}'));
                     }
@@ -292,7 +298,8 @@ impl Parser {
         if self.peek() == Some('-') {
             self.pos += 1;
         }
-        while matches!(self.peek(), Some(c) if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
+        while matches!(self.peek(), Some(c) if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')
+        {
             self.pos += 1;
         }
         let text: String = self.chars[start..self.pos].iter().collect();

@@ -1,8 +1,11 @@
 //! Admin control plane (JSON over ADMIN_REQ/ADMIN_RSP frames, port 5561).
 //!
-//! Commands: ping / status / start_scenario / pause / resume / step /
-//! set_speed / seek / loop / reset_account / shutdown. All commands are
-//! journaled.
+//! Commands: ping / status / settings_get / settings_update / start_scenario /
+//! pause / resume / step / set_speed / seek / loop / reset_account /
+//! settle_day / settlement_report / shutdown. State-changing commands a replay
+//! must reproduce are journaled (scenario_loaded, reset_account, settlement,
+//! settlement_report, settings_updated, server_stop); playback controls show
+//! up through `md_watermark` instead.
 
 use ctpbuddy_market::format_hhmmss;
 use ctpbuddy_wire::msgs;
@@ -126,12 +129,21 @@ impl World {
         let v = json::obj_sorted(vec![
             ("ok".into(), json::b(true)),
             ("cmd".into(), json::s("status")),
-            ("server".into(), json::s(&format!("ctpbuddy/{SERVER_VERSION}"))),
+            (
+                "server".into(),
+                json::s(&format!("ctpbuddy/{SERVER_VERSION}")),
+            ),
             ("broker_id".into(), json::s(&self.cfg.broker_id)),
             ("scenario".into(), json::s(&self.scenario_name)),
             ("playback".into(), pb),
-            ("instruments".into(), json::n(self.engine.catalog().len() as f64)),
-            ("open_orders".into(), json::n(self.engine.open_order_count() as f64)),
+            (
+                "instruments".into(),
+                json::n(self.engine.catalog().len() as f64),
+            ),
+            (
+                "open_orders".into(),
+                json::n(self.engine.open_order_count() as f64),
+            ),
             ("connections".into(), json::n(self.conns.len() as f64)),
             (
                 // Id the NEXT accepted connection will get (a global counter,
@@ -176,7 +188,10 @@ impl World {
         };
         let n_transforms = spec.as_ref().map(|s| s.transforms.len()).unwrap_or(0);
         let n_accounts = spec.as_ref().map(|s| s.accounts.len()).unwrap_or(0);
-        let bootstrap_positions = spec.as_ref().map(|s| s.accounts.iter().map(|a| a.positions.len()).sum::<usize>()).unwrap_or(0);
+        let bootstrap_positions = spec
+            .as_ref()
+            .map(|s| s.accounts.iter().map(|a| a.positions.len()).sum::<usize>())
+            .unwrap_or(0);
         let n_assertions = spec.as_ref().map(|s| s.assertions.len()).unwrap_or(0);
         let speed_now = self.playback.as_ref().map(|p| p.speed()).unwrap_or(0.0);
         self.journal_record_json(
@@ -191,7 +206,10 @@ impl World {
                 ("speed".into(), json::n(speed_now)),
                 ("transforms".into(), json::n(n_transforms as f64)),
                 ("accounts".into(), json::n(n_accounts as f64)),
-                ("bootstrap_positions".into(), json::n(bootstrap_positions as f64)),
+                (
+                    "bootstrap_positions".into(),
+                    json::n(bootstrap_positions as f64),
+                ),
                 ("assertions".into(), json::n(n_assertions as f64)),
             ]),
         );
@@ -296,14 +314,19 @@ impl World {
     }
 
     fn admin_set_speed(&mut self, conn_id: u64, req_id: u32, v: &Value) {
-        if !matches!(v, Value::Obj(fields) if fields.len() == 2 && fields.iter().filter(|(key, _)| key == "cmd").count() == 1 && fields.iter().filter(|(key, _)| key == "speed").count() == 1) {
+        if !matches!(v, Value::Obj(fields) if fields.len() == 2 && fields.iter().filter(|(key, _)| key == "cmd").count() == 1 && fields.iter().filter(|(key, _)| key == "speed").count() == 1)
+        {
             return self.admin_error(conn_id, req_id, "set_speed 仅允许 cmd 与 speed");
         }
         let Some(speed) = v.get("speed").and_then(Value::as_num) else {
             return self.admin_error(conn_id, req_id, "speed 必须为数字");
         };
         if !speed.is_finite() || !(0.0..=1000.0).contains(&speed) {
-            return self.admin_error(conn_id, req_id, "speed 必须为 0–1000 的有限数字（0 为不限速）");
+            return self.admin_error(
+                conn_id,
+                req_id,
+                "speed 必须为 0–1000 的有限数字（0 为不限速）",
+            );
         }
         let Some(pb) = self.playback.as_mut() else {
             return self.admin_error(conn_id, req_id, "未加载场景（先 start_scenario）");
@@ -321,12 +344,29 @@ impl World {
     }
 
     fn admin_settlement_report(&mut self, conn_id: u64, req_id: u32, v: &Value) {
-        let Some(Value::Arr(items)) = v.get("reports") else { return self.admin_error(conn_id, req_id, "settlement_report 需要 reports 数组"); };
+        let Some(Value::Arr(items)) = v.get("reports") else {
+            return self.admin_error(conn_id, req_id, "settlement_report 需要 reports 数组");
+        };
         let mut reports = Vec::new();
-        for item in items { match crate::settlement::Report::parse(item, &self.cfg.broker_id) { Ok(r) => reports.push(r), Err(e) => return self.admin_error(conn_id, req_id, &e) } }
+        for item in items {
+            match crate::settlement::Report::parse(item, &self.cfg.broker_id) {
+                Ok(r) => reports.push(r),
+                Err(e) => return self.admin_error(conn_id, req_id, &e),
+            }
+        }
         let count = reports.len();
-        if let Err(e) = self.save_reports(reports) { return self.admin_error(conn_id, req_id, &e); }
-        self.admin_reply(conn_id, req_id, json::obj_sorted(vec![("ok".into(), json::b(true)), ("cmd".into(), json::s("settlement_report")), ("saved".into(), json::n(count as f64))]));
+        if let Err(e) = self.save_reports(reports) {
+            return self.admin_error(conn_id, req_id, &e);
+        }
+        self.admin_reply(
+            conn_id,
+            req_id,
+            json::obj_sorted(vec![
+                ("ok".into(), json::b(true)),
+                ("cmd".into(), json::s("settlement_report")),
+                ("saved".into(), json::n(count as f64)),
+            ]),
+        );
     }
 
     fn admin_settle_day(&mut self, conn_id: u64, req_id: u32, v: &Value) {
@@ -347,14 +387,22 @@ impl World {
         };
         let mut seen = std::collections::HashSet::new();
         for (key, _) in fields {
-            if !matches!(key.as_str(), "cmd" | "settlement_prices" | "next_trading_day") || !seen.insert(key) {
+            if !matches!(
+                key.as_str(),
+                "cmd" | "settlement_prices" | "next_trading_day"
+            ) || !seen.insert(key)
+            {
                 return self.admin_error(conn_id, req_id, "settle_day 含未知或重复字段");
             }
         }
         let mut map = std::collections::HashMap::new();
         for (instrument, value) in prices {
             let Some(price) = value.as_num() else {
-                return self.admin_error(conn_id, req_id, &format!("结算价 {instrument} 必须为数字"));
+                return self.admin_error(
+                    conn_id,
+                    req_id,
+                    &format!("结算价 {instrument} 必须为数字"),
+                );
             };
             if map.insert(instrument.clone(), price).is_some() {
                 return self.admin_error(conn_id, req_id, "结算价合约重复");
@@ -362,9 +410,9 @@ impl World {
         }
         let current_day = self.vt_trading_day.clone();
         let mut staged_ledger = self.ledger.clone();
-        if let Err(e) = staged_ledger.settle_trading_day(
-            self.engine.catalog(), &map, &current_day, &next_day,
-        ) {
+        if let Err(e) =
+            staged_ledger.settle_trading_day(self.engine.catalog(), &map, &current_day, &next_day)
+        {
             return self.admin_error(conn_id, req_id, &e);
         }
         let mut staged_engine = self.engine.clone();
@@ -374,38 +422,85 @@ impl World {
             pb.advance_trading_day(&next_day);
         }
         let mut accounts: Vec<_> = staged_ledger.accounts().collect();
-        accounts.sort_by(|a, b| a.broker_id.cmp(&b.broker_id).then(a.investor_id.cmp(&b.investor_id)));
-        let account_results = Value::Arr(accounts.iter().map(|a| {
-            json::obj_sorted(vec![
-                ("broker".into(), json::s(&a.broker_id)),
-                ("investor".into(), json::s(&a.investor_id)),
-                ("pre_balance".into(), json::n(a.pre_balance)),
-                ("used_margin".into(), json::n(a.used_margin)),
-                ("positions".into(), Value::Arr(staged_ledger.positions_of_ordered(&a.broker_id, &a.investor_id).iter().map(|(p, d)| {
+        accounts.sort_by(|a, b| {
+            a.broker_id
+                .cmp(&b.broker_id)
+                .then(a.investor_id.cmp(&b.investor_id))
+        });
+        let account_results = Value::Arr(
+            accounts
+                .iter()
+                .map(|a| {
                     json::obj_sorted(vec![
-                        ("instrument".into(), json::s(&p.instrument_id)),
-                        ("side".into(), json::s(if p.side == ctpbuddy_ledger::PositionSide::Long { "long" } else { "short" })),
-                        ("open_date".into(), json::s(&d.open_date)),
-                        ("trade_id".into(), json::s(&d.trade_id)),
-                        ("open_price".into(), json::n(d.open_price)),
-                        ("volume".into(), json::n(d.volume as f64)),
-                        ("last_settlement_price".into(), json::n(d.last_settlement_price)),
+                        ("broker".into(), json::s(&a.broker_id)),
+                        ("investor".into(), json::s(&a.investor_id)),
+                        ("pre_balance".into(), json::n(a.pre_balance)),
+                        ("used_margin".into(), json::n(a.used_margin)),
+                        (
+                            "positions".into(),
+                            Value::Arr(
+                                staged_ledger
+                                    .positions_of_ordered(&a.broker_id, &a.investor_id)
+                                    .iter()
+                                    .map(|(p, d)| {
+                                        json::obj_sorted(vec![
+                                            ("instrument".into(), json::s(&p.instrument_id)),
+                                            (
+                                                "side".into(),
+                                                json::s(
+                                                    if p.side == ctpbuddy_ledger::PositionSide::Long
+                                                    {
+                                                        "long"
+                                                    } else {
+                                                        "short"
+                                                    },
+                                                ),
+                                            ),
+                                            ("open_date".into(), json::s(&d.open_date)),
+                                            ("trade_id".into(), json::s(&d.trade_id)),
+                                            ("open_price".into(), json::n(d.open_price)),
+                                            ("volume".into(), json::n(d.volume as f64)),
+                                            (
+                                                "last_settlement_price".into(),
+                                                json::n(d.last_settlement_price),
+                                            ),
+                                        ])
+                                    })
+                                    .collect(),
+                            ),
+                        ),
                     ])
-                }).collect())),
-            ])
-        }).collect());
+                })
+                .collect(),
+        );
         let event = json::obj_sorted(vec![
             ("from_trading_day".into(), json::s(&current_day)),
             ("next_trading_day".into(), json::s(&next_day)),
-            ("settlement_prices".into(), json::obj_sorted(prices.to_vec())),
+            (
+                "settlement_prices".into(),
+                json::obj_sorted(prices.to_vec()),
+            ),
             ("accounts".into(), account_results),
-            ("cleared_orders".into(), json::n(self.orders_today.len() as f64)),
-            ("cleared_trades".into(), json::n(self.trades_today.len() as f64)),
-            ("cleared_confirmations".into(), json::n(self.settlement_confirmed.len() as f64)),
+            (
+                "cleared_orders".into(),
+                json::n(self.orders_today.len() as f64),
+            ),
+            (
+                "cleared_trades".into(),
+                json::n(self.trades_today.len() as f64),
+            ),
+            (
+                "cleared_confirmations".into(),
+                json::n(self.settlement_confirmed.len() as f64),
+            ),
         ]);
         let generated = World::minimal_reports(&staged_ledger, &current_day)
             .into_iter()
-            .filter(|r| !self.settlement_reports.iter().any(|old| old.broker == r.broker && old.investor == r.investor && old.day == r.day))
+            .filter(|r| {
+                !self.settlement_reports.iter().any(|old| {
+                    old.broker == r.broker && old.investor == r.investor && old.day == r.day
+                })
+            })
             .collect();
         if let Err(e) = self.save_reports(generated) {
             return self.admin_error(conn_id, req_id, &format!("保存结算报告失败: {e}"));
@@ -413,21 +508,20 @@ impl World {
         self.ledger = staged_ledger;
         self.engine = staged_engine;
         self.playback = staged_playback;
-        self.journal_record_json(
-            "settlement",
-            &self.cfg.broker_id.clone(),
-            "",
-            event,
-        );
+        self.journal_record_json("settlement", &self.cfg.broker_id.clone(), "", event);
         self.orders_today.clear();
         self.trades_today.clear();
         self.settlement_confirmed.clear();
         self.vt_trading_day = next_day.clone();
-        self.admin_reply(conn_id, req_id, json::obj_sorted(vec![
-            ("ok".into(), json::b(true)),
-            ("cmd".into(), json::s("settle_day")),
-            ("trading_day".into(), json::s(&next_day)),
-        ]));
+        self.admin_reply(
+            conn_id,
+            req_id,
+            json::obj_sorted(vec![
+                ("ok".into(), json::b(true)),
+                ("cmd".into(), json::s("settle_day")),
+                ("trading_day".into(), json::s(&next_day)),
+            ]),
+        );
     }
 
     fn admin_reset_account(&mut self, conn_id: u64, req_id: u32, v: &Value) {
@@ -452,7 +546,10 @@ impl World {
             let reply = json::obj_sorted(vec![
                 ("ok".into(), json::b(true)),
                 ("cmd".into(), json::s("reset_account")),
-                ("reset".into(), Value::Arr(ids.iter().map(|id| json::s(id)).collect())),
+                (
+                    "reset".into(),
+                    Value::Arr(ids.iter().map(|id| json::s(id)).collect()),
+                ),
             ]);
             self.admin_reply(conn_id, req_id, reply);
         } else {

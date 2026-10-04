@@ -51,7 +51,7 @@ M1（核心闭环 + Shim 全链路）已完成：
 ## 快速开始
 
 ```bash
-# 1. 构建核心服务（Rust 1.98+）
+# 1. 构建核心服务（Rust 1.89+）
 cd core && cargo build
 
 # 2. 安装 Python 层（开发模式）

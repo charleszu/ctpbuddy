@@ -1,17 +1,17 @@
 //! Account ledger: funds, positions, margin and commission (DESIGN.md §8.6).
 //!
-//! Accounting model (M1 simplification, documented):
-//! - `balance`        realized equity (2,000,000 CNY per auto-opened account);
-//! - `position_profit` unrealized PnL, recomputed on every mark-to-market;
-//! - `available = balance + position_profit - used_margin - frozen_margin
-//!   - frozen_commission` (mirrors `CThostFtdcTradingAccountField`);
-//! - opening an order freezes estimated margin + commission; the freeze is
-//!   released pro-rata on fills and replaced by actuals at the fill price;
-//! - closing realizes PnL into `balance` and releases margin;
-//! - closing orders additionally reserve position volume (today/yd split) at
-//!   insert time so two concurrent close orders cannot over-close;
-//! - ByAmount margin and a flat fee rate via `Catalog`; per-exchange rule
-//!   tables (close-today rates, 平今/平昨 order preference) are a TODO.
+//! Accounting model (逐日盯市, notes/04):
+//! - `balance` is realized equity; `dynamic_equity()` adds deposits/withdraws
+//!   and today's `position_profit` — CTP's `Balance` field;
+//! - `available = dynamic_equity - used_margin - frozen_margin - frozen_commission`;
+//! - positions keep per-lot details (先开先平); close PnL is priced per lot off
+//!   昨结算 (carried lots) or the entry price (today's lots);
+//! - margin is the shared per-product aggregate (`product_group_margin`,
+//!   品种内大单边 when the instrument enables it), commission is priced per
+//!   leg (开仓 / 平昨 / 平今);
+//! - opening orders freeze estimated margin + commission, released pro-rata on
+//!   fills; closing orders reserve position volume per age bucket
+//!   (`close_buckets`: SHFE/INE 「平仓」= 平昨).
 //!
 //! The ledger is a single-writer state machine driven by the world loop; it
 //! never performs IO.
@@ -35,6 +35,22 @@ pub const ERR_FUNDS: i32 = 31; //          INSUFFICIENT_MONEY       CTP:资金�
 pub const ERR_POSITION: i32 = 30; //       OVER_CLOSE_POSITION      CTP:平仓量超过持仓量
 pub const ERR_NO_CLOSE_TODAY_LEDGER: i32 = 50; // OVER_CLOSETODAY_POSITION CTP:平今仓位不足
 pub const ERR_NO_CLOSE_YD_LEDGER: i32 = 51; // OVER_CLOSEYESTERDAY_POSITION CTP:平昨仓位不足
+
+/// Which age buckets a close may consume: `(today_only, yd_only)`.
+///
+/// 上期所/能源中心区分今昨仓，报入「平仓」(`Close`) 等同平昨，平今必须报
+/// `CloseToday`（知识库 §4.3，notes/02 B10）。其他交易所不区分今昨，`Close`
+/// 按先开先平消耗；它们收到的平今/平昨在柜台侧统一转为平仓。
+pub fn close_buckets(offset: OffsetFlag, exchange_id: &str) -> (bool, bool) {
+    if !matches!(exchange_id, "SHFE" | "INE") {
+        return (false, false);
+    }
+    match offset {
+        OffsetFlag::CloseToday => (true, false),
+        OffsetFlag::Close | OffsetFlag::CloseYesterday => (false, true),
+        OffsetFlag::Open => (false, false),
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AccountKey {
@@ -223,7 +239,14 @@ pub struct PositionDetail {
 }
 
 impl PositionDetail {
-    pub fn new(open_date: &str, trade_id: &str, open_price: f64, volume: i32, margin: f64, margin_price: f64) -> Self {
+    pub fn new(
+        open_date: &str,
+        trade_id: &str,
+        open_price: f64,
+        volume: i32,
+        margin: f64,
+        margin_price: f64,
+    ) -> Self {
         PositionDetail {
             open_date: open_date.to_string(),
             trade_id: trade_id.to_string(),
@@ -302,9 +325,15 @@ impl PositionDetail {
         f.Margin = self.margin * self.volume as f64 / self.open_volume.max(1) as f64;
         f.LastSettlementPrice = self.last_settlement_price;
         f.SettlementPrice = settlement_price;
-        let basis = if self.open_date == trading_day { self.open_price } else { self.last_settlement_price };
-        f.PositionProfitByDate = Position::detail_pnl(side, basis, last_price, self.volume, multiple);
-        f.PositionProfitByTrade = Position::detail_pnl(side, self.open_price, last_price, self.volume, multiple);
+        let basis = if self.open_date == trading_day {
+            self.open_price
+        } else {
+            self.last_settlement_price
+        };
+        f.PositionProfitByDate =
+            Position::detail_pnl(side, basis, last_price, self.volume, multiple);
+        f.PositionProfitByTrade =
+            Position::detail_pnl(side, self.open_price, last_price, self.volume, multiple);
         f.CloseProfitByDate = self.close_profit;
         f.CloseProfitByTrade = self.close_profit_trade;
         // 先开先平剩余数量: the lots of this detail still open, which for a
@@ -370,9 +399,23 @@ impl Position {
 
     /// Record an opening fill as its own detail (notes/04 B2: a detail is
     /// created per opening fill, keyed by `(OpenDate, TradeID)`).
-    pub fn add_detail(&mut self, open_date: &str, trade_id: &str, price: f64, volume: i32, margin: f64, margin_price: f64) {
-        self.details
-            .push(PositionDetail::new(open_date, trade_id, price, volume, margin, margin_price));
+    pub fn add_detail(
+        &mut self,
+        open_date: &str,
+        trade_id: &str,
+        price: f64,
+        volume: i32,
+        margin: f64,
+        margin_price: f64,
+    ) {
+        self.details.push(PositionDetail::new(
+            open_date,
+            trade_id,
+            price,
+            volume,
+            margin,
+            margin_price,
+        ));
     }
 
     pub fn add_bootstrap_detail(
@@ -391,11 +434,16 @@ impl Position {
         self.position_cost += pre_settlement * volume as f64 * multiple as f64;
         self.margin += margin;
         self.settlement_price = pre_settlement;
-        let mut detail = PositionDetail::new(open_date, trade_id, price, volume, margin, pre_settlement);
+        let mut detail =
+            PositionDetail::new(open_date, trade_id, price, volume, margin, pre_settlement);
         detail.bootstrap = true;
         detail.last_settlement_price = pre_settlement;
         self.details.push(detail);
-        self.details.sort_by(|a, b| a.open_date.cmp(&b.open_date).then(a.trade_id.cmp(&b.trade_id)));
+        self.details.sort_by(|a, b| {
+            a.open_date
+                .cmp(&b.open_date)
+                .then(a.trade_id.cmp(&b.trade_id))
+        });
     }
 
     /// 先开先平: consume `volume` lots from the **oldest** details, returning
@@ -484,7 +532,7 @@ impl Position {
         if !matches!(exchange_id, "SHFE" | "INE") {
             return vec![base];
         }
-        let yd = self.detail_bucket_field(base.clone(), trading_day, mult, false);
+        let yd = self.detail_bucket_field(base, trading_day, mult, false);
         let today = self.detail_bucket_field(base, trading_day, mult, true);
         if (self.yd_position > 0 || self.yd_initial > 0) && self.today_position > 0 {
             vec![yd, today]
@@ -532,7 +580,11 @@ impl Position {
         field.FrozenCash = 0.0;
         field.FrozenCommission = 0.0;
         field.CashIn = 0.0;
-        let frozen = if today { self.frozen_today } else { self.frozen_yd };
+        let frozen = if today {
+            self.frozen_today
+        } else {
+            self.frozen_yd
+        };
         if self.side == PositionSide::Long {
             field.ShortFrozen = frozen;
         } else {
@@ -560,7 +612,8 @@ impl Position {
                 field.OpenCost += detail.open_price * volume as f64 * mult as f64;
                 field.PositionCost += basis * volume as f64 * mult as f64;
                 field.UseMargin += detail.margin * share;
-                field.PositionProfit += Position::detail_pnl(self.side, basis, self.settlement_price, volume, mult);
+                field.PositionProfit +=
+                    Position::detail_pnl(self.side, basis, self.settlement_price, volume, mult);
                 if today {
                     field.TodayPosition += volume;
                 }
@@ -590,7 +643,9 @@ impl Position {
         // `YdPosition` is the official static trading-day-start value. The
         // ledger has no settlement/bootstrap source for that value, so it must
         // not be fabricated from the current yesterday bucket.
-        f.PositionDate = if !matches!(exchange_id, "SHFE" | "INE") || (self.today_position > 0 && self.yd_position == 0) {
+        f.PositionDate = if !matches!(exchange_id, "SHFE" | "INE")
+            || (self.today_position > 0 && self.yd_position == 0)
+        {
             b'1'
         } else {
             b'2'
@@ -689,12 +744,21 @@ impl Ledger {
     /// Ensure an account exists with scenario-authored initial funds
     /// (DESIGN.md §7.4 `accounts`). Existing accounts keep their state; a
     /// non-positive `funds` falls back to the server default.
-    pub fn ensure_account_with(&mut self, broker_id: &str, investor_id: &str, funds: f64) -> &mut Account {
+    pub fn ensure_account_with(
+        &mut self,
+        broker_id: &str,
+        investor_id: &str,
+        funds: f64,
+    ) -> &mut Account {
         let initial = self.initial_funds;
         self.accounts
             .entry(AccountKey::new(broker_id, investor_id))
             .or_insert_with(|| {
-                Account::new(broker_id, investor_id, if funds > 0.0 { funds } else { initial })
+                Account::new(
+                    broker_id,
+                    investor_id,
+                    if funds > 0.0 { funds } else { initial },
+                )
             })
     }
 
@@ -703,7 +767,8 @@ impl Ledger {
     }
 
     pub fn account_mut(&mut self, broker_id: &str, investor_id: &str) -> Option<&mut Account> {
-        self.accounts.get_mut(&AccountKey::new(broker_id, investor_id))
+        self.accounts
+            .get_mut(&AccountKey::new(broker_id, investor_id))
     }
 
     pub fn accounts(&self) -> impl Iterator<Item = &Account> {
@@ -771,7 +836,12 @@ impl Ledger {
             .positions
             .iter()
             .filter(|((k, _, _), _)| *k == key)
-            .flat_map(|(_, p)| p.details.iter().filter(|d| d.volume > 0).map(move |d| (p, d)))
+            .flat_map(|(_, p)| {
+                p.details
+                    .iter()
+                    .filter(|d| d.volume > 0)
+                    .map(move |d| (p, d))
+            })
             .collect();
         out.sort_by(|a, b| {
             a.0.instrument_id
@@ -799,10 +869,11 @@ impl Ledger {
         catalog: &Catalog,
     ) -> Result<(), i32> {
         self.ensure_account(broker_id, investor_id);
+        let key = AccountKey::new(broker_id, investor_id);
         self.frozen.insert(
             order_key.to_string(),
             FrozenEst {
-                key: AccountKey::new(broker_id, investor_id),
+                key: key.clone(),
                 instrument_id: instrument_id.to_string(),
                 side,
                 margin: est_margin,
@@ -811,10 +882,10 @@ impl Ledger {
                 released_commission: 0.0,
             },
         );
-        self.refresh_margin(catalog);
-        if self.account(broker_id, investor_id).unwrap().available() < -1e-6 {
+        self.refresh_account(&key, catalog);
+        if self.accounts[&key].available() < -1e-6 {
             self.frozen.remove(order_key);
-            self.refresh_margin(catalog);
+            self.refresh_account(&key, catalog);
             return Err(ERR_FUNDS);
         }
         Ok(())
@@ -823,68 +894,127 @@ impl Ledger {
     /// 按账户、交易所、品种聚合；目前账本仅支持投机、空投资单元。
     /// 未启用优惠的合约独立求和，不能被同品种优惠合约抵消。
     pub fn product_group_margin(
-        &self, broker: &str, investor: &str, catalog: &Catalog, day: &str,
+        &self,
+        broker: &str,
+        investor: &str,
+        catalog: &Catalog,
+        day: &str,
     ) -> Vec<CThostFtdcInvestorProductGroupMarginField> {
         let key = AccountKey::new(broker, investor);
-        let mut groups: std::collections::BTreeMap<(String, String),
-            (CThostFtdcInvestorProductGroupMarginField, [[f64; 2]; 4], [[f64; 2]; 4])>
-            = std::collections::BTreeMap::new();
+        // Per (exchange, product): the output row plus two margin grids indexed
+        // [bucket][side]. Buckets 0/1 = plain / 大单边-enabled 占用; 2/3 = the
+        // same split at the 交易所 rate. Side 0 = long, 1 = short.
+        type Grid = [[f64; 2]; 4];
+        let mut groups: std::collections::BTreeMap<
+            (String, String),
+            (CThostFtdcInvestorProductGroupMarginField, Grid, Grid),
+        > = std::collections::BTreeMap::new();
         for ((k, id, side), pos) in &self.positions {
-            if *k != key { continue; }
-            let Some(i) = catalog.get(id) else { continue; };
+            if *k != key {
+                continue;
+            }
+            let Some(i) = catalog.get(id) else {
+                continue;
+            };
             let product_group = i.product_id.clone();
-            let (f, used, _) = groups.entry((i.exchange_id.clone(), product_group))
-                .or_insert_with(|| (CThostFtdcInvestorProductGroupMarginField::zeroed(), [[0.0; 2]; 4], [[0.0; 2]; 4]));
+            let (f, used, _) = groups
+                .entry((i.exchange_id.clone(), product_group))
+                .or_insert_with(|| {
+                    (
+                        CThostFtdcInvestorProductGroupMarginField::zeroed(),
+                        [[0.0; 2]; 4],
+                        [[0.0; 2]; 4],
+                    )
+                });
             let s = if *side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog.refdata().product_margin_algorithm(id) { 1 } else { 0 };
+            let bucket = if catalog.refdata().product_margin_algorithm(id) {
+                1
+            } else {
+                0
+            };
             used[bucket][s] += pos.margin;
-            let ratio = if s == 0 { i.long_margin_ratio } else { i.short_margin_ratio };
-            used[2 + bucket][s] += pos.details.iter().map(|d| {
-                // ExchMargin is query-only: use the detail's booked price
-                // baseline, never a later market quote.
-                d.margin_price * d.volume as f64 * i.volume_multiple as f64 * ratio
-            }).sum::<f64>();
+            let ratio = if s == 0 {
+                i.long_margin_ratio
+            } else {
+                i.short_margin_ratio
+            };
+            used[2 + bucket][s] += pos
+                .details
+                .iter()
+                .map(|d| {
+                    // ExchMargin is query-only: use the detail's booked price
+                    // baseline, never a later market quote.
+                    d.margin_price * d.volume as f64 * i.volume_multiple as f64 * ratio
+                })
+                .sum::<f64>();
             f.PositionProfit += pos.position_profit;
         }
         for est in self.frozen.values().filter(|e| e.key == key) {
-            let Some(i) = catalog.get(&est.instrument_id) else { continue; };
+            let Some(i) = catalog.get(&est.instrument_id) else {
+                continue;
+            };
             let product_group = i.product_id.clone();
-            let (f, _, frozen) = groups.entry((i.exchange_id.clone(), product_group))
-                .or_insert_with(|| (CThostFtdcInvestorProductGroupMarginField::zeroed(), [[0.0; 2]; 4], [[0.0; 2]; 4]));
+            let (f, _, frozen) = groups
+                .entry((i.exchange_id.clone(), product_group))
+                .or_insert_with(|| {
+                    (
+                        CThostFtdcInvestorProductGroupMarginField::zeroed(),
+                        [[0.0; 2]; 4],
+                        [[0.0; 2]; 4],
+                    )
+                });
             let s = if est.side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog.refdata().product_margin_algorithm(&est.instrument_id) { 1 } else { 0 };
+            let bucket = if catalog
+                .refdata()
+                .product_margin_algorithm(&est.instrument_id)
+            {
+                1
+            } else {
+                0
+            };
             frozen[bucket][s] += (est.margin - est.released_margin).max(0.0);
             f.FrozenCommission += (est.commission - est.released_commission).max(0.0);
         }
         for ((k, ex, prod), (commission, profit)) in &self.group_activity {
-            if *k != key { continue; }
-            let (f, _, _) = groups.entry((ex.clone(), prod.clone()))
-                .or_insert_with(|| (CThostFtdcInvestorProductGroupMarginField::zeroed(), [[0.0; 2]; 4], [[0.0; 2]; 4]));
+            if *k != key {
+                continue;
+            }
+            let (f, _, _) = groups.entry((ex.clone(), prod.clone())).or_insert_with(|| {
+                (
+                    CThostFtdcInvestorProductGroupMarginField::zeroed(),
+                    [[0.0; 2]; 4],
+                    [[0.0; 2]; 4],
+                )
+            });
             f.Commission = *commission;
             f.CloseProfit = *profit;
         }
-        groups.into_iter().map(|((ex, prod), (mut f, used, frozen))| {
-            set_cstr(&mut f.BrokerID, broker);
-            set_cstr(&mut f.InvestorID, investor);
-            set_cstr(&mut f.ExchangeID, &ex);
-            set_cstr(&mut f.ProductGroupID, &prod);
-            set_cstr(&mut f.TradingDay, day);
-            f.SettlementID = 1;
-            f.HedgeFlag = b'1';
-            f.LongUseMargin = used[0][0] + used[1][0];
-            f.ShortUseMargin = used[0][1] + used[1][1];
-            f.UseMargin = used[0][0] + used[0][1] + used[1][0].max(used[1][1]);
-            f.LongFrozenMargin = frozen[0][0] + frozen[1][0];
-            f.ShortFrozenMargin = frozen[0][1] + frozen[1][1];
-            let current_max = used[1][0].max(used[1][1]);
-            let projected_max = (used[1][0] + frozen[1][0]).max(used[1][1] + frozen[1][1]);
-            f.FrozenMargin = frozen[0][0] + frozen[0][1] + (projected_max - current_max).max(0.0);
-            // 交易所费率独立展示；没有跨品种映射或仓单折抵规则，不推导折抵金额。
-            f.LongExchMargin = used[2][0] + used[3][0];
-            f.ShortExchMargin = used[2][1] + used[3][1];
-            f.ExchMargin = used[2][0] + used[2][1] + used[3][0].max(used[3][1]);
-            f
-        }).collect()
+        groups
+            .into_iter()
+            .map(|((ex, prod), (mut f, used, frozen))| {
+                set_cstr(&mut f.BrokerID, broker);
+                set_cstr(&mut f.InvestorID, investor);
+                set_cstr(&mut f.ExchangeID, &ex);
+                set_cstr(&mut f.ProductGroupID, &prod);
+                set_cstr(&mut f.TradingDay, day);
+                f.SettlementID = 1;
+                f.HedgeFlag = b'1';
+                f.LongUseMargin = used[0][0] + used[1][0];
+                f.ShortUseMargin = used[0][1] + used[1][1];
+                f.UseMargin = used[0][0] + used[0][1] + used[1][0].max(used[1][1]);
+                f.LongFrozenMargin = frozen[0][0] + frozen[1][0];
+                f.ShortFrozenMargin = frozen[0][1] + frozen[1][1];
+                let current_max = used[1][0].max(used[1][1]);
+                let projected_max = (used[1][0] + frozen[1][0]).max(used[1][1] + frozen[1][1]);
+                f.FrozenMargin =
+                    frozen[0][0] + frozen[0][1] + (projected_max - current_max).max(0.0);
+                // 交易所费率独立展示；没有跨品种映射或仓单折抵规则，不推导折抵金额。
+                f.LongExchMargin = used[2][0] + used[3][0];
+                f.ShortExchMargin = used[2][1] + used[3][1];
+                f.ExchMargin = used[2][0] + used[2][1] + used[3][0].max(used[3][1]);
+                f
+            })
+            .collect()
     }
 
     pub fn refresh(&mut self, catalog: &Catalog) {
@@ -894,8 +1024,15 @@ impl Ledger {
     fn refresh_margin(&mut self, catalog: &Catalog) {
         let keys: Vec<_> = self.accounts.keys().cloned().collect();
         for key in keys {
-            let rows = self.product_group_margin(&key.broker_id, &key.investor_id, catalog, "");
-            let a = self.accounts.get_mut(&key).unwrap();
+            self.refresh_account(&key, catalog);
+        }
+    }
+
+    /// Recompute one account's margin aggregates. Freezes, fills and cancels
+    /// only ever change their own account, so they refresh just that one.
+    fn refresh_account(&mut self, key: &AccountKey, catalog: &Catalog) {
+        let rows = self.product_group_margin(&key.broker_id, &key.investor_id, catalog, "");
+        if let Some(a) = self.accounts.get_mut(key) {
             a.used_margin = rows.iter().map(|f| f.UseMargin).sum();
             a.frozen_margin = rows.iter().map(|f| f.FrozenMargin).sum();
             a.frozen_commission = rows.iter().map(|f| f.FrozenCommission).sum();
@@ -904,43 +1041,46 @@ impl Ledger {
 
     /// Reserve closeable volume for a close order.
     ///
-    /// A plain `Close` reserves **昨仓 first**, i.e. 先开先平: notes/04 B3
-    /// ("平仓一般是按先开先平来处理，即先平昨仓再平今仓") and the P1 worked
-    /// example (2 昨 + 2 今, close 3 → 2 昨 + 1 今). Taking 今仓 first would
-    /// price those three lots off a different basis and misstate the PnL.
-    /// `CloseToday` / `CloseYesterday` are the client saying which one it
-    /// means — that is the whole point of 上期所 splitting the flags — and are
-    /// honoured literally.
+    /// Which bucket may be touched comes from [`close_buckets`]: on SHFE/INE
+    /// `CloseToday` reserves 今仓 only and `Close`/`CloseYesterday` reserve 昨仓
+    /// only (上期所报「平仓」等同平昨). Elsewhere every close flag is a plain
+    /// 先开先平 close that reserves **昨仓 first**: notes/04 B3 and the P1
+    /// worked example (2 昨 + 2 今, close 3 → 2 昨 + 1 今).
+    #[allow(clippy::too_many_arguments)]
     pub fn freeze_close_position(
         &mut self,
         order_key: &str,
         broker_id: &str,
         investor_id: &str,
         instrument_id: &str,
+        exchange_id: &str,
         side: PositionSide,
         offset: OffsetFlag,
         volume: i32,
     ) -> Result<(), i32> {
         let key = AccountKey::new(broker_id, investor_id);
-        let pos = match self.positions.get_mut(&(key, instrument_id.to_string(), side)) {
+        let pos = match self
+            .positions
+            .get_mut(&(key, instrument_id.to_string(), side))
+        {
             Some(p) => p,
             None => return Err(ERR_POSITION),
         };
         let avail_today = pos.today_position - pos.frozen_today;
         let avail_yd = pos.yd_position - pos.frozen_yd;
-        let (from_today, from_yd) = match offset {
-            OffsetFlag::CloseToday => {
+        let (from_today, from_yd) = match close_buckets(offset, exchange_id) {
+            (true, _) => {
                 if avail_today < volume {
                     return Err(ERR_NO_CLOSE_TODAY_LEDGER);
                 }
                 (volume, 0)
             }
-        OffsetFlag::CloseYesterday => {
-            if avail_yd < volume {
-                return Err(ERR_NO_CLOSE_YD_LEDGER);
+            (_, true) => {
+                if avail_yd < volume {
+                    return Err(ERR_NO_CLOSE_YD_LEDGER);
+                }
+                (0, volume)
             }
-            (0, volume)
-        }
             _ => {
                 let y = volume.min(avail_yd);
                 let rest = volume - y;
@@ -967,25 +1107,26 @@ impl Ledger {
 
     /// Release whatever remains frozen for an order (cancel path): the
     /// unreleased part of the funds estimate + the position reservation.
+    /// Account freezes are recomputed from the remaining entries, so this
+    /// only drops the order's entries and refreshes its account.
     pub fn unfreeze_order(&mut self, order_key: &str, catalog: &Catalog) {
+        let mut touched = None;
         if let Some(est) = self.frozen.remove(order_key) {
-            let rem_margin = (est.margin - est.released_margin).max(0.0);
-            let rem_commission = (est.commission - est.released_commission).max(0.0);
-            if let Some(a) = self.accounts.get_mut(&est.key) {
-                a.frozen_margin = (a.frozen_margin - rem_margin).max(0.0);
-                a.frozen_commission = (a.frozen_commission - rem_commission).max(0.0);
-            }
+            touched = Some(est.key);
         }
         if let Some(res) = self.frozen_pos.remove(order_key) {
-            if let Some(pos) = self
-                .positions
-                .get_mut(&(res.key, res.instrument_id.clone(), res.side))
+            if let Some(pos) =
+                self.positions
+                    .get_mut(&(res.key.clone(), res.instrument_id.clone(), res.side))
             {
                 pos.frozen_today = (pos.frozen_today - res.today).max(0);
                 pos.frozen_yd = (pos.frozen_yd - res.yd).max(0);
             }
+            touched.get_or_insert(res.key);
         }
-        self.refresh_margin(catalog);
+        if let Some(key) = touched {
+            self.refresh_account(&key, catalog);
+        }
     }
 
     /// Settle a fill: release the pro-rata freeze, pay commission, move margin
@@ -1017,39 +1158,34 @@ impl Ledger {
         trading_day: &str,
     ) {
         let instr = catalog.get(&fill.instrument_id);
-        let before_commission = self.account(&cstr(&fill.broker_id), &cstr(&fill.investor_id)).unwrap().commission;
-        let before_profit = self.account(&cstr(&fill.broker_id), &cstr(&fill.investor_id)).unwrap().close_profit;
+        let before_commission = self
+            .account(&cstr(&fill.broker_id), &cstr(&fill.investor_id))
+            .unwrap()
+            .commission;
+        let before_profit = self
+            .account(&cstr(&fill.broker_id), &cstr(&fill.investor_id))
+            .unwrap()
+            .close_profit;
         let mult = instr.map(|i| i.volume_multiple).unwrap_or(1);
 
         // ---- release pro-rata frozen estimate for this order ----
         // The fraction is of the ORIGINAL estimate (not of what is left), so
         // a multi-tranche fill that ends up fully filled releases exactly
         // 100%: 2/3 + 1/3 of the original, not of the shrinking remainder.
-        let (rel_margin, rel_comm) = {
-            let est = self.frozen.get_mut(&fill.order_key);
-            match est {
-                Some(est) => {
-                    let total = fill.volume_total_original.max(1) as f64;
-                    let frac = (fill.volume as f64 / total).clamp(0.0, 1.0);
-                    let rm = est.margin * frac;
-                    let rc = est.commission * frac;
-                    est.released_margin += rm;
-                    est.released_commission += rc;
-                    (rm, rc)
-                }
-                None => (0.0, 0.0),
-            }
-        };
+        // The account's frozen totals are recomputed from these entries by
+        // `refresh_account` at the end of the fill.
+        if let Some(est) = self.frozen.get_mut(&fill.order_key) {
+            let total = fill.volume_total_original.max(1) as f64;
+            let frac = (fill.volume as f64 / total).clamp(0.0, 1.0);
+            est.released_margin += est.margin * frac;
+            est.released_commission += est.commission * frac;
+        }
 
         let key = AccountKey::new(&cstr(&fill.broker_id), &cstr(&fill.investor_id));
-        {
-            let a = self
-                .accounts
-                .get_mut(&key)
-                .expect("account must exist: login auto-opens it");
-            a.frozen_margin = (a.frozen_margin - rel_margin).max(0.0);
-            a.frozen_commission = (a.frozen_commission - rel_comm).max(0.0);
-        }
+        assert!(
+            self.accounts.contains_key(&key),
+            "account must exist: login auto-opens it"
+        );
 
         // An open fill creates/increases a position on the order's side; a
         // close fill reduces the position on the opposite side (sell closes long).
@@ -1074,14 +1210,14 @@ impl Ledger {
             // 今仓保证金 follows `MarginPriceType`; the fill price is the
             // 开仓价 leg of that choice (notes/04 C2).
             let price = catalog.margin_price_for(true, pos.pre_settlement_price, fill.price);
-            let margin_actual = catalog.margin(
+            let margin_actual =
+                catalog.margin(&fill.instrument_id, fill.direction, price, fill.volume);
+            let commission = catalog.commission(
                 &fill.instrument_id,
-                fill.direction,
-                price,
+                CommissionKind::Open,
+                fill.price,
                 fill.volume,
             );
-            let commission =
-                catalog.commission(&fill.instrument_id, CommissionKind::Open, fill.price, fill.volume);
             pos.commission += commission;
             pos.today_position += fill.volume;
             pos.open_amount += turnover;
@@ -1109,11 +1245,10 @@ impl Ledger {
         } else {
             // ---- close: consume details oldest-first (先开先平) ----
             //
-            // An explicit 平今/平昨 says *which age bucket* to touch; a plain
-            // `Close` takes whatever comes first. Either way the walk order is
-            // by opening time, so the lots and their PnL stay consistent.
-            let want_today_only = matches!(fill.offset, OffsetFlag::CloseToday);
-            let want_yd_only = matches!(fill.offset, OffsetFlag::CloseYesterday);
+            // `close_buckets` says *which age bucket* may be touched (SHFE/INE
+            // 平今 / 平昨，「平仓」等同平昨); the walk order is by opening time
+            // either way, so the lots and their PnL stay consistent.
+            let (want_today_only, want_yd_only) = close_buckets(fill.offset, &fill.exchange_id);
 
             // 逐日盯市 PnL, priced per detail (notes/04 E2). 昨仓 lots are
             // marked against 昨结算, 今仓 lots against their own entry — so
@@ -1125,7 +1260,9 @@ impl Ledger {
             let mut margin_released = 0.0;
             let mut today_take = 0;
             let mut yd_take = 0;
-            for (idx, n) in pos.take_details_filtered(fill.volume, want_today_only, want_yd_only, trading_day) {
+            for (idx, n) in
+                pos.take_details_filtered(fill.volume, want_today_only, want_yd_only, trading_day)
+            {
                 let d = &mut pos.details[idx];
                 let is_today = d.is_today(trading_day);
                 if is_today {
@@ -1144,14 +1281,40 @@ impl Ledger {
                 margin_released += d.margin * n as f64 / d.open_volume.max(1) as f64;
                 d.close_profit += leg_pnl;
                 d.close_profit_trade += leg_trade_pnl;
-                let kind = if is_today { CommissionKind::CloseToday } else { CommissionKind::CloseYesterday };
+                let kind = if is_today {
+                    CommissionKind::CloseToday
+                } else {
+                    CommissionKind::CloseYesterday
+                };
                 d.commission += catalog.commission(&fill.instrument_id, kind, fill.price, n);
             }
             let closed = today_take + yd_take;
             pos.today_position = (pos.today_position - today_take).max(0);
             pos.yd_position = (pos.yd_position - yd_take).max(0);
-            pos.frozen_today = (pos.frozen_today - today_take).max(0);
-            pos.frozen_yd = (pos.frozen_yd - yd_take).max(0);
+            // Release only what *this order* still has reserved, and shrink its
+            // reservation by the same amount. A later cancel ('5') then frees
+            // just the unfilled remainder; and when the '5' arrives first
+            // (SHFE FAK `CancelFirst`) the reservation is already gone, so the
+            // fill releases nothing a second time.
+            let (rel_today, rel_yd) = match self.frozen_pos.get_mut(&fill.order_key) {
+                Some(res) => {
+                    let t = today_take.min(res.today);
+                    let y = yd_take.min(res.yd);
+                    res.today -= t;
+                    res.yd -= y;
+                    (t, y)
+                }
+                None => (0, 0),
+            };
+            if self
+                .frozen_pos
+                .get(&fill.order_key)
+                .is_some_and(|res| res.today == 0 && res.yd == 0)
+            {
+                self.frozen_pos.remove(&fill.order_key);
+            }
+            pos.frozen_today = (pos.frozen_today - rel_today).max(0);
+            pos.frozen_yd = (pos.frozen_yd - rel_yd).max(0);
             // `closed < fill.volume` is unreachable: freeze_close_position
             // reserved the volume at insert time (single-writer ledger).
             debug_assert_eq!(closed, fill.volume);
@@ -1203,18 +1366,25 @@ impl Ledger {
             // Keep a static bootstrap row after a full close. CTP can expose the
             // zero Position row until settlement; zero-volume details remain
             // hidden by the detail query projection.
-            if pos.volume() == 0 && pos.frozen_today == 0 && pos.frozen_yd == 0 && pos.yd_initial == 0 {
+            if pos.volume() == 0
+                && pos.frozen_today == 0
+                && pos.frozen_yd == 0
+                && pos.yd_initial == 0
+            {
                 let k = (key.clone(), fill.instrument_id.clone(), side);
                 self.positions.remove(&k);
             }
         }
         if let Some(i) = instr {
             let a = self.accounts.get(&key).unwrap();
-            let activity = self.group_activity.entry((key, i.exchange_id.clone(), i.product_id.clone())).or_default();
+            let activity = self
+                .group_activity
+                .entry((key.clone(), i.exchange_id.clone(), i.product_id.clone()))
+                .or_default();
             activity.0 += a.commission - before_commission;
             activity.1 += a.close_profit - before_profit;
         }
-        self.refresh_margin(catalog);
+        self.refresh_account(&key, catalog);
     }
 
     /// 使用调用方供给的结算价原子结算全部账户。
@@ -1227,15 +1397,26 @@ impl Ledger {
         next_trading_day: &str,
     ) -> Result<(), String> {
         fn valid_day(s: &str) -> bool {
-            if s.len() != 8 || !s.bytes().all(|b| b.is_ascii_digit()) { return false; }
+            if s.len() != 8 || !s.bytes().all(|b| b.is_ascii_digit()) {
+                return false;
+            }
             let y: u32 = s[..4].parse().unwrap();
             let m: u32 = s[4..6].parse().unwrap();
             let d: u32 = s[6..].parse().unwrap();
-            let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-            let max = match m { 2 if leap => 29, 2 => 28, 4 | 6 | 9 | 11 => 30, 1..=12 => 31, _ => 0 };
+            let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
+            let max = match m {
+                2 if leap => 29,
+                2 => 28,
+                4 | 6 | 9 | 11 => 30,
+                1..=12 => 31,
+                _ => 0,
+            };
             y >= 1900 && d > 0 && d <= max
         }
-        if !valid_day(trading_day) || !valid_day(next_trading_day) || next_trading_day <= trading_day {
+        if !valid_day(trading_day)
+            || !valid_day(next_trading_day)
+            || next_trading_day <= trading_day
+        {
             return Err("next_trading_day 必须为严格递增的合法 YYYYMMDD".into());
         }
         for (instrument, price) in prices {
@@ -1243,8 +1424,13 @@ impl Ledger {
                 return Err(format!("未知合约或非法结算价: {instrument}"));
             }
         }
-        if self.frozen.values().any(|e| e.margin - e.released_margin > 1e-9 || e.commission - e.released_commission > 1e-9)
-            || self.positions.values().any(|p| p.frozen_today > 0 || p.frozen_yd > 0) {
+        if self.frozen.values().any(|e| {
+            e.margin - e.released_margin > 1e-9 || e.commission - e.released_commission > 1e-9
+        }) || self
+            .positions
+            .values()
+            .any(|p| p.frozen_today > 0 || p.frozen_yd > 0)
+        {
             return Err("存在未释放的订单冻结".into());
         }
         for ((_, instrument, _), position) in &self.positions {
@@ -1264,14 +1450,21 @@ impl Ledger {
         let final_equity: HashMap<AccountKey, f64> = staged
             .accounts
             .values()
-            .map(|a| (AccountKey::new(&a.broker_id, &a.investor_id), a.dynamic_equity()))
+            .map(|a| {
+                (
+                    AccountKey::new(&a.broker_id, &a.investor_id),
+                    a.dynamic_equity(),
+                )
+            })
             .collect();
         if final_equity.values().any(|v| !v.is_finite()) {
             return Err("结算权益计算结果非有限数".into());
         }
         for position in staged.positions.values_mut() {
             let volume = position.volume();
-            let price = prices.get(&position.instrument_id).copied()
+            let price = prices
+                .get(&position.instrument_id)
+                .copied()
                 .unwrap_or(position.settlement_price);
             position.yd_position = volume;
             position.yd_initial = volume;
@@ -1282,15 +1475,26 @@ impl Ledger {
             position.settlement_price = price;
             position.position_cost = price
                 * volume as f64
-                * catalog.get(&position.instrument_id).map(|i| i.volume_multiple).unwrap_or(1) as f64;
+                * catalog
+                    .get(&position.instrument_id)
+                    .map(|i| i.volume_multiple)
+                    .unwrap_or(1) as f64;
             position.position_profit = 0.0;
             position.close_profit = 0.0;
             position.commission = 0.0;
             position.details.retain(|d| d.volume > 0);
             position.open_volume = position.details.iter().map(|d| d.volume).sum();
-            position.open_amount = position.details.iter()
-                .map(|d| d.open_price * d.volume as f64
-                    * catalog.get(&position.instrument_id).map(|i| i.volume_multiple).unwrap_or(1) as f64)
+            position.open_amount = position
+                .details
+                .iter()
+                .map(|d| {
+                    d.open_price
+                        * d.volume as f64
+                        * catalog
+                            .get(&position.instrument_id)
+                            .map(|i| i.volume_multiple)
+                            .unwrap_or(1) as f64
+                })
                 .sum();
             position.open_cost = position.open_amount;
             for detail in &mut position.details {
@@ -1322,7 +1526,11 @@ impl Ledger {
         staged.frozen_pos.clear();
         staged.group_activity.clear();
         staged.refresh_margin(catalog);
-        if staged.accounts.values().any(|a| a.frozen_margin.abs() > 1e-9 || a.frozen_commission.abs() > 1e-9) {
+        if staged
+            .accounts
+            .values()
+            .any(|a| a.frozen_margin.abs() > 1e-9 || a.frozen_commission.abs() > 1e-9)
+        {
             return Err("日结后仍存在冻结资金".into());
         }
         *self = staged;
@@ -1353,10 +1561,14 @@ impl Ledger {
                     }
                 }
             }
-            pos.position_profit = pos.details.iter().map(|d| {
-                let basis = d.mark_basis(trading_day);
-                Position::detail_pnl(pos.side, basis, p, d.volume, mult)
-            }).sum();
+            pos.position_profit = pos
+                .details
+                .iter()
+                .map(|d| {
+                    let basis = d.mark_basis(trading_day);
+                    Position::detail_pnl(pos.side, basis, p, d.volume, mult)
+                })
+                .sum();
             pos.settlement_price = p;
         }
         let mut sums: HashMap<AccountKey, f64> = HashMap::new();
@@ -1373,19 +1585,25 @@ impl Ledger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ctpbuddy_matching::{Instrument, MarginRate, TradingParams, to_fixed};
+    use ctpbuddy_matching::{to_fixed, Instrument, MarginRate, TradingParams};
 
     fn fixture(enabled: bool) -> Catalog {
         // 明确虚构的测试合约和费率，不代表生产默认值。
         let mut catalog = Catalog::new();
-        for (id, product) in [("TESTA01", "TESTA"), ("TESTA02", "TESTA"), ("TESTB01", "TESTB")] {
+        for (id, product) in [
+            ("TESTA01", "TESTA"),
+            ("TESTA02", "TESTA"),
+            ("TESTB01", "TESTB"),
+        ] {
             let mut i = Instrument::new(id, "TEST");
             i.product_id = product.into();
             i.max_margin_side_algorithm = if enabled { b'1' } else { b'0' };
             catalog.insert(i);
             catalog.insert_margin_rate(MarginRate {
-                instrument_id: id.into(), long_margin_ratio_by_volume: 100.0,
-                short_margin_ratio_by_volume: 150.0, ..Default::default()
+                instrument_id: id.into(),
+                long_margin_ratio_by_volume: 100.0,
+                short_margin_ratio_by_volume: 150.0,
+                ..Default::default()
             });
         }
         let mut params = TradingParams::default();
@@ -1395,10 +1613,23 @@ mod tests {
     }
 
     fn fill(id: &str, direction: Direction, offset: OffsetFlag, volume: i32) -> Fill {
-        Fill { broker_id: to_fixed("TEST"), investor_id: to_fixed("alice"), user_id: to_fixed("alice"),
-            instrument_id: id.into(), exchange_id: "TEST".into(), direction, offset, hedge_flag: b'1',
-            price: 10.0, volume, volume_total_original: volume, order_sys_id: to_fixed("1"),
-            order_ref: to_fixed("1"), trade_id: to_fixed("1"), order_key: "1".into() }
+        Fill {
+            broker_id: to_fixed("TEST"),
+            investor_id: to_fixed("alice"),
+            user_id: to_fixed("alice"),
+            instrument_id: id.into(),
+            exchange_id: "TEST".into(),
+            direction,
+            offset,
+            hedge_flag: b'1',
+            price: 10.0,
+            volume,
+            volume_total_original: volume,
+            order_sys_id: to_fixed("1"),
+            order_ref: to_fixed("1"),
+            trade_id: to_fixed("1"),
+            order_key: "1".into(),
+        }
     }
 
     #[test]
@@ -1406,11 +1637,30 @@ mod tests {
         let catalog = fixture(true);
         let mut ledger = Ledger::new(10_000.0);
         ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
-        ledger.mark_to_market(&catalog, &HashMap::from([("TESTA01".into(), 12.0)]), &HashMap::new(), "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.mark_to_market(
+            &catalog,
+            &HashMap::from([("TESTA01".into(), 12.0)]),
+            &HashMap::new(),
+            "20261003",
+        );
         ledger.account_mut("TEST", "alice").unwrap().deposit = 3.0;
-        assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), 12.0)]), "20261003", "20261004").is_ok());
-        let p = ledger.position("TEST", "alice", "TESTA01", PositionSide::Long).unwrap();
+        assert!(ledger
+            .settle_trading_day(
+                &catalog,
+                &HashMap::from([("TESTA01".into(), 12.0)]),
+                "20261003",
+                "20261004"
+            )
+            .is_ok());
+        let p = ledger
+            .position("TEST", "alice", "TESTA01", PositionSide::Long)
+            .unwrap();
         assert_eq!(p.today_position, 0);
         assert_eq!(p.yd_position, 1);
         assert_eq!(p.yd_initial, 1);
@@ -1430,24 +1680,58 @@ mod tests {
     fn settlement_is_atomic_across_accounts_and_uses_supplied_final_price() {
         let catalog = fixture(true);
         let mut ledger = Ledger::new(10_000.0);
-        for name in ["alice", "bob"] { ledger.ensure_account("TEST", name); }
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 2), &catalog, 10.0, "20261003");
+        for name in ["alice", "bob"] {
+            ledger.ensure_account("TEST", name);
+        }
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 2),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         let mut other = fill("TESTB01", Direction::Sell, OffsetFlag::Open, 1);
         other.investor_id = to_fixed("bob");
         ledger.on_fill(&other, &catalog, 10.0, "20261003");
         let before = ledger.account("TEST", "alice").unwrap().balance;
-        assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), 12.0)]), "20261003", "20261004").is_err());
+        assert!(ledger
+            .settle_trading_day(
+                &catalog,
+                &HashMap::from([("TESTA01".into(), 12.0)]),
+                "20261003",
+                "20261004"
+            )
+            .is_err());
         assert_eq!(ledger.account("TEST", "alice").unwrap().balance, before);
-        assert_eq!(ledger.position("TEST", "alice", "TESTA01", PositionSide::Long).unwrap().today_position, 2);
+        assert_eq!(
+            ledger
+                .position("TEST", "alice", "TESTA01", PositionSide::Long)
+                .unwrap()
+                .today_position,
+            2
+        );
         let prices = HashMap::from([("TESTA01".into(), 12.0), ("TESTB01".into(), 11.0)]);
-        ledger.settle_trading_day(&catalog, &prices, "20261003", "20261004").unwrap();
+        ledger
+            .settle_trading_day(&catalog, &prices, "20261003", "20261004")
+            .unwrap();
         let mult = catalog.get("TESTA01").unwrap().volume_multiple as f64;
-        assert_eq!(ledger.account("TEST", "alice").unwrap().pre_balance, before + 4.0 * mult);
+        assert_eq!(
+            ledger.account("TEST", "alice").unwrap().pre_balance,
+            before + 4.0 * mult
+        );
         for day in ["20261004", "20260230", "2026-10-05", "20261003"] {
-            assert!(ledger.settle_trading_day(&catalog, &prices, "20261004", day).is_err());
+            assert!(ledger
+                .settle_trading_day(&catalog, &prices, "20261004", day)
+                .is_err());
         }
         for price in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), price)]), "20261004", "20261005").is_err());
+            assert!(ledger
+                .settle_trading_day(
+                    &catalog,
+                    &HashMap::from([("TESTA01".into(), price)]),
+                    "20261004",
+                    "20261005"
+                )
+                .is_err());
         }
     }
 
@@ -1456,19 +1740,43 @@ mod tests {
         let catalog = fixture(true);
         let mut ledger = Ledger::new(10_000.0);
         ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         let before = ledger.account("TEST", "alice").unwrap().clone();
-        assert!(ledger.settle_trading_day(&catalog, &HashMap::new(), "20261003", "20261004").is_err());
-        assert_eq!(ledger.account("TEST", "alice").unwrap().pre_balance, before.pre_balance);
-        assert_eq!(ledger.position("TEST", "alice", "TESTA01", PositionSide::Long).unwrap().today_position, 1);
-        assert!(ledger.settle_trading_day(&catalog, &HashMap::from([("TESTA01".into(), 10.0)]), "20261004", "20261004").is_err());
+        assert!(ledger
+            .settle_trading_day(&catalog, &HashMap::new(), "20261003", "20261004")
+            .is_err());
+        assert_eq!(
+            ledger.account("TEST", "alice").unwrap().pre_balance,
+            before.pre_balance
+        );
+        assert_eq!(
+            ledger
+                .position("TEST", "alice", "TESTA01", PositionSide::Long)
+                .unwrap()
+                .today_position,
+            1
+        );
+        assert!(ledger
+            .settle_trading_day(
+                &catalog,
+                &HashMap::from([("TESTA01".into(), 10.0)]),
+                "20261004",
+                "20261004"
+            )
+            .is_err());
     }
 
     #[test]
     fn shfe_query_projection_splits_age_buckets_without_double_counting() {
         let mut p = Position::new("rb", PositionSide::Long);
         p.add_bootstrap_detail("20261002", "YD1", 10.0, 2, 40.0, 9.0, 1);
-        p.details.push(PositionDetail::new("20261003", "TD1", 11.0, 3, 60.0, 10.0));
+        p.details
+            .push(PositionDetail::new("20261003", "TD1", 11.0, 3, 60.0, 10.0));
         p.today_position = 3;
         p.open_volume = 5;
         p.open_amount = 53.0;
@@ -1486,7 +1794,10 @@ mod tests {
         assert_eq!(rows.iter().map(|r| r.OpenVolume).sum::<i32>(), 3);
         assert!((rows.iter().map(|r| r.OpenAmount).sum::<f64>() - 33.0).abs() < 1e-9);
         assert!((rows.iter().map(|r| r.UseMargin).sum::<f64>() - p.margin).abs() < 1e-9);
-        assert_eq!(rows.iter().map(|r| r.ShortFrozen).sum::<i32>(), p.frozen_today);
+        assert_eq!(
+            rows.iter().map(|r| r.ShortFrozen).sum::<i32>(),
+            p.frozen_today
+        );
         assert_eq!(rows[0].YdPosition, 2);
         assert_eq!(rows[1].YdPosition, 0);
     }
@@ -1508,10 +1819,25 @@ mod tests {
         let catalog = fixture(true);
         let mut ledger = Ledger::new(10000.0);
         ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3), &catalog, 10.0, "20261003");
-        ledger.on_fill(&fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.on_fill(
+            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 300.0);
-        ledger.on_fill(&fill("TESTB01", Direction::Sell, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTB01", Direction::Sell, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 450.0);
         let rows = ledger.product_group_margin("TEST", "alice", &catalog, "20261003");
         assert_eq!(rows.iter().map(|r| r.UseMargin).sum::<f64>(), 450.0);
@@ -1522,9 +1848,24 @@ mod tests {
         let catalog = fixture(true);
         let mut ledger = Ledger::new(10000.0);
         ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3), &catalog, 10.0, "20261003");
-        ledger.on_fill(&fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
-        ledger.on_fill(&fill("TESTA01", Direction::Sell, OffsetFlag::Close, 2), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.on_fill(
+            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 2),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 150.0);
     }
 
@@ -1533,10 +1874,38 @@ mod tests {
         let catalog = fixture(true);
         let mut ledger = Ledger::new(350.0);
         ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3), &catalog, 10.0, "20261003");
-        ledger.freeze("pending", "TEST", "alice", "TESTA02", PositionSide::Short, 300.0, 0.0, &catalog).unwrap();
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger
+            .freeze(
+                "pending",
+                "TEST",
+                "alice",
+                "TESTA02",
+                PositionSide::Short,
+                300.0,
+                0.0,
+                &catalog,
+            )
+            .unwrap();
         assert_eq!(ledger.account("TEST", "alice").unwrap().frozen_margin, 0.0);
-        assert_eq!(ledger.freeze("extra", "TEST", "alice", "TESTA02", PositionSide::Short, 150.0, 0.0, &catalog), Err(ERR_FUNDS));
+        assert_eq!(
+            ledger.freeze(
+                "extra",
+                "TEST",
+                "alice",
+                "TESTA02",
+                PositionSide::Short,
+                150.0,
+                0.0,
+                &catalog
+            ),
+            Err(ERR_FUNDS)
+        );
         let mut f = fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1);
         f.order_key = "pending".into();
         f.volume_total_original = 2;
@@ -1545,7 +1914,12 @@ mod tests {
         assert_eq!(ledger.account("TEST", "alice").unwrap().frozen_margin, 0.0);
         ledger.unfreeze_order("pending", &catalog);
         assert_eq!(ledger.account("TEST", "alice").unwrap().frozen_margin, 0.0);
-        ledger.on_fill(&fill("TESTA01", Direction::Sell, OffsetFlag::Close, 2), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 2),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 150.0);
     }
 
@@ -1559,15 +1933,33 @@ mod tests {
         other.instrument_id = "OTHER".into();
         other.exchange_id = "OTHER".into();
         catalog.insert(other);
-        catalog.insert_margin_rate(MarginRate { instrument_id: "OTHER".into(),
-            short_margin_ratio_by_volume: 150.0, ..Default::default() });
+        catalog.insert_margin_rate(MarginRate {
+            instrument_id: "OTHER".into(),
+            short_margin_ratio_by_volume: 150.0,
+            ..Default::default()
+        });
         let mut ledger = Ledger::new(10000.0);
         ledger.ensure_account("TEST", "alice");
         ledger.ensure_account("OTHER", "alice");
         ledger.ensure_account("TEST", "bob");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3), &catalog, 10.0, "20261003");
-        ledger.on_fill(&fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
-        ledger.on_fill(&fill("OTHER", Direction::Sell, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.on_fill(
+            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.on_fill(
+            &fill("OTHER", Direction::Sell, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         let mut f = fill("TESTA01", Direction::Sell, OffsetFlag::Open, 1);
         f.broker_id = to_fixed("OTHER");
         ledger.on_fill(&f, &catalog, 10.0, "20261003");
@@ -1589,21 +1981,49 @@ mod tests {
         });
         let mut ledger = Ledger::new(10000.0);
         ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         let before = ledger.account("TEST", "alice").unwrap().used_margin;
         let prices = HashMap::from([("TESTA01".into(), 20.0)]);
         let previous = HashMap::from([("TESTA01".into(), 10.0)]);
         ledger.mark_to_market(&catalog, &prices, &previous, "20261003");
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, before);
-        ledger.on_fill(&fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         let after_partial_close = ledger.account("TEST", "alice").unwrap().used_margin;
         assert!((after_partial_close - before * 2.0 / 3.0).abs() < 1e-9);
-        ledger.mark_to_market(&catalog, &HashMap::from([("TESTA01".into(), 30.0)]), &previous, "20261003");
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, after_partial_close);
-        ledger.on_fill(&fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1), &catalog, 10.0, "20261003");
+        ledger.mark_to_market(
+            &catalog,
+            &HashMap::from([("TESTA01".into(), 30.0)]),
+            &previous,
+            "20261003",
+        );
+        assert_eq!(
+            ledger.account("TEST", "alice").unwrap().used_margin,
+            after_partial_close
+        );
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         let rows = ledger.product_group_margin("TEST", "alice", &catalog, "20261003");
         assert_eq!(rows.iter().map(|r| r.UseMargin).sum::<f64>(), before / 3.0);
-        ledger.on_fill(&fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         let rows = ledger.product_group_margin("TEST", "alice", &catalog, "20261003");
         assert_eq!(rows.iter().map(|r| r.UseMargin).sum::<f64>(), 0.0);
     }
@@ -1613,8 +2033,196 @@ mod tests {
         let catalog = fixture(false);
         let mut ledger = Ledger::new(10000.0);
         ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(&fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3), &catalog, 10.0, "20261003");
-        ledger.on_fill(&fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1), &catalog, 10.0, "20261003");
+        ledger.on_fill(
+            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.on_fill(
+            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
         assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 450.0);
+    }
+
+    /// 1 手昨仓（启动初仓）+ 2 手今仓的上期所多头持仓。
+    fn shfe_long(exchange: &str) -> (Catalog, Ledger) {
+        let mut catalog = fixture(false);
+        let mut inst = Instrument::new("rb2601", exchange);
+        inst.product_id = "rb".into();
+        catalog.insert(inst);
+        let mut ledger = Ledger::new(1_000_000.0);
+        ledger.ensure_account("TEST", "alice");
+        ledger
+            .position_mut_or_create("TEST", "alice", "rb2601", PositionSide::Long)
+            .add_bootstrap_detail("20261002", "YD1", 10.0, 1, 0.0, 10.0, 1);
+        let mut open = fill("rb2601", Direction::Buy, OffsetFlag::Open, 2);
+        open.exchange_id = exchange.into();
+        ledger.on_fill(&open, &catalog, 10.0, "20261003");
+        (catalog, ledger)
+    }
+
+    fn close_fill(
+        exchange: &str,
+        key: &str,
+        offset: OffsetFlag,
+        volume: i32,
+        original: i32,
+    ) -> Fill {
+        let mut f = fill("rb2601", Direction::Sell, offset, volume);
+        f.exchange_id = exchange.into();
+        f.order_key = key.into();
+        f.volume_total_original = original;
+        f
+    }
+
+    #[test]
+    fn shfe_close_means_close_yesterday() {
+        let (_, mut ledger) = shfe_long("SHFE");
+        // 上期所「平仓」= 平昨：只有 1 手昨仓可平，今仓不能被 Close 动用
+        assert_eq!(
+            ledger.freeze_close_position(
+                "c2",
+                "TEST",
+                "alice",
+                "rb2601",
+                "SHFE",
+                PositionSide::Long,
+                OffsetFlag::Close,
+                2
+            ),
+            Err(ERR_NO_CLOSE_YD_LEDGER)
+        );
+        assert!(ledger
+            .freeze_close_position(
+                "c1",
+                "TEST",
+                "alice",
+                "rb2601",
+                "SHFE",
+                PositionSide::Long,
+                OffsetFlag::Close,
+                1
+            )
+            .is_ok());
+        assert_eq!(
+            ledger.freeze_close_position(
+                "c3",
+                "TEST",
+                "alice",
+                "rb2601",
+                "SHFE",
+                PositionSide::Long,
+                OffsetFlag::Close,
+                1
+            ),
+            Err(ERR_NO_CLOSE_YD_LEDGER)
+        );
+        // 其他交易所的 Close 仍按先开先平跨越今昨
+        let (_, mut dce) = shfe_long("DCE");
+        assert!(dce
+            .freeze_close_position(
+                "c2",
+                "TEST",
+                "alice",
+                "rb2601",
+                "DCE",
+                PositionSide::Long,
+                OffsetFlag::Close,
+                3
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn partial_fill_then_cancel_keeps_other_reservations() {
+        let (catalog, mut ledger) = shfe_long("SHFE");
+        // A、B 各预留 1 手今仓（今仓共 2 手，已全部占满）
+        for key in ["A", "B"] {
+            ledger
+                .freeze_close_position(
+                    key,
+                    "TEST",
+                    "alice",
+                    "rb2601",
+                    "SHFE",
+                    PositionSide::Long,
+                    OffsetFlag::CloseToday,
+                    1,
+                )
+                .unwrap();
+        }
+        // A 成交后再收到 '5'（普通 GFD 撤单路径）
+        ledger.on_fill(
+            &close_fill("SHFE", "A", OffsetFlag::CloseToday, 1, 1),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        ledger.unfreeze_order("A", &catalog);
+        let p = ledger
+            .position("TEST", "alice", "rb2601", PositionSide::Long)
+            .unwrap();
+        assert_eq!(p.today_position, 1);
+        assert_eq!(p.frozen_today, 1, "B 的预留不能被 A 的撤单冲掉");
+        assert_eq!(
+            ledger.freeze_close_position(
+                "C",
+                "TEST",
+                "alice",
+                "rb2601",
+                "SHFE",
+                PositionSide::Long,
+                OffsetFlag::CloseToday,
+                1
+            ),
+            Err(ERR_NO_CLOSE_TODAY_LEDGER),
+            "仍在途的 B 已占住最后 1 手今仓"
+        );
+    }
+
+    #[test]
+    fn cancel_first_fak_does_not_release_twice() {
+        let (catalog, mut ledger) = shfe_long("SHFE");
+        ledger
+            .freeze_close_position(
+                "FAK",
+                "TEST",
+                "alice",
+                "rb2601",
+                "SHFE",
+                PositionSide::Long,
+                OffsetFlag::CloseToday,
+                2,
+            )
+            .unwrap();
+        // 场景 8：'5' 先到（全额释放剩余预留），随后才是 1 手成交
+        ledger.unfreeze_order("FAK", &catalog);
+        ledger
+            .freeze_close_position(
+                "OTHER",
+                "TEST",
+                "alice",
+                "rb2601",
+                "SHFE",
+                PositionSide::Long,
+                OffsetFlag::CloseToday,
+                1,
+            )
+            .unwrap();
+        ledger.on_fill(
+            &close_fill("SHFE", "FAK", OffsetFlag::CloseToday, 1, 2),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+        let p = ledger
+            .position("TEST", "alice", "rb2601", PositionSide::Long)
+            .unwrap();
+        assert_eq!(p.today_position, 1);
+        assert_eq!(p.frozen_today, 1, "OTHER 的预留不能被迟到的成交再扣一次");
     }
 }

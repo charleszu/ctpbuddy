@@ -458,7 +458,7 @@ CThostFtdcInputOrderField make_input(const char* broker, const char* investor, c
     put_cstr(f.ExchangeID, sizeof(f.ExchangeID), EXCHANGE);
     f.OrderPriceType = '2';  // limit
     f.Direction = direction;  // '0' buy / '1' sell
-    f.CombOffsetFlag[0] = offset;  // '0' open / '1' close today
+    f.CombOffsetFlag[0] = offset;  // '0' open / '1' close(SHFE=平昨) / '3' close today
     f.CombHedgeFlag[0] = '1';      // speculation
     f.LimitPrice = price;
     f.VolumeTotalOriginal = volume;
@@ -541,7 +541,9 @@ void run_auth_checks(const char* front, const char* broker, const char* investor
                 if (p) valid = valid && std::strcmp(p->BrokerID, req.BrokerID) == 0 &&
                     std::strcmp(p->UserID, req.UserID) == 0 && std::strcmp(p->AppID, req.AppID) == 0 &&
                     std::strcmp(p->UserProductInfo, req.UserProductInfo) == 0 && p->AppType == 0;
-                if (error == 63) valid = valid && std::strcmp(rsp->ErrorMsg, "CTP:客户端认证失败") == 0;
+                // CTP strings are GBK: "CTP:客户端认证失败"
+                if (error == 63) valid = valid && std::strcmp(rsp->ErrorMsg,
+                    "CTP:\xBF\xCD\xBB\xA7\xB6\xCB\xC8\xCF\xD6\xA4\xCA\xA7\xB0\xDC") == 0;
                 valid = valid && id != 111;
                 ids.push_back(id);
                 errors.push_back(error);
@@ -998,7 +1000,8 @@ void run(const char* front, const char* broker, const char* investor, bool expli
         trades_before = td_spi.trades.size();
     }
     {
-        auto f = make_input(broker, investor, "778", '1', '1', SELL_PRICE, LOTS);
+        // 上期所今仓须报平今 '3'；平仓 '1' 等同平昨
+        auto f = make_input(broker, investor, "778", '1', '3', SELL_PRICE, LOTS);
         td->ReqOrderInsert(&f, ++g_req_seq);
     }
     td_spi.sync.wait([&] { return td_spi.trades.size() > trades_before; }, "RTN_TRADE for the closing sell");
@@ -1006,7 +1009,8 @@ void run(const char* front, const char* broker, const char* investor, bool expli
     {
         std::lock_guard<std::mutex> g(td_spi.sync.mu);
         const auto& t = td_spi.trades.back();
-        if (!close_double(t.Price, SELL_PRICE) || t.Volume != LOTS || t.Direction != '1' || t.OffsetFlag != '1') {
+        // SHFE keeps 平今 on the trade report
+        if (!close_double(t.Price, SELL_PRICE) || t.Volume != LOTS || t.Direction != '1' || t.OffsetFlag != '3') {
             throw DemoFail{"unexpected closing trade payload"};
         }
     }

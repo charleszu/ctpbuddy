@@ -1598,7 +1598,7 @@ def pack(name, **kw):
             if v is None:
                 v = b''
             if isinstance(v, str):
-                v = v.encode('utf-8', 'replace')
+                v = v.encode('gbk', 'replace')
             v = v[:size].ljust(size, b'\x00')
         elif v is None:
             v = 0
@@ -1614,6 +1614,6 @@ def unpack(name, buf):
     out = {}
     for (fname, kind, _size), v in zip(rows, values):
         if kind == 's' and not (name == 'CThostFtdcSettlementInfoField' and fname == 'Content'):
-            v = v.split(b'\x00')[0].decode('utf-8', 'replace')
+            v = v.split(b'\x00')[0].decode('gbk', 'replace')
         out[fname] = v
     return out

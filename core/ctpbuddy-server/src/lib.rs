@@ -116,7 +116,8 @@ impl Default for Config {
 
 /// Bind transports and run the world loop until an admin `shutdown`.
 pub fn run(mut cfg: Config) -> std::io::Result<()> {
-    settings::load(&mut cfg).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    settings::load(&mut cfg)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let td = TcpListener::bind(&cfg.td_endpoint)?;
     let admin = TcpListener::bind(&cfg.admin_endpoint)?;
     let mut world = World::new(cfg.clone())?;
@@ -149,7 +150,7 @@ fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
                 let _ = s.set_nodelay(true);
                 let id = NEXT_CONN_ID.fetch_add(1, Ordering::SeqCst);
                 let (writer_tx, writer_rx) = mpsc::channel::<Frame>();
-                let _ = tx.send(WorldMsg::ConnOpened {
+                let _ = tx.send(WorldMsg::Opened {
                     id,
                     writer: writer_tx,
                     is_admin,
@@ -160,7 +161,7 @@ fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
                 };
                 let tx_r = tx.clone();
                 thread::spawn(move || reader_loop(id, reader, tx_r));
-                thread::spawn(move || writer_loop(id, s, writer_rx));
+                thread::spawn(move || writer_loop(s, writer_rx));
             }
             Err(e) => {
                 eprintln!("[ctpbuddy] accept error: {e}");
@@ -174,45 +175,44 @@ fn reader_loop(id: u64, mut stream: TcpStream, tx: Sender<WorldMsg>) {
     loop {
         match Frame::read_from(&mut stream) {
             Ok(Some(frame)) => {
-                if tx.send(WorldMsg::ConnFrame { id, frame }).is_err() {
+                if tx.send(WorldMsg::Inbound { id, frame }).is_err() {
                     break;
                 }
             }
             Ok(None) => {
-                let _ = tx.send(WorldMsg::ConnClosed { id });
+                let _ = tx.send(WorldMsg::Closed { id });
                 break;
             }
             Err(e) => {
                 eprintln!("[ctpbuddy] conn {id} read error: {e}");
-                let _ = tx.send(WorldMsg::ConnClosed { id });
+                let _ = tx.send(WorldMsg::Closed { id });
                 break;
             }
         }
     }
 }
 
-fn writer_loop(id: u64, mut stream: TcpStream, rx: Receiver<Frame>) {
+fn writer_loop(mut stream: TcpStream, rx: Receiver<Frame>) {
+    // Ends when the world drops our sender (conn removed) or the socket dies;
+    // the reader loop detects EOF on its own.
     for frame in rx {
         if frame.write_to(&mut stream).is_err() {
             break;
         }
     }
-    // world dropped our sender (conn removed) or socket died: signal close.
-    // The reader loop detects EOF on its own; this is the belt-and-braces path.
-    let _ = id;
 }
 
 pub(crate) enum WorldMsg {
-    ConnOpened {
+    Opened {
         id: u64,
         writer: Sender<Frame>,
         is_admin: bool,
     },
-    ConnFrame {
+    Inbound {
         id: u64,
         frame: Frame,
     },
-    ConnClosed {
+    Closed {
         id: u64,
     },
 }
@@ -237,8 +237,6 @@ struct Conn {
     qry_count: u32,
 }
 
-/// The whole world: market, matching, ledger, sessions, transports.
-/// State is mutated exclusively inside `run_loop`.
 /// Read + parse `scenario.json` (the compiled form of scenario.yaml) at
 /// startup. A missing file means a legacy ticks.csv-only scenario; a broken
 /// file is reported and ignored (the core still serves the raw tick stream).
@@ -278,10 +276,7 @@ fn load_refdata(explicit: Option<&str>, scenario_dir: Option<&str>) -> Result<Ca
         return Catalog::load_refdata_dir(dir).map_err(|e| format!("--refdata {dir}: {e}"));
     }
     if let Some(sdir) = scenario_dir {
-        let candidates = [
-            format!("{sdir}/refdata"),
-            sdir.to_string(),
-        ];
+        let candidates = [format!("{sdir}/refdata"), sdir.to_string()];
         for cand in candidates {
             if std::path::Path::new(&format!("{cand}/instruments.jsonl")).exists() {
                 return Catalog::load_refdata_dir(&cand);
@@ -319,6 +314,8 @@ fn build_scenario(
     Ok((catalog, ticks))
 }
 
+/// The whole world: market, matching, ledger, sessions, transports.
+/// State is mutated exclusively inside `run_loop`.
 pub struct World {
     cfg: Config,
     engine: MatchingEngine,
@@ -360,16 +357,14 @@ impl World {
 
         // Ref data resolution order: explicit --refdata > a `refdata/`
         // directory inside the scenario > the bundled contract snapshot.
-        let mut engine_catalog = match load_refdata(
-            cfg.refdata_dir.as_deref(),
-            cfg.scenario_dir.as_deref(),
-        ) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[ctpbuddy] {e}");
-                Catalog::new()
-            }
-        };
+        let mut engine_catalog =
+            match load_refdata(cfg.refdata_dir.as_deref(), cfg.scenario_dir.as_deref()) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[ctpbuddy] {e}");
+                    Catalog::new()
+                }
+            };
         let mut playback = None;
         let mut vt_day = dtime::today_trading_day();
         // Before any scenario clock exists there is no virtual time: 0.0 is
@@ -407,7 +402,11 @@ impl World {
                     println!(
                         "[ctpbuddy] ticks {} (scenario {})",
                         playback.as_ref().unwrap().progress().1,
-                        if scenario_name.is_empty() { "legacy" } else { &scenario_name }
+                        if scenario_name.is_empty() {
+                            "legacy"
+                        } else {
+                            &scenario_name
+                        }
                     );
                 }
                 Err(e) => eprintln!("[ctpbuddy] scenario load failed: {e}"),
@@ -423,7 +422,10 @@ impl World {
                 "",
                 json::obj_sorted(vec![
                     ("version".into(), json::s(SERVER_VERSION)),
-                    ("scenario".into(), json::s(cfg.scenario_dir.as_deref().unwrap_or(""))),
+                    (
+                        "scenario".into(),
+                        json::s(cfg.scenario_dir.as_deref().unwrap_or("")),
+                    ),
                 ]),
             );
             j.flush()?;
@@ -444,43 +446,107 @@ impl World {
             assertions,
             order_freq_windows: HashMap::new(),
             settlement_confirmed: HashMap::new(),
-            settlement_reports: settlement::load_reports(&cfg.data_dir, &cfg.broker_id).unwrap_or_else(|e| {
-                eprintln!("[ctpbuddy] settlement reports disabled: {e}");
-                Vec::new()
-            }),
+            settlement_reports: settlement::load_reports(&cfg.data_dir, &cfg.broker_id)
+                .unwrap_or_else(|e| {
+                    eprintln!("[ctpbuddy] settlement reports disabled: {e}");
+                    Vec::new()
+                }),
             shutdown: false,
             cfg,
         };
         let day = world.vt_trading_day.clone();
         let accounts = startup_accounts;
         let broker = world.cfg.broker_id.clone();
-        Self::bootstrap_accounts(&mut world.ledger, &world.engine.catalog(), &broker, &accounts, &day).expect("startup bootstrap must validate");
-        world.ledger.refresh(&world.engine.catalog());
+        Self::bootstrap_accounts(
+            &mut world.ledger,
+            world.engine.catalog(),
+            &broker,
+            &accounts,
+            &day,
+        )
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("scenario accounts: {e}"),
+            )
+        })?;
+        world.ledger.refresh(world.engine.catalog());
         world.eval_assertions();
         Ok(world)
     }
 
-    fn bootstrap_accounts(ledger: &mut Ledger, catalog: &Catalog, broker: &str, accounts: &[scenario::AccountSpec], day: &str) -> Result<(), String> {
+    /// Validate every scenario account first, then apply them all; a bad row
+    /// leaves `ledger` untouched. Shared by startup and `start_scenario`.
+    fn bootstrap_accounts(
+        ledger: &mut Ledger,
+        catalog: &Catalog,
+        broker: &str,
+        accounts: &[scenario::AccountSpec],
+        day: &str,
+    ) -> Result<(), String> {
         for account in accounts {
-            if !account.positions.is_empty() && ledger.account(broker, &account.investor).is_some() {
-                return Err(format!("账户 {} 已存在，不能重复导入初始持仓", account.investor));
+            if !account.positions.is_empty() && ledger.account(broker, &account.investor).is_some()
+            {
+                return Err(format!(
+                    "账户 {} 已存在，不能重复导入初始持仓",
+                    account.investor
+                ));
             }
             for p in &account.positions {
-                let Some(inst) = catalog.get(&p.instrument) else { return Err(format!("未知合约 {}", p.instrument)); };
-                if inst.exchange_id != p.exchange { return Err(format!("合约 {} 的交易所错误: {}", p.instrument, p.exchange)); }
-                if p.open_date.as_str() >= day { return Err(format!("初仓 {} 的 open_date 必须早于交易日 {}", p.trade_id, day)); }
+                let Some(inst) = catalog.get(&p.instrument) else {
+                    return Err(format!("未知合约 {}", p.instrument));
+                };
+                if inst.exchange_id != p.exchange {
+                    return Err(format!(
+                        "合约 {} 的交易所错误: {}",
+                        p.instrument, p.exchange
+                    ));
+                }
+                if p.open_date.as_str() >= day {
+                    return Err(format!(
+                        "初仓 {} 的 open_date 必须早于交易日 {}",
+                        p.trade_id, day
+                    ));
+                }
+                if !p.open_price.is_finite() || !p.pre_settlement.is_finite() {
+                    return Err(format!("初仓 {} 含非有限价格", p.trade_id));
+                }
             }
         }
         for account in accounts {
             ledger.ensure_account_with(broker, &account.investor, account.balance.unwrap_or(0.0));
             for p in &account.positions {
-                let side = if p.direction == "long" { ctpbuddy_ledger::PositionSide::Long } else { ctpbuddy_ledger::PositionSide::Short };
-                let direction = if side == ctpbuddy_ledger::PositionSide::Long { ctpbuddy_matching::Direction::Buy } else { ctpbuddy_matching::Direction::Sell };
-                let margin = p.margin.unwrap_or_else(|| catalog.margin(&p.instrument, direction, MarginPrice::PreSettlement(p.pre_settlement), p.volume));
+                let side = if p.direction == "long" {
+                    ctpbuddy_ledger::PositionSide::Long
+                } else {
+                    ctpbuddy_ledger::PositionSide::Short
+                };
+                let direction = if side == ctpbuddy_ledger::PositionSide::Long {
+                    ctpbuddy_matching::Direction::Buy
+                } else {
+                    ctpbuddy_matching::Direction::Sell
+                };
+                let margin = p.margin.unwrap_or_else(|| {
+                    catalog.margin(
+                        &p.instrument,
+                        direction,
+                        MarginPrice::PreSettlement(p.pre_settlement),
+                        p.volume,
+                    )
+                });
                 let multiple = catalog.get(&p.instrument).unwrap().volume_multiple;
-                let pos = ledger.position_mut_or_create(broker, &account.investor, &p.instrument, side);
+                let pos =
+                    ledger.position_mut_or_create(broker, &account.investor, &p.instrument, side);
                 pos.pre_settlement_price = p.pre_settlement;
-                pos.add_bootstrap_detail(&p.open_date, &p.trade_id, p.open_price, p.volume, margin, p.pre_settlement, multiple);
+                pos.add_bootstrap_detail(
+                    &p.open_date,
+                    &p.trade_id,
+                    p.open_price,
+                    p.volume,
+                    margin,
+                    p.pre_settlement,
+                    multiple,
+                );
             }
         }
         Ok(())
@@ -496,6 +562,11 @@ impl World {
         paused: bool,
         speed: Option<f64>,
     ) -> Result<(usize, String, String), String> {
+        // Swapping the engine would silently drop resting orders while their
+        // ledger freezes stay booked; refuse instead (cancel them first).
+        if self.engine.open_order_count() != 0 {
+            return Err("加载场景前必须先撤销全部活动订单".to_string());
+        }
         let (catalog, ticks) = build_scenario(dir, spec, self.cfg.refdata_dir.as_deref())?;
         if ticks.is_empty() {
             return Err("场景没有任何 tick（transforms / clock.start 之后为空）".to_string());
@@ -504,26 +575,17 @@ impl World {
         let day = ticks[0].trading_day.clone();
         let t0 = ticks[0].virtual_ms();
         let name = spec.map(|s| s.name.clone()).unwrap_or_default();
-        if let Some(s) = spec {
-            for account in &s.accounts {
-                if !account.positions.is_empty() && self.ledger.account(&self.cfg.broker_id, &account.investor).is_some() {
-                    return Err(format!("账户 {} 已存在，不能重复导入初始持仓", account.investor));
-                }
-                for p in &account.positions {
-                    let Some(inst) = catalog.get(&p.instrument) else { return Err(format!("未知合约 {}", p.instrument)); };
-                    if inst.exchange_id != p.exchange { return Err(format!("合约 {} 的交易所错误: {}", p.instrument, p.exchange)); }
-                    if p.open_date.as_str() >= day.as_str() { return Err(format!("初仓 {} 的 open_date 必须早于交易日 {}", p.trade_id, day)); }
-                    if !p.open_price.is_finite() || !p.pre_settlement.is_finite() { return Err(format!("初仓 {} 含非有限价格", p.trade_id)); }
-                }
-            }
-        }
 
         let mut staged_ledger = self.ledger.clone();
-        Self::bootstrap_accounts(&mut staged_ledger, &catalog, &self.cfg.broker_id, spec.map(|s| s.accounts.as_slice()).unwrap_or(&[]), &day)?;
+        Self::bootstrap_accounts(
+            &mut staged_ledger,
+            &catalog,
+            &self.cfg.broker_id,
+            spec.map(|s| s.accounts.as_slice()).unwrap_or(&[]),
+            &day,
+        )?;
         staged_ledger.refresh(&catalog);
 
-        // NOTE: swapping the scenario drops active orders; their ledger freezes
-        // are released with `reset_account` (M2: cancel-all admin command).
         self.engine = MatchingEngine::new(catalog);
         self.orders_today.clear();
         self.trades_today.clear();
@@ -544,7 +606,7 @@ impl World {
         self.assertions = spec.map(|s| s.assertions.clone()).unwrap_or_default();
 
         self.ledger = staged_ledger;
-        self.ledger.refresh(&self.engine.catalog());
+        self.ledger.refresh(self.engine.catalog());
         self.eval_assertions();
         Ok((n, day, name))
     }
@@ -554,7 +616,7 @@ impl World {
         let acct = |f: &dyn Fn(&ctpbuddy_ledger::Account) -> f64| -> f64 {
             self.ledger
                 .account(broker, investor)
-                .map(|a| f(a))
+                .map(f)
                 .unwrap_or(f64::NAN)
         };
         match metric {
@@ -708,9 +770,13 @@ impl World {
             }
             match rx.recv_timeout(wait) {
                 Ok(msg) => match msg {
-                    WorldMsg::ConnOpened { id, writer, is_admin } => self.on_conn_opened(id, writer, is_admin),
-                    WorldMsg::ConnFrame { id, frame } => self.on_frame(id, frame),
-                    WorldMsg::ConnClosed { id } => self.on_conn_closed(id),
+                    WorldMsg::Opened {
+                        id,
+                        writer,
+                        is_admin,
+                    } => self.on_conn_opened(id, writer, is_admin),
+                    WorldMsg::Inbound { id, frame } => self.on_frame(id, frame),
+                    WorldMsg::Closed { id } => self.on_conn_closed(id),
                 },
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -754,8 +820,12 @@ impl World {
         // mark to market (unrealized PnL drives account queries)
         let prices = self.engine.last_prices();
         let pre_settlements = self.engine.pre_settlements();
-        self.ledger
-            .mark_to_market(self.engine.catalog(), &prices, &pre_settlements, &self.vt_trading_day);
+        self.ledger.mark_to_market(
+            self.engine.catalog(),
+            &prices,
+            &pre_settlements,
+            &self.vt_trading_day,
+        );
         if let Some(j) = self.journal.as_mut() {
             j.flush_if_due(now);
         }
@@ -792,7 +862,7 @@ impl World {
                     );
                     self.ledger.unfreeze_order(&key, self.engine.catalog());
                 }
-                self.orders_today.push(field.clone());
+                self.orders_today.push(field);
                 let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
                 let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));
                 for id in targets {
@@ -803,10 +873,17 @@ impl World {
                 self.journal_record_order_update(&day, now, &field);
             }
             EngineEvent::Trade { field, fill } => {
-                let pre_settle = self.engine.pre_settlement(&fill.instrument_id).unwrap_or(0.0);
-                self.ledger
-                    .on_fill(&fill, self.engine.catalog(), pre_settle, &self.vt_trading_day);
-                self.trades_today.push(field.clone());
+                let pre_settle = self
+                    .engine
+                    .pre_settlement(&fill.instrument_id)
+                    .unwrap_or(0.0);
+                self.ledger.on_fill(
+                    &fill,
+                    self.engine.catalog(),
+                    pre_settle,
+                    &self.vt_trading_day,
+                );
+                self.trades_today.push(field);
                 let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
                 let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));
                 for id in targets {
@@ -906,7 +983,10 @@ impl World {
             ("order_ref".into(), json::s(&cstr(&field.OrderRef))),
             ("order_sys_id".into(), json::s(&cstr(&field.OrderSysID))),
             ("instrument".into(), json::s(&cstr(&field.InstrumentID))),
-            ("status".into(), json::s(&(field.OrderStatus as char).to_string())),
+            (
+                "status".into(),
+                json::s(&(field.OrderStatus as char).to_string()),
+            ),
             ("volume_traded".into(), json::n(field.VolumeTraded as f64)),
             ("volume_total".into(), json::n(field.VolumeTotal as f64)),
             ("update_time".into(), json::s(&cstr(&field.UpdateTime))),

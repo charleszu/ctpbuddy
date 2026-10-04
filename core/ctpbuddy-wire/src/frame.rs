@@ -20,7 +20,11 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(msg_type: u16, req_id: u32, payload: Vec<u8>) -> Self {
-        Frame { msg_type, req_id, payload }
+        Frame {
+            msg_type,
+            req_id,
+            payload,
+        }
     }
 
     pub fn encoded_len(&self) -> usize {
@@ -62,7 +66,11 @@ impl Frame {
         if len > 0 {
             r.read_exact(&mut payload)?;
         }
-        Ok(Some(Frame { msg_type, req_id, payload }))
+        Ok(Some(Frame {
+            msg_type,
+            req_id,
+            payload,
+        }))
     }
 
     pub fn write_to<W: Write>(&self, w: &mut W) -> std::io::Result<()> {

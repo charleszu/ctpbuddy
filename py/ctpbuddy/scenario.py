@@ -14,7 +14,8 @@ Supported YAML subset (strict; anything else is an error with a line number):
   values only — no flow sequences, anchors, multi-line strings or tags;
 - full-line `#` comments and trailing ` #` comments on plain scalars.
 
-Schema (times resolve to virtual ms since midnight, single trading day):
+Schema (times resolve to the trading-day timeline: day-session ms since
+midnight, night-session times from 18:00 negative):
 
     name: flash-crash
     source: {kind: csv, path: ticks.csv}   # path relative to the scenario dir
@@ -284,8 +285,23 @@ def parse_duration_ms(s: str) -> float:
     return (h * 3600 + mi * 60 + se) * 1000.0
 
 
+#: Clock times at/after 18:00 are the night session that opens the *next*
+#: trading day; they map to negative values so the timeline is monotonic across
+#: midnight (mirror of `ctpbuddy_market::session_ms` in the Rust core).
+NIGHT_START_MS = 18 * 3_600_000.0
+DAY_MS = 86_400_000.0
+
+
+def session_ms(clock_ms: float) -> float:
+    return clock_ms - DAY_MS if clock_ms >= NIGHT_START_MS else clock_ms
+
+
 def parse_time_ms(s: str) -> float:
-    """`HH:MM:SS[.mmm]` or `YYYY-MM-DD HH:MM:SS[.mmm]` -> virtual ms since midnight."""
+    """`HH:MM:SS[.mmm]` or `YYYY-MM-DD HH:MM:SS[.mmm]` -> trading-day timeline ms.
+
+    Day-session times are ms since midnight; night-session times (>= 18:00)
+    are negative, e.g. 21:00 -> -10_800_000.
+    """
     s = str(s).strip()
     if " " in s:
         s = s.rsplit(" ", 1)[1]  # single-day replay: the date part is ignored
@@ -299,7 +315,7 @@ def parse_time_ms(s: str) -> float:
         raise ScenarioError("无法解析时间: %r（期望 HH:MM:SS）" % s)
     if not (0 <= h < 24 and 0 <= m < 60 and 0 <= sec < 60):
         raise ScenarioError("时间越界: %r" % s)
-    return (h * 3600 + m * 60 + sec) * 1000.0
+    return session_ms((h * 3600 + m * 60 + sec) * 1000.0)
 
 
 def _num(v: Any, what: str) -> float:

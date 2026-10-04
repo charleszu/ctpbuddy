@@ -184,8 +184,8 @@ def main() -> int:
         admin.step()
         wait_idx(admin, 4)
         drain(cli)
-        # 平仓 1 手：须低于 bid1 才会成交（tick 4 的 bid1=3500）。
-        cli.order_insert(RB, direction="1", offset="1", volume=1, limit_price=3499.0,
+        # 平今 1 手（上期所今仓须报 '3'）：须低于 bid1 才会成交（tick 4 的 bid1=3500）。
+        cli.order_insert(RB, direction="1", offset="3", volume=1, limit_price=3499.0,
                          exchange="SHFE", order_ref="L3")
         assert len(wait_fills(cli, "L3", 1)) == 1, "L3 should fill"
         drain(cli)

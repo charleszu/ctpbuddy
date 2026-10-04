@@ -63,6 +63,10 @@ def test_struct_layout() -> None:
     assert f["InstrumentID"] == "rb2601" and f["LimitPrice"] == 3502.0, f
     assert f["VolumeTotalOriginal"] == 3, f
     assert f["Direction"] == ord("0") and f["CombOffsetFlag"] == "0", f
+    # CTP char fields are GBK on the wire
+    info = structs.pack("CThostFtdcRspInfoField", ErrorID=31, ErrorMsg="CTP:资金不足")
+    assert "CTP:资金不足".encode("gbk") in info, info
+    assert structs.unpack("CThostFtdcRspInfoField", info)["ErrorMsg"] == "CTP:资金不足"
     print("[ok] struct layout (%d structs) + pack/unpack roundtrip" % n)
 
 
@@ -189,6 +193,9 @@ def test_dsl_spec() -> None:
     assert parse_time_ms("09:30:00") == 34200000.0
     assert parse_time_ms("09:30:00.500") == 34200500.0
     assert parse_time_ms("2025-03-14 13:30:00") == 48600000.0
+    # night session opens the trading day: 21:00 < 00:30 < 09:00 on one axis
+    assert parse_time_ms("21:00:00") == -10800000.0
+    assert parse_time_ms("21:00:00") < parse_time_ms("00:30:00") < parse_time_ms("09:00:00")
     assert parse_duration_ms("90s") == 90000.0
     assert parse_duration_ms("5m") == 300000.0
     assert parse_duration_ms("1h") == 3600000.0
@@ -454,6 +461,7 @@ def test_journal_hash() -> None:
     assert c.index('"broker"') < c.index('"data"') < c.index('"seq"'), c
     assert ", " not in c and ": " not in c, c
     assert fmt_vt(34260000.0) == "09:31:00.000"
+    assert fmt_vt(-10800000.0) == "21:00:00.000"
     assert fmt_vt("nope") == "nope"
     assert count_types(stream)["order_insert"] == 1
 

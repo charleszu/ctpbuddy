@@ -8,13 +8,22 @@
 use ctpbuddy_market::transform::Transform;
 
 fn valid_date(s: &str) -> bool {
-    if s.len() != 8 || !s.bytes().all(|b| b.is_ascii_digit()) { return false; }
+    if s.len() != 8 || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
     let y: i32 = s[0..4].parse().unwrap_or(0);
     let m: u32 = s[4..6].parse().unwrap_or(0);
     let d: u32 = s[6..8].parse().unwrap_or(0);
-    if y < 1900 || !(1..=12).contains(&m) || d == 0 { return false; }
+    if y < 1900 || !(1..=12).contains(&m) || d == 0 {
+        return false;
+    }
     let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let max = match m { 2 if leap => 29, 2 => 28, 4 | 6 | 9 | 11 => 30, _ => 31 };
+    let max = match m {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
     d <= max
 }
 
@@ -176,7 +185,10 @@ pub fn parse_spec(v: &Value) -> Result<Spec, String> {
         }
     }
     if let Some(raw) = v.get("accounts") {
-        let items = match raw { Value::Arr(items) => items, _ => return Err("accounts 必须是列表".into()) };
+        let items = match raw {
+            Value::Arr(items) => items,
+            _ => return Err("accounts 必须是列表".into()),
+        };
         for (i, item) in items.iter().enumerate() {
             let investor = item
                 .get_str("investor")
@@ -193,33 +205,91 @@ pub fn parse_spec(v: &Value) -> Result<Spec, String> {
             let mut positions = Vec::new();
             let mut keys = std::collections::HashSet::new();
             if let Some(raw_positions) = item.get("positions") {
-                let items = match raw_positions { Value::Arr(items) => items, _ => return Err(format!("accounts[{i}].positions 必须是列表")) };
+                let items = match raw_positions {
+                    Value::Arr(items) => items,
+                    _ => return Err(format!("accounts[{i}].positions 必须是列表")),
+                };
                 for (j, p) in items.iter().enumerate() {
-                    let field = |k: &str| p.get_str(k).ok_or_else(|| format!("accounts[{i}].positions[{j}]: 缺少 {k}"));
+                    let field = |k: &str| {
+                        p.get_str(k)
+                            .ok_or_else(|| format!("accounts[{i}].positions[{j}]: 缺少 {k}"))
+                    };
                     let instrument = field("instrument")?;
                     let exchange = field("exchange")?;
                     let direction = field("direction")?;
                     let open_date = field("open_date")?;
                     let trade_id = field("trade_id")?;
-                    let open_price = p.get("open_price").and_then(|v| v.as_num()).ok_or_else(|| format!("accounts[{i}].positions[{j}].open_price 非数字"))?;
-                    let volume = p.get("volume").and_then(|v| v.as_num()).ok_or_else(|| format!("accounts[{i}].positions[{j}].volume 非数字"))?;
-                    let pre_settlement = p.get("pre_settlement").and_then(|v| v.as_num()).ok_or_else(|| format!("accounts[{i}].positions[{j}].pre_settlement 非数字"))?;
-                    if !matches!(direction.as_str(), "long" | "short") || !valid_date(&open_date) || instrument.is_empty() || exchange.is_empty() || trade_id.is_empty() || instrument.len() > 80 || exchange.len() > 8 || trade_id.len() > 20 || [&instrument, &exchange, &trade_id].iter().any(|s| s.contains('\0')) || open_price <= 0.0 || pre_settlement <= 0.0 || !open_price.is_finite() || !pre_settlement.is_finite() || !volume.is_finite() || volume <= 0.0 || volume > i32::MAX as f64 || volume.fract() != 0.0 {
+                    let open_price = p
+                        .get("open_price")
+                        .and_then(|v| v.as_num())
+                        .ok_or_else(|| format!("accounts[{i}].positions[{j}].open_price 非数字"))?;
+                    let volume = p
+                        .get("volume")
+                        .and_then(|v| v.as_num())
+                        .ok_or_else(|| format!("accounts[{i}].positions[{j}].volume 非数字"))?;
+                    let pre_settlement = p
+                        .get("pre_settlement")
+                        .and_then(|v| v.as_num())
+                        .ok_or_else(|| {
+                            format!("accounts[{i}].positions[{j}].pre_settlement 非数字")
+                        })?;
+                    if !matches!(direction.as_str(), "long" | "short")
+                        || !valid_date(&open_date)
+                        || instrument.is_empty()
+                        || exchange.is_empty()
+                        || trade_id.is_empty()
+                        || instrument.len() > 80
+                        || exchange.len() > 8
+                        || trade_id.len() > 20
+                        || [&instrument, &exchange, &trade_id]
+                            .iter()
+                            .any(|s| s.contains('\0'))
+                        || open_price <= 0.0
+                        || pre_settlement <= 0.0
+                        || !open_price.is_finite()
+                        || !pre_settlement.is_finite()
+                        || !volume.is_finite()
+                        || volume <= 0.0
+                        || volume > i32::MAX as f64
+                        || volume.fract() != 0.0
+                    {
                         return Err(format!("accounts[{i}].positions[{j}] 字段非法"));
                     }
                     let margin = match p.get("margin") {
                         None => None,
                         Some(Value::Num(m)) if m.is_finite() && *m >= 0.0 => Some(*m),
-                        _ => return Err(format!("accounts[{i}].positions[{j}].margin 必须是有限非负数字")),
+                        _ => {
+                            return Err(format!(
+                                "accounts[{i}].positions[{j}].margin 必须是有限非负数字"
+                            ))
+                        }
                     };
                     let key = format!("{instrument}|{exchange}|{direction}|{open_date}|{trade_id}");
-                    if !keys.insert(key) { return Err(format!("accounts[{i}].positions[{j}] 重复逐笔 key")); }
-                    positions.push(BootstrapPosition { instrument, exchange, direction, open_date, trade_id, open_price, volume: volume as i32, pre_settlement, margin });
+                    if !keys.insert(key) {
+                        return Err(format!("accounts[{i}].positions[{j}] 重复逐笔 key"));
+                    }
+                    positions.push(BootstrapPosition {
+                        instrument,
+                        exchange,
+                        direction,
+                        open_date,
+                        trade_id,
+                        open_price,
+                        volume: volume as i32,
+                        pre_settlement,
+                        margin,
+                    });
                 }
             }
             let total: i64 = positions.iter().map(|p| p.volume as i64).sum();
-            if total > i32::MAX as i64 { return Err(format!("accounts[{i}] positions 聚合 volume 超过 i32")); }
-            spec.accounts.push(AccountSpec { investor, balance, positions });
+            if total > i32::MAX as i64 {
+                return Err(format!("accounts[{i}] positions 聚合 volume 超过 i32"));
+            }
+            spec.accounts.push(AccountSpec {
+                investor,
+                balance,
+                positions,
+            });
         }
     }
     if let Some(Value::Arr(items)) = v.get("assertions") {
@@ -235,8 +305,8 @@ pub fn parse_spec(v: &Value) -> Result<Spec, String> {
             let op_s = item
                 .get_str("op")
                 .ok_or_else(|| format!("assertions[{i}]: 缺少 op"))?;
-            let op = Cmp::parse(&op_s)
-                .ok_or_else(|| format!("assertions[{i}]: 未知 op '{op_s}'"))?;
+            let op =
+                Cmp::parse(&op_s).ok_or_else(|| format!("assertions[{i}]: 未知 op '{op_s}'"))?;
             let value =
                 get_num(item, "value").ok_or_else(|| format!("assertions[{i}]: 缺少 value"))?;
             if after_ms < 0.0 {
@@ -258,7 +328,8 @@ pub fn parse_spec(v: &Value) -> Result<Spec, String> {
 }
 
 /// Parse "HH:MM:SS[.mmm]" (a leading "YYYY-MM-DD " date part is accepted and
-/// ignored — single-day replay). Returns virtual ms since midnight.
+/// ignored — single trading day). Returns the trading-day timeline value
+/// (`ctpbuddy_market::session_ms`): night-session clock times are negative.
 pub fn parse_hms_ms(s: &str) -> Option<f64> {
     let s = s.trim();
     let time = match s.rsplit_once(' ') {
@@ -269,10 +340,16 @@ pub fn parse_hms_ms(s: &str) -> Option<f64> {
     let h: f64 = it.next()?.parse().ok()?;
     let m: f64 = it.next()?.parse().ok()?;
     let sec: f64 = it.next()?.parse().ok()?;
-    if it.next().is_some() || !(0.0..24.0).contains(&h) || !(0.0..60.0).contains(&m) || !(0.0..60.0).contains(&sec) {
+    if it.next().is_some()
+        || !(0.0..24.0).contains(&h)
+        || !(0.0..60.0).contains(&m)
+        || !(0.0..60.0).contains(&sec)
+    {
         return None;
     }
-    Some((h * 3600.0 + m * 60.0 + sec) * 1000.0)
+    Some(ctpbuddy_market::session_ms(
+        (h * 3600.0 + m * 60.0 + sec) * 1000.0,
+    ))
 }
 
 #[cfg(test)]
@@ -344,6 +421,10 @@ mod tests {
         assert_eq!(parse_hms_ms("2026-10-02 09:30:00"), Some(34200000.0));
         assert_eq!(parse_hms_ms("nonsense"), None);
         assert_eq!(parse_hms_ms("25:00:00"), None);
+        // night session sits before the day session on the same timeline
+        assert_eq!(parse_hms_ms("21:00:00"), Some(-3.0 * 3_600_000.0));
+        assert!(parse_hms_ms("23:59:00").unwrap() < parse_hms_ms("00:30:00").unwrap());
+        assert!(parse_hms_ms("02:30:00").unwrap() < parse_hms_ms("09:00:00").unwrap());
     }
 
     #[test]

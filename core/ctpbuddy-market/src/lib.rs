@@ -6,18 +6,40 @@
 
 pub mod transform;
 
-use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcDepthMarketDataField};
+use ctpbuddy_wire::generated::{set_cstr, CThostFtdcDepthMarketDataField};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 
 pub const DEPTH: usize = 5;
 
+/// Milliseconds in a calendar day.
+pub const DAY_MS: f64 = 86_400_000.0;
+/// Clock times at or after this belong to the *night session* of the next
+/// trading day (国内期货夜盘 21:00 起，归属下一交易日).
+pub const NIGHT_START_MS: f64 = 18.0 * 3_600_000.0;
+
+/// Map a wall-clock time of day (ms since midnight) onto the trading-day
+/// timeline. The night session (from 18:00) is the *start* of the trading
+/// day, so it maps to negative values: 21:00 → -3h, 00:30 → +0.5h,
+/// 09:00 → +9h. The timeline is monotonic across midnight, which is what
+/// pacing, seek, transforms and assertions all compare on.
+pub fn session_ms(clock_ms: f64) -> f64 {
+    if clock_ms >= NIGHT_START_MS {
+        clock_ms - DAY_MS
+    } else {
+        clock_ms
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Tick {
     pub instrument_id: String,
     pub exchange_id: String,
     pub trading_day: String,
+    /// 实际自然日 (`ActionDay`). Empty = same as `trading_day`; a night-session
+    /// tick should carry the calendar date it actually printed on.
+    pub action_day: String,
     pub update_time: String,
     pub update_millisec: i32,
     pub last_price: f64,
@@ -48,6 +70,7 @@ impl Default for Tick {
             instrument_id: String::new(),
             exchange_id: String::new(),
             trading_day: String::new(),
+            action_day: String::new(),
             update_time: String::new(),
             update_millisec: 0,
             last_price: 0.0,
@@ -74,26 +97,10 @@ impl Default for Tick {
 }
 
 impl Tick {
-    /// Virtual timestamp in milliseconds since midnight (the clock authority).
+    /// Virtual timestamp on the trading-day timeline (see [`session_ms`]):
+    /// the clock authority. Night-session ticks are negative.
     pub fn virtual_ms(&self) -> f64 {
-        parse_time_ms(&self.update_time) + self.update_millisec as f64
-    }
-
-    /// Best bid/ask, falling back to the last price when depth is absent.
-    pub fn best_bid(&self) -> f64 {
-        if self.bid_prices[0] > 0.0 {
-            self.bid_prices[0]
-        } else {
-            self.last_price
-        }
-    }
-
-    pub fn best_ask(&self) -> f64 {
-        if self.ask_prices[0] > 0.0 {
-            self.ask_prices[0]
-        } else {
-            self.last_price
-        }
+        session_ms(parse_time_ms(&self.update_time) + self.update_millisec as f64)
     }
 
     /// Convert into the wire form of `CThostFtdcDepthMarketDataField`
@@ -140,24 +147,61 @@ impl Tick {
         f.AskVolume4 = self.ask_volumes[3];
         f.AskVolume5 = self.ask_volumes[4];
         f.AveragePrice = self.average_price;
-        set_cstr(&mut f.ActionDay, &self.trading_day);
+        let action_day = if self.action_day.is_empty() {
+            &self.trading_day
+        } else {
+            &self.action_day
+        };
+        set_cstr(&mut f.ActionDay, action_day);
         f
-    }
-
-    pub fn instrument_id_c(&self) -> String {
-        cstr(&self.to_depth_md().InstrumentID)
     }
 }
 
 /// Canonical CSV schema (header row required). See scenarios/sample_ticks.csv.
 /// The first 20 columns mirror `CThostFtdcDepthMarketDataField` so a plain
 /// CTP md recording (exported by the Python tooling) can be replayed as-is.
+/// An optional 41st column `action_day` carries the night-session ActionDay.
 pub const CSV_COLUMNS: &[&str] = &[
-    "instrument", "exchange", "trading_day", "update_time", "update_millisec", "last_price",
-    "volume", "turnover", "open_interest", "pre_settlement", "settlement", "pre_close", "open",
-    "high", "low", "close", "upper", "lower", "pre_open_interest", "average", "bid1", "bid2",
-    "bid3", "bid4", "bid5", "ask1", "ask2", "ask3", "ask4", "ask5", "bidvol1", "bidvol2", "bidvol3",
-    "bidvol4", "bidvol5", "askvol1", "askvol2", "askvol3", "askvol4", "askvol5",
+    "instrument",
+    "exchange",
+    "trading_day",
+    "update_time",
+    "update_millisec",
+    "last_price",
+    "volume",
+    "turnover",
+    "open_interest",
+    "pre_settlement",
+    "settlement",
+    "pre_close",
+    "open",
+    "high",
+    "low",
+    "close",
+    "upper",
+    "lower",
+    "pre_open_interest",
+    "average",
+    "bid1",
+    "bid2",
+    "bid3",
+    "bid4",
+    "bid5",
+    "ask1",
+    "ask2",
+    "ask3",
+    "ask4",
+    "ask5",
+    "bidvol1",
+    "bidvol2",
+    "bidvol3",
+    "bidvol4",
+    "bidvol5",
+    "askvol1",
+    "askvol2",
+    "askvol3",
+    "askvol4",
+    "askvol5",
 ];
 
 pub struct CsvSource;
@@ -167,6 +211,8 @@ impl CsvSource {
     ///
     /// Lines are decoded as UTF-8 with lossy fallback (numeric columns are
     /// ASCII; GB18030 Chinese content would garble but never breaks parsing).
+    /// An empty numeric cell reads as 0; a non-numeric one is an error naming
+    /// the line and column — a garbled price must not become a silent 0.
     pub fn load(path: &str) -> std::io::Result<Vec<Tick>> {
         let f = File::open(path)?;
         let mut out = Vec::new();
@@ -194,48 +240,63 @@ impl CsvSource {
                     ),
                 ));
             }
-            let num = |idx: usize| -> f64 {
+            let num = |idx: usize| -> std::io::Result<f64> {
                 let s = c[idx].trim();
                 if s.is_empty() {
-                    0.0
-                } else {
-                    s.parse().unwrap_or(0.0)
+                    return Ok(0.0);
                 }
+                s.parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite())
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!(
+                                "csv line {}: column {} is not a finite number: {s:?}",
+                                i + 1,
+                                CSV_COLUMNS[idx]
+                            ),
+                        )
+                    })
             };
-            let int = |idx: usize| -> i32 { num(idx) as i32 };
+            let int = |idx: usize| -> std::io::Result<i32> { Ok(num(idx)? as i32) };
             let mut t = Tick::default();
             t.instrument_id = c[0].trim().into();
             t.exchange_id = c[1].trim().into();
             t.trading_day = c[2].trim().into();
+            t.action_day = c
+                .get(CSV_COLUMNS.len())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
             t.update_time = c[3].trim().into();
-            t.update_millisec = int(4);
-            t.last_price = num(5);
-            t.volume = int(6);
-            t.turnover = num(7);
-            t.open_interest = num(8);
-            t.pre_settlement_price = num(9);
-            t.settlement_price = num(10);
-            t.pre_close_price = num(11);
-            t.open_price = num(12);
-            t.high_price = num(13);
-            t.low_price = num(14);
-            t.close_price = num(15);
+            t.update_millisec = int(4)?;
+            t.last_price = num(5)?;
+            t.volume = int(6)?;
+            t.turnover = num(7)?;
+            t.open_interest = num(8)?;
+            t.pre_settlement_price = num(9)?;
+            t.settlement_price = num(10)?;
+            t.pre_close_price = num(11)?;
+            t.open_price = num(12)?;
+            t.high_price = num(13)?;
+            t.low_price = num(14)?;
+            t.close_price = num(15)?;
             t.upper_limit_price = {
-                let v = num(16);
+                let v = num(16)?;
                 if v > 0.0 {
                     v
                 } else {
                     f64::MAX
                 }
             };
-            t.lower_limit_price = num(17);
-            t.pre_open_interest = num(18);
-            t.average_price = num(19);
+            t.lower_limit_price = num(17)?;
+            t.pre_open_interest = num(18)?;
+            t.average_price = num(19)?;
             for k in 0..DEPTH {
-                t.bid_prices[k] = num(20 + k);
-                t.ask_prices[k] = num(25 + k);
-                t.bid_volumes[k] = int(30 + k);
-                t.ask_volumes[k] = int(35 + k);
+                t.bid_prices[k] = num(20 + k)?;
+                t.ask_prices[k] = num(25 + k)?;
+                t.bid_volumes[k] = int(30 + k)?;
+                t.ask_volumes[k] = int(35 + k)?;
             }
             out.push(t);
         }
@@ -254,8 +315,11 @@ fn parse_time_ms(s: &str) -> f64 {
     (h * 3600.0 + m * 60.0 + sec) * 1000.0
 }
 
-/// Format virtual ms since midnight as "HH:MM:SS" (CTP time field format).
+/// Format a trading-day timeline value (see [`session_ms`]) as the clock
+/// time "HH:MM:SS" (CTP time field format); night-session values wrap back
+/// to the evening clock.
 pub fn format_hhmmss(ms: f64) -> String {
+    let ms = if ms < 0.0 { ms + DAY_MS } else { ms };
     let total = ms.max(0.0) as i64;
     let h = total / 3_600_000;
     let m = (total % 3_600_000) / 60_000;
@@ -276,7 +340,14 @@ pub struct Playback {
     /// Loop the whole stream when it runs out (engine/ledger state is NOT
     /// reset — use reset_account / a scenario reload for that).
     looping: bool,
+    /// Wall-clock instant of the current pacing anchor. `None` whenever the
+    /// anchor must be re-taken (fresh stream, pause/resume, seek, speed
+    /// change, loop restart) so wall time spent outside the run is never
+    /// counted as elapsed playback.
     started: Option<Instant>,
+    /// Virtual time at the anchor: a tick is due once
+    /// `tick.vt <= anchor_vt + elapsed_wall_ms * speed`.
+    anchor_vt: f64,
     virtual_time: f64,
 }
 
@@ -290,12 +361,20 @@ impl Playback {
             speed,
             looping: false,
             started: None,
+            anchor_vt: 0.0,
             virtual_time: 0.0,
         }
     }
 
+    /// Forget the pacing anchor; the next running poll re-takes it at the
+    /// current stream position.
+    fn reanchor(&mut self) {
+        self.started = None;
+    }
+
     pub fn set_speed(&mut self, speed: f64) {
         self.speed = speed;
+        self.reanchor();
     }
 
     pub fn speed(&self) -> f64 {
@@ -304,10 +383,12 @@ impl Playback {
 
     pub fn pause(&mut self) {
         self.paused = true;
+        self.reanchor();
     }
 
     pub fn resume(&mut self) {
         self.paused = false;
+        self.reanchor();
     }
 
     /// 日结后丢弃旧日未播放行情，保持暂停，避免旧行情污染新日账本。
@@ -317,7 +398,7 @@ impl Playback {
         self.paused = true;
         self.step_once = false;
         self.looping = false;
-        self.started = None;
+        self.reanchor();
     }
 
     pub fn paused(&self) -> bool {
@@ -343,6 +424,7 @@ impl Playback {
             target_ms
         };
         self.step_once = false;
+        self.reanchor();
     }
 
     pub fn set_loop(&mut self, on: bool) {
@@ -372,13 +454,12 @@ impl Playback {
             if !self.looping || self.ticks.is_empty() {
                 return Vec::new();
             }
-            // loop restart: re-anchor both the stream position and the
-            // wall-clock baseline so the next pass paces normally
+            // loop restart: rewind the stream position; the pacing anchor
+            // is re-taken below so the next pass paces normally
             self.idx = 0;
             self.virtual_time = self.ticks[0].virtual_ms();
-            self.started = Some(now);
+            self.reanchor();
         }
-        let start = *self.started.get_or_insert(now);
         let mut due = Vec::new();
         if self.step_once {
             self.step_once = false;
@@ -387,22 +468,34 @@ impl Playback {
                 self.idx += 1;
                 self.advance_virtual_time();
             }
+            // a manual step moves the position: pacing restarts from here
+            self.reanchor();
             return due;
         }
-        if self.paused {
+        if self.paused || self.idx >= self.ticks.len() {
             return due;
         }
+        if self.idx == 0 {
+            // first tick sets the virtual origin
+            self.virtual_time = self.ticks[0].virtual_ms();
+        }
+        let start = match self.started {
+            Some(s) => s,
+            None => {
+                // Anchor at the current position: wall time spent paused,
+                // before a seek or at another speed never counts.
+                self.started = Some(now);
+                self.anchor_vt = self.virtual_time;
+                now
+            }
+        };
         let elapsed_ms = now.duration_since(start).as_secs_f64() * 1000.0;
         let horizon = if self.speed <= 0.0 {
             f64::MAX
         } else {
-            elapsed_ms * self.speed
+            self.anchor_vt + elapsed_ms * self.speed
         };
-        // first tick sets the virtual origin
-        if self.idx == 0 {
-            self.virtual_time = self.ticks[0].virtual_ms();
-        }
-        while self.idx < self.ticks.len() && self.ticks[self.idx].virtual_ms() <= self.virtual_time + horizon {
+        while self.idx < self.ticks.len() && self.ticks[self.idx].virtual_ms() <= horizon {
             due.push(self.ticks[self.idx].clone());
             self.idx += 1;
             self.advance_virtual_time();
@@ -414,5 +507,118 @@ impl Playback {
         if let Some(t) = self.ticks.get(self.idx.saturating_sub(1)) {
             self.virtual_time = t.virtual_ms();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ctpbuddy_wire::generated::cstr;
+    use std::time::Duration;
+
+    /// Ticks every 500 virtual ms starting 09:30:00.
+    fn stream(n: usize) -> Vec<Tick> {
+        (0..n)
+            .map(|i| {
+                let mut t = Tick::default();
+                t.instrument_id = "rb2610".into();
+                t.update_time = "09:30:00".into();
+                t.update_millisec = (i * 500) as i32;
+                t
+            })
+            .collect()
+    }
+
+    fn released(pb: &mut Playback, at: Instant) -> usize {
+        pb.poll(at).len()
+    }
+
+    #[test]
+    fn real_time_pacing_does_not_accelerate() {
+        let mut pb = Playback::new(stream(5), 1.0);
+        let t0 = Instant::now();
+        assert_eq!(released(&mut pb, t0), 1, "first tick at the origin");
+        assert_eq!(released(&mut pb, t0 + Duration::from_millis(499)), 0);
+        assert_eq!(released(&mut pb, t0 + Duration::from_millis(500)), 1);
+        // the old bug: horizon was added to the *last released* vt, so this
+        // poll 10ms later already released the 1000ms tick
+        assert_eq!(released(&mut pb, t0 + Duration::from_millis(510)), 0);
+        assert_eq!(released(&mut pb, t0 + Duration::from_millis(999)), 0);
+        assert_eq!(released(&mut pb, t0 + Duration::from_millis(1000)), 1);
+    }
+
+    #[test]
+    fn pause_time_is_not_counted_on_resume() {
+        let mut pb = Playback::new(stream(5), 1.0);
+        let t0 = Instant::now();
+        assert_eq!(released(&mut pb, t0), 1);
+        pb.pause();
+        assert_eq!(released(&mut pb, t0 + Duration::from_secs(60)), 0);
+        pb.resume();
+        // a minute paused must not burst out the remaining ticks
+        assert_eq!(released(&mut pb, t0 + Duration::from_secs(60)), 0);
+        assert_eq!(
+            released(
+                &mut pb,
+                t0 + Duration::from_secs(60) + Duration::from_millis(500)
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn seek_reanchors_pacing() {
+        let mut pb = Playback::new(stream(10), 2.0);
+        let t0 = Instant::now();
+        assert_eq!(released(&mut pb, t0), 1);
+        let later = t0 + Duration::from_secs(30);
+        pb.seek(34_202_000.0); // tick #4 (09:30:02.000)
+        assert_eq!(released(&mut pb, later), 1, "only the seek target is due");
+        // speed 2: the next 500ms tick is due after 250ms of wall time
+        assert_eq!(released(&mut pb, later + Duration::from_millis(249)), 0);
+        assert_eq!(released(&mut pb, later + Duration::from_millis(250)), 1);
+    }
+
+    #[test]
+    fn speed_zero_releases_everything() {
+        let mut pb = Playback::new(stream(7), 0.0);
+        assert_eq!(released(&mut pb, Instant::now()), 7);
+        assert!(pb.finished());
+    }
+
+    #[test]
+    fn night_session_timeline_is_monotonic_across_midnight() {
+        let at = |hms: &str| {
+            let mut t = Tick::default();
+            t.update_time = hms.into();
+            t
+        };
+        let night = ["21:00:00", "23:59:59", "00:00:00", "02:30:00"];
+        let day = ["09:00:00", "11:30:00", "15:00:00"];
+        let vts: Vec<f64> = night
+            .iter()
+            .chain(day.iter())
+            .map(|s| at(s).virtual_ms())
+            .collect();
+        assert!(vts.windows(2).all(|w| w[0] < w[1]), "{vts:?}");
+        assert_eq!(format_hhmmss(at("21:00:00").virtual_ms()), "21:00:00");
+        assert_eq!(format_hhmmss(at("00:30:00").virtual_ms()), "00:30:00");
+        // real-time pacing does not burst at midnight: 23:59:59.500 -> 00:00:00
+        let mut a = at("23:59:59");
+        a.update_millisec = 500;
+        let mut pb = Playback::new(vec![a, at("00:00:00")], 1.0);
+        let t0 = Instant::now();
+        assert_eq!(released(&mut pb, t0), 1);
+        assert_eq!(released(&mut pb, t0 + Duration::from_millis(499)), 0);
+        assert_eq!(released(&mut pb, t0 + Duration::from_millis(500)), 1);
+    }
+
+    #[test]
+    fn action_day_defaults_to_trading_day() {
+        let mut t = Tick::default();
+        t.trading_day = "20261009".into();
+        assert_eq!(cstr(&t.to_depth_md().ActionDay), "20261009");
+        t.action_day = "20261008".into();
+        assert_eq!(cstr(&t.to_depth_md().ActionDay), "20261008");
     }
 }

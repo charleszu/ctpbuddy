@@ -8,3 +8,6 @@ license.workspace = true
 ctpbuddy-wire = { path = "../ctpbuddy-wire" }
 ctpbuddy-market = { path = "../ctpbuddy-market" }
 ctpbuddy-matching = { path = "../ctpbuddy-matching" }
+
+[lints]
+workspace = true

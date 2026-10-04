@@ -12,9 +12,25 @@
 
 Python 侧 `ctpbuddy.calendar.TradingCalendar` 使用固定版本 JSON 快照，运行时不联网。快照区分自然日（`YYYY-MM-DD`）、期货交易日（`TradingDay=YYYYMMDD`）和夜盘的 `ActionDay`/`TradingDay`；缺失日期不是休市，缺失夜盘映射也不允许推断。`Admin.settle_day` 的 `next_trading_day` 可省略，此时仅由已加载快照根据当前期货 TradingDay 推导；显式参数仍保留。
 
-官方交易日历只能按交易所/中期协公开公告固定版本落地；公告可能只给节假日休市安排，不等价于全年逐日交易日快照。当前 `calendar/production/` 仅固化上期所公告〔2025〕157号的元旦样本，manifest 记录公告 URL、固定摘录 revision、覆盖范围、SHA256 和缺口。未取得完整逐日资料时不得用工作日规则、股票日历或周末规则伪造全年期货日历。夜盘开放记录必须同时给出 ActionDay/TradingDay；官方明确关闭记录用 `status: closed`，其余缺失一律拒绝查询。
+官方交易日历只能按交易所/中期协公开公告固定版本落地；公告可能只给节假日休市安排，不等价于全年逐日交易日快照。当前 `calendar/production/` 有上期所公告〔2025〕157号的元旦样本，以及 2026 全年日盘候选快照（`scope: day-session-only`，夜盘只固化公告明确的 closed 边界）；manifest 记录公告 URL、固定摘录 revision、覆盖范围、SHA256 和缺口。未取得完整逐日资料时不得用股票日历或周末规则伪造夜盘映射。夜盘开放记录必须同时给出 ActionDay/TradingDay；官方明确关闭记录用 `status: closed`，其余缺失一律拒绝查询。
 
 GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 commit、许可证和覆盖边界后人工生成快照。已核查 `gerrymanoim/exchange_calendars`（Apache-2.0，commit `bbda29fed902374bdb75acab008f421fbd567823`）：其 README 说明这是证券交易所常规时段日历，且用户贡献维护；不含 CTP 期货夜盘字段，因此不能直接替代期货日历。用户快照可通过 `with_overrides` 按自然日整条覆盖，并用 SHA256 固定复现。
+
+## 0.6 设计与当前实现的已知差距（集中登记）
+
+本文多处描述的是**目标设计**。以下条目在当前代码中尚未实现或实现方式不同，阅读后续章节时以此表为准：
+
+| 设计条目 | 当前实现 | 影响 |
+|---|---|---|
+| §6 ZeroMQ DEALER/ROUTER + PUB/SUB | plain TCP，一连接一客户端，帧格式一致 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道 |
+| §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | Shim 只解析 `tcp://<IPv4>:<port>` 字面地址 | 下游需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」暂不成立 |
+| §6.4 / §10 单进程托管多 Broker | 每个核心实例只服务一个 `--broker-id`；费率表只按合约索引 | 多 Broker 需多实例部署 |
+| §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 特例、SHFE/INE 今昨、成交开平归一化）在代码中按交易所分支 | 换规则需改代码 |
+| §6.4 登录后核心补发快照；TERT_RESTART/RESUME 私有流重传 | 未实现；`SubscribePrivateTopic` 被忽略 | 依赖重启后回放当日回报恢复状态的下游需改为登录后主动查询 |
+| §5 Shim DLL/so | 仅 Windows（winsock）DLL | Linux 下游暂无法替换 `.so` |
+| §7.3 Parquet / 插件行情源 | 仅 CSV | — |
+
+---
 
 ## 1. 项目定位
 
@@ -208,7 +224,7 @@ flowchart LR
 
 - `type`：wire type id，见 6.3；
 - `req_id`：透传 CTP `nRequestID`，响应回echo；
-- `payload`：默认小端 C struct 布局；Rust 按字段编解码、padding 清零，不读取对象的未初始化填充字节。flags/版本位预留（bit0=JSON，v1 只用于 admin 通道）；
+- `payload`：默认小端 C struct 布局；Rust 按字段编解码、padding 清零，不读取对象的未初始化填充字节。**结构体内所有字符字段按 GBK 编码**（CTP 惯例；`ctpbuddy_wire::gbk`，Rust 的 `cstr`/`set_cstr`、Python 生成的 `pack`/`unpack`、Shim 的 `set_text` 均在字段边界转换）。flags/版本位预留（bit0=JSON，v1 只用于 admin 通道）；
 - **不用 protobuf**：几百个 CTP struct 的转换是体力活且易错，两端同为自研程序，raw struct 最快最稳。
 
 ### 6.3 Type id 分配
@@ -333,7 +349,7 @@ assertions:             # 可选：场景内断言（CI 用）
 **落地口径（M2-2，2026-10-02）**：
 
 - **YAML 是编写格式，JSON 是核心消费格式**。唯一解析器/校验器在 Python 控制面（`py/ctpbuddy/scenario.py`，stdlib-only 的受限 YAML 子集：块映射/块序列/标量/一级 flow mapping/注释，错误带行号）。归一化后经 ADMIN `start_scenario` 的 `spec` 字段内联下发，或由 `ctpbuddy scenario compile DIR` 写 `scenario.json` 供核心启动路径（`--scenario`）读取；Rust 核心零 YAML、零 locale、纯确定性管道。启动路径与 ADMIN 路径共用同一个 `build_scenario`，保证两条加载路径管道一致。
-- 时间全部归一为「当日虚拟 ms」：`HH:MM:SS[.mmm]`（接受 `YYYY-MM-DD HH:MM:SS` 日期前缀，取时间部分）；时长 `90s` / `5m` / `1h30m` / 裸秒数。
+- 时间全部归一为「交易日时间轴」毫秒：日盘为当日零点起的毫秒数；**18:00 起的夜盘时刻映射为负值**（21:00 → −3h，00:30 → +0.5h），使夜盘 → 跨零点 → 日盘在同一轴上单调递增，回放节奏、seek、transforms、`clock.start` 与断言都在这条轴上比较（Rust `ctpbuddy_market::session_ms` 与 Python `scenario.session_ms` 同一口径）。输入格式 `HH:MM:SS[.mmm]`（接受 `YYYY-MM-DD HH:MM:SS` 日期前缀，取时间部分）；时长 `90s` / `5m` / `1h30m` / 裸秒数。ticks.csv 可选第 41 列 `action_day` 给出夜盘的实际自然日（缺省 = trading_day）。
 - **transforms 纯函数、顺序执行、可组合**（market crate `transform.rs`）：freeze 丢弃 `[at, at+duration)` 窗口内 tick；gap 从 at 起平移 last/average/五档价格（**涨跌停价不动**——涨跌停是规则表概念，跳空穿停板由引擎限价检查拒单，符合真实行为）；liquidity 从 from 起五档挂量 ×scale（round half away from zero，clamp ≥0）。
 - clock：`time_scale`（0 = 尽快，否则为倍速）优先于服务默认；`start` 之前的 tick 直接丢弃、永不投放。显式 speed 参数 > spec `clock.time_scale` > 服务默认 > 0。
 - accounts：场景加载时按 (investor, balance) 开户（既有账户状态不动；balance ≤ 0 回落服务默认资金）；未列出的账号首次登录按默认资金开户。
@@ -440,7 +456,7 @@ assertions:             # 可选：场景内断言（CI 用）
   Available = Balance − CurrMargin − FrozenMargin − FrozenCommission − FrozenCash − DeliveryMargin
   ```
   **CTP 的 `Balance` 字段 = 动态权益（含当日浮动/平仓盈亏），不是静态权益**——这是 ledger 实现最容易错的口径；PositionProfit/CloseProfit/Commission 与冻结资金为当日值，结算后清零；`CurrMargin` 是存续持仓占用，不能随当日统计一起清零；
-- 持仓维护 `InvestorPosition` + `InvestorPositionDetail`：昨仓 / 今仓分开，平仓严格区分**平昨 / 平今**（上期所平今手续费更高、大商所平今单独、中金/郑商所无区分但费率表不同）——全部走**规则表按交易所配置**，字段含 CloseToday/CloseYesterday 分开统计；当前昨仓 = `Position − TodayPosition`，查询 `YdPosition` 则为交易日起始的静态昨仓初值（用户初仓供给），平昨不减少；持仓明细单条 = (OpenDate, TradeID, Direction, OpenPrice, Volume, Margin, ...)，按 (OpenDate, TradeID) 排序实现**先开先平**；
+- 持仓维护 `InvestorPosition` + `InvestorPositionDetail`：昨仓 / 今仓分开，平仓严格区分**平昨 / 平今**（上期所平今手续费更高、大商所平今单独、中金/郑商所无区分但费率表不同）——字段含 CloseToday/CloseYesterday 分开统计；**上期所/能源中心报入「平仓」(`Close`) 等同平昨，今仓只能用平今平掉**（`ctpbuddy_ledger::close_buckets`），其他交易所任何平仓标志都按先开先平跨今昨消耗；当前昨仓 = `Position − TodayPosition`，查询 `YdPosition` 则为交易日起始的静态昨仓初值（用户初仓供给），平昨不减少；持仓明细单条 = (OpenDate, TradeID, Direction, OpenPrice, Volume, Margin, ...)，按 (OpenDate, TradeID) 排序实现**先开先平**；
 - **先开先平与今/昨是两个正交的轴，不可混为一谈**（M3 修正）：消耗明细的顺序**只按开仓时间**（先开先平）；`平今`/`平昨` 决定的是**可以动哪个年龄桶**，不是允许跳到最新那笔。若把「平今」实现成「今仓优先取最新」，会按错的口径结盈亏并破坏先开先平的保证——客户端靠后者复现柜台持仓。实现见 `Position::take_details_filtered`；
 - **平仓盈亏按明细算**：昨仓明细持仓价 = **昨结算价**、今仓明细持仓价 = **开仓价**——顺序错了盈亏就算错（算例见 notes/04 E2）；持仓盈亏（浮动）多头 `(最新价−持仓均价)×乘数×手数`，空头反向；
 - 保证金：期货 `(MarginRatioByVolume + MarginRatioByMoney × Price × VolumeMultiple) × Volume`；**实际计算用公司保证金率**（`ReqQryInstrumentMarginRate` 口径，即最终费率）；`ReqQryInstrument` 返回的是交易所率，仅展示不用；**MarginPriceType** 四值（昨仓恒用昨结算价；今仓按公司配置：昨结'1'/最新'2'/成交均价'3'/开仓价'4'）；市价单冻结按既有冻结估算口径；期权保证金归纳式 `MAX(权利金+不变部分, 最小保证金)` 预留扩展位；**品种内大单边已实现**：由用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按交易所 + `ProductID` 聚合，多空取大，未启用优惠的合约保持求和；跨品种映射、套利取高、仓单折抵仍未实现，见 §8.7.2；
@@ -549,11 +565,11 @@ DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨�
 | 报单流控（报单/撤单每秒笔数） | CTP 柜台端【程序化交易频繁报撤单管理】 | **Core**（归入 §8.3 风控规则表，M2 实现） | `OnRspOrderAction`「CTP:下单频率限制」 |
 | FTD 报文流控 `FTDMaxCommFlux` | 交易前置 | Core（TODO） | 无错误返回，超限指令被前置缓存到下一秒发出（表现为延迟） |
 | 前置连接数流控 `ConnectFreq` | 交易前置 | Core（TODO） | 超限被主动断开，触发 `OnFrontDisconnected` |
-| 同一用户最大在线会话数 | 柜台 / 交易核心 | Core（TODO，归入 M2-4 / M3 登录路径按投资者计） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 |
+| 同一用户最大在线会话数 | 柜台 / 交易核心 | **Core** 已实现：`max_user_sessions` 按 BrokerID+UserID 计，0 关闭（默认，兼容旧行为） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 |
 | 交易所 API 流控 | 交易所端（阈值经交易所 API 查询） | Core（TODO） | `OnRtnOrder` 报「CTP：交易所每秒发送请求数超过许可数」 |
 
 - 刻意两边都实现而不是只做一边：只有 Shim 的 -2 闸门，Core 不答 90，那么「不懂重试 NEED_RETRY 的客户端」在 SimNow 上会暴露的缺陷，在 CTPBuddy 上会被掩盖——仿真环境失去暴露问题的意义。
-- **会话数的确定语义**：同一用户的在线会话数一般有上限 n，**后台可配置、默认 6**；一次会话由 `(FrontID, SessionID)` 共同确定——FrontID 标识一条前置连接，SessionID 是该连接上的登录计数（每连接从 1 起）。这也正是 journal `order_key = front/session/ref`（§11.4）与重放连接编号对齐（§11.2）的语义依据：多会话并行报单时，只有 front+session+ref 三元组能在会话内唯一定位一笔报单。
+- **会话数的确定语义**：同一用户的在线会话数一般有上限 n，真实柜台后台可配置、常见默认 6；CTPBuddy 的 `max_user_sessions` 默认 0（不限制，兼容旧测试），需显式配置；一次会话由 `(FrontID, SessionID)` 共同确定——FrontID 标识一条前置连接，SessionID 是该连接上的登录计数（每连接从 1 起）。这也正是 journal `order_key = front/session/ref`（§11.4）与重放连接编号对齐（§11.2）的语义依据：多会话并行报单时，只有 front+session+ref 三元组能在会话内唯一定位一笔报单。
 - 穿透式监管版本起，API 连接前置时会取到前置的 `QryFreq`（经 `GetFrontInfo` 上报，Shim 已实现 FrontAddr/QryFreq/FTDPkgFreq 回填）；历史版本（穿透式监管前）每秒 1 笔的限制内置在 API 内，现已按前置配置执行。
 - `ReqQuery*` 开头的函数（走交易核心、不经查询核心）不受查询流控限制（文档原文）。
 - 客户端契约：Python SDK 的 `_query_stream` 与 demo 的 `qry_with_retry` 对 90 透明重试——等窗口过去后用同一 `nRequestID` 重发，这是生产 CTP 客户端框架的标准行为。
@@ -645,7 +661,7 @@ DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨�
 - **为什么必须忠实复刻**（对齐项目最高原则）：只挂 `OnRspOrderInsert` 的客户端在真实 CTP 上会漏掉全部 163/164/165——交易所层拒单的 `OnRspOrderInsert` 带的是 `{0}`（成功），错误只在随后的 `OnErrRtnOrderInsert`。若 CTPBuddy 把 163 也做成 `RSP_ERROR`，这个静默漏单 bug 会被仿真掩盖、测试通过而生产炸。**推错推送面比推错错误码更隐蔽**。e2e A 段因此是**反向断言**（CTP 层拒绝必须**没有** late 面），B 段是正向断言（交易所层拒绝**必须有**）。
 - **新增错误码常量**：17 `INSTRUMENT_NOT_TRADING`（原名 `ERR_ORDER_STATUS` 系误名）、51 `OVER_CLOSEYESTERDAY_POSITION`（CloseYesterday 原本恒成功）、catalog 三码校正为 50/51/30。
 - **e2e 驱动注意**：`--order-freq 2`（默认 20/s 打不爆），段间需 `sleep(1.05)` 让墙钟 1s 窗口翻转——`order_gate` 是墙钟窗口不是计数桶（§8.11）。
-- **对账结果**：299 条中 **19 已实现**（推送面全部对齐）、**51 可落地**（语义在范围内但无代码路径发出，已登记为缺口）、**229 暂不可达**（银期转账 109 / 认证授权 31 / 期权执行 21 / 短信监控 10 / 条件单预埋 9 / 套利套保 9 / 报价询价 8 / 组合 8 / 其他 26）。**遗留**：`91 EXCHANGE_RTNERROR` 常量已留但交易所侧拒单转发未接线；`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁未做。
+- **对账结果**：299 条中 **19 已实现**（推送面全部对齐）、**51 可落地**（语义在范围内但无代码路径发出，已登记为缺口）、**229 暂不可达**（银期转账 109 / 认证授权 31 / 期权执行 21 / 短信监控 10 / 条件单预埋 9 / 套利套保 9 / 报价询价 8 / 组合 8 / 其他 26）。**遗留**：`91 EXCHANGE_RTNERROR` 常量已留但交易所侧拒单转发未接线。（`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁后已由 `settlement_required` 实现，见 §8.7。）
 
 ### 8.13 FAK 回报按交易所分流（#43 落地口径，2026-10-03）
 
@@ -1008,7 +1024,7 @@ CREATE TABLE audit_log (
 | 传输 | ZeroMQ + raw struct 帧 | 无 broker、模式现成、跨语言、零转换 | protobuf（struct 转换体力活） |
 | 撮合并发 | 默认单线程，可选分片 | 确定性优先；瓶颈不在撮合 | 每品种一线程（确定性失守 + actor 复杂度） |
 | 核心语言 | Rust | 确定性引擎 + 内存安全 + 生态 | Go（GC 抖动）、C++ 全家桶（Web 慢） |
-| 控制面 | Python (FastAPI + htmx) | 量化社区通用语、插件生态 | 控制面进 Rust（重复造轮子） |
+| 控制面 | Python 标准库（CLI / SDK / `ThreadingHTTPServer` Web） | 量化社区通用语、插件生态、零依赖安装 | 控制面进 Rust（重复造轮子）；FastAPI + htmx（初版选型，后改为标准库以保持零依赖） |
 | 分发 | pip 为主 + Release zip + docker-compose | 三种用户都不落下 | 只发 pip（纯 C++ 用户被劝退） |
 | 行情源 | 内置 CSV/Parquet + Python 插件协议 | 解耦 + 用户可扩展 | 固定格式、写死两种 |
 | 存储 | SQLite 投影 + JSONL journal（§11） | 嵌入式零运维、Python 标准库直读、投影可重建、核心零依赖 | 核心直连 SQLite（Windows 链接负担）、PostgreSQL（运维过量）、纯 JSONL（即席查询难） |

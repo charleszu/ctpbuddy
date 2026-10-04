@@ -9,9 +9,6 @@ description = "本地/私有部署的 CTP 兼容仿真交易环境：CLI / SDK /
 requires-python = ">=3.9"
 dependencies = []
 
-[project.optional-dependencies]
-web = ["fastapi", "uvicorn", "jinja2", "httpx"]
-
 [project.scripts]
 ctpbuddy = "ctpbuddy.cli:main"
 

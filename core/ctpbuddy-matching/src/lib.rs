@@ -10,18 +10,17 @@ pub mod engine;
 pub mod refdata;
 
 pub use catalog::Catalog;
+pub use engine::{
+    CancelQuery, ClockCtx, EngineEvent, MatchingEngine, OrderRecord, SubmitOutcome, ERR_BAD_FIELD,
+    ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
+    ERR_INSTRUMENT_NOT_TRADING, ERR_INSUFFICIENT_MONEY, ERR_NO_CLOSE_TODAY, ERR_NO_COUNTERPARTY,
+    ERR_NO_POSITION, ERR_ORDER_FREQ, ERR_ORDER_NOT_FOUND, ERR_ORDER_STATUS_UNSUITABLE,
+    ERR_PRICE_LIMIT, ERR_PRICE_TICK, ERR_VOLUME_RANGE,
+};
 pub use refdata::{
     CommissionKind, CommissionRate, Instrument, MarginPrice, MarginRate, OrderCommRate, RefData,
     TradingParams, HEDGE_FLAG_SPECULATION, MPT_AVERAGE, MPT_OPEN_PRICE, MPT_PRE_SETTLEMENT,
     MPT_SETTLEMENT,
-};
-pub use engine::{
-    CancelQuery, ClockCtx, EngineEvent, MatchingEngine, OrderRecord, SubmitOutcome, ERR_BAD_FIELD,
-    ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
-    ERR_INSTRUMENT_NOT_TRADING, ERR_INSUFFICIENT_MONEY, ERR_NO_CLOSE_TODAY,
-    ERR_NO_COUNTERPARTY, ERR_NO_POSITION, ERR_ORDER_FREQ, ERR_ORDER_NOT_FOUND,
-    ERR_ORDER_STATUS_UNSUITABLE, ERR_PRICE_LIMIT, ERR_PRICE_TICK,
-    ERR_VOLUME_RANGE,
 };
 
 use ctpbuddy_wire::generated::set_cstr;

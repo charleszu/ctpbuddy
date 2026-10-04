@@ -33,7 +33,7 @@ int MdApi::SubscribeForQuoteRsp(char* ppInstrumentID[], int nCount) {
     // for-quote is a M2+ feature: answer locally, never leave the app hanging.
     CThostFtdcRspInfoField rsp{};
     rsp.ErrorID = 41;
-    set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTPBuddy 暂不支持询价订阅");
+    set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTPBuddy 暂不支持询价订阅");
     if (nCount > 0 && ppInstrumentID && ppInstrumentID[0]) {
         CThostFtdcSpecificInstrumentField f{};
         set_cstr(f.InstrumentID, sizeof(f.InstrumentID), ppInstrumentID[0]);
@@ -47,7 +47,7 @@ int MdApi::SubscribeForQuoteRsp(char* ppInstrumentID[], int nCount) {
 int MdApi::UnSubscribeForQuoteRsp(char* ppInstrumentID[], int nCount) {
     CThostFtdcRspInfoField rsp{};
     rsp.ErrorID = 41;
-    set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTPBuddy 暂不支持询价订阅");
+    set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTPBuddy 暂不支持询价订阅");
     if (nCount > 0 && ppInstrumentID && ppInstrumentID[0]) {
         CThostFtdcSpecificInstrumentField f{};
         set_cstr(f.InstrumentID, sizeof(f.InstrumentID), ppInstrumentID[0]);

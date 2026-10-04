@@ -6,3 +6,6 @@ license.workspace = true
 
 [dependencies]
 ctpbuddy-wire = { path = "../ctpbuddy-wire" }
+
+[lints]
+workspace = true

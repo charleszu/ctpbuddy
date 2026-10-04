@@ -8,11 +8,10 @@
 //! the *shape* and reads whatever the user supplies (see [`crate::refdata`]
 //! and the Python provider protocol `py/ctpbuddy/refdata`).
 //!
-//! [`Catalog::demo`] exists so a bare `ctpbuddy up` with no data at all still
-//! has something tradable. Its rates are **made up** and it says so in every
-//! doc comment that mentions it — do not read a number out of it and call it a
-//! market fact. A scenario that cares supplies `instruments.jsonl` +
-//! rate tables, and those take precedence.
+//! [`Catalog::bundled`] exists so a bare `ctpbuddy up` with no data at all
+//! still has something tradable: real contracts, no invented fees (see its
+//! doc comment). A scenario that cares supplies `instruments.jsonl` + rate
+//! tables, and those take precedence.
 //!
 //! # Which rate applies
 //!
@@ -31,7 +30,7 @@ pub use crate::refdata::{
     MPT_PRE_SETTLEMENT, MPT_SETTLEMENT,
 };
 
-use crate::{Direction, OffsetFlag};
+use crate::Direction;
 
 /// Contract directory + rate tables.
 ///
@@ -156,7 +155,8 @@ impl Catalog {
         pre_settlement: f64,
         fill_price: f64,
     ) -> MarginPrice {
-        self.inner.margin_price_for(is_today, pre_settlement, fill_price)
+        self.inner
+            .margin_price_for(is_today, pre_settlement, fill_price)
     }
 
     /// Legacy single-rate estimate used when freezing funds at insert time,
@@ -164,9 +164,12 @@ impl Catalog {
     /// order as if it were the more expensive of opening / closing today, so
     /// the freeze is never short and the release path stays symmetric.
     pub fn estimated_commission(&self, instrument_id: &str, price: f64, volume: i32) -> f64 {
-        let open = self.inner.commission(instrument_id, CommissionKind::Open, price, volume);
+        let open = self
+            .inner
+            .commission(instrument_id, CommissionKind::Open, price, volume);
         let close_today =
-            self.inner.commission(instrument_id, CommissionKind::CloseToday, price, volume);
+            self.inner
+                .commission(instrument_id, CommissionKind::CloseToday, price, volume);
         open.max(close_today)
     }
 
@@ -253,51 +256,6 @@ pub fn bundled_refdata_dir() -> &'static str {
 
 fn leak_path(p: std::path::PathBuf) -> &'static str {
     Box::leak(p.to_string_lossy().into_owned().into_boxed_str())
-}
-
-/// Official CTP error.xml codes for close-volume rejections: ids and prompts
-/// verbatim, because downstream clients branch on these numbers.
-pub const ERR_CLOSE_TODAY_SHORT: i32 = 50; // OVER_CLOSETODAY_POSITION     CTP:平今仓位不足
-pub const ERR_CLOSE_YD_SHORT: i32 = 51; //   OVER_CLOSEYESTERDAYPOSITION CTP:平昨仓位不足
-pub const ERR_POSITION_CHECK: i32 = 30; //  OVER_CLOSE_POSITION         CTP:平仓量超过持仓量
-
-/// Checked close-volume availability against a (today, yd) split.
-///
-/// `Close` prefers today positions then falls back to yd; `CloseToday` /
-/// `CloseYesterday` are strict. Which leg a `Close` fill ends up pricing is
-/// the same rule applied again at fill time in the ledger — keeping the two
-/// in step is what makes 平今/平昨 commission observable.
-pub fn close_volume_available(
-    offset: OffsetFlag,
-    today: i32,
-    yd: i32,
-    volume: i32,
-) -> Result<(), (i32, String)> {
-    match offset {
-        OffsetFlag::Open => Ok(()),
-        OffsetFlag::CloseToday => {
-            if today < volume {
-                Err((ERR_CLOSE_TODAY_SHORT, "CTP:平今仓位不足".into()))
-            } else {
-                Ok(())
-            }
-        }
-        OffsetFlag::CloseYesterday => {
-            if yd < volume {
-                Err((ERR_CLOSE_YD_SHORT, "CTP:平昨仓位不足".into()))
-            } else {
-                Ok(())
-            }
-        }
-        OffsetFlag::Close => {
-            let total = today + yd;
-            if total < volume {
-                Err((ERR_POSITION_CHECK, "CTP:平仓量超过持仓量".into()))
-            } else {
-                Ok(())
-            }
-        }
-    }
 }
 
 /// Per-(instrument, exchange) last-known prices, keyed for mark-to-market.

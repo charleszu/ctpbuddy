@@ -14,5 +14,14 @@ edition = "2021"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 
+# Lints this codebase deliberately does not follow:
+# - field_reassign_with_default: CTP-shaped records are built field by field
+#   from a zeroed/default value, mirroring the header layout;
+# - too_many_arguments: CTP query projections take the session identity plus
+#   the row's own fields, and bundling them into ad-hoc structs hides nothing.
+[workspace.lints.clippy]
+field_reassign_with_default = "allow"
+too_many_arguments = "allow"
+
 [profile.release]
 debug = false

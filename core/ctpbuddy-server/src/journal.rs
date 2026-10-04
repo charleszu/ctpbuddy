@@ -31,22 +31,33 @@ impl Journal {
     pub fn new(dir: &str) -> std::io::Result<Self> {
         create_dir_all(dir)?;
         let root = std::fs::canonicalize(dir)?;
-        let lock = OpenOptions::new().create(true).truncate(false).read(true).write(true)
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
             .open(root.join(".journal.lock"))?;
         lock.try_lock().map_err(std::io::Error::other)?;
         let jdir = root.join("journal");
         if jdir.exists() {
             if std::fs::symlink_metadata(&jdir)?.file_type().is_symlink()
-                || std::fs::canonicalize(&jdir)? != jdir {
-                return Err(std::io::Error::other("journal directory must not be a link"));
+                || std::fs::canonicalize(&jdir)? != jdir
+            {
+                return Err(std::io::Error::other(
+                    "journal directory must not be a link",
+                ));
             }
             let has_events = std::fs::read_dir(&jdir)?.try_fold(false, |found, entry| {
                 let entry = entry?;
-                Ok::<_, std::io::Error>(found || entry.path().extension().is_some_and(|ext| ext == "jsonl"))
+                Ok::<_, std::io::Error>(
+                    found || entry.path().extension().is_some_and(|ext| ext == "jsonl"),
+                )
             })?;
             if has_events {
-                let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                    .map_err(std::io::Error::other)?.as_nanos();
+                let stamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(std::io::Error::other)?
+                    .as_nanos();
                 let archive = root.join(format!("journal-run-{stamp}-{}", std::process::id()));
                 std::fs::create_dir(&archive)?;
                 std::fs::rename(&jdir, archive.join("journal"))?;
@@ -127,7 +138,11 @@ impl Journal {
     }
 
     /// Flush buffered lines when enough events or time have accumulated.
+    /// An idle journal (nothing pending) is never fsynced.
     pub fn flush_if_due(&mut self, now: Instant) {
+        if self.pending == 0 {
+            return;
+        }
         if self.pending >= FLUSH_EVENTS || now.duration_since(self.last_flush) >= FLUSH_EVERY {
             if let Err(error) = self.flush() {
                 eprintln!("[ctpbuddy] journal flush failed: {error}");

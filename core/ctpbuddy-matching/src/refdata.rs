@@ -353,10 +353,13 @@ impl CommissionRate {
     pub fn commission(&self, kind: CommissionKind, price: f64, multiple: i32, volume: i32) -> f64 {
         let (by_money, by_volume) = match kind {
             CommissionKind::Open => (self.open_ratio_by_money, self.open_ratio_by_volume),
-            CommissionKind::CloseYesterday => (self.close_ratio_by_money, self.close_ratio_by_volume),
-            CommissionKind::CloseToday => {
-                (self.close_today_ratio_by_money, self.close_today_ratio_by_volume)
+            CommissionKind::CloseYesterday => {
+                (self.close_ratio_by_money, self.close_ratio_by_volume)
             }
+            CommissionKind::CloseToday => (
+                self.close_today_ratio_by_money,
+                self.close_today_ratio_by_volume,
+            ),
         };
         volume as f64 * (price * multiple as f64 * by_money + by_volume)
     }
@@ -602,7 +605,10 @@ impl RefData {
         price: MarginPrice,
         volume: i32,
     ) -> f64 {
-        let multiple = self.instrument(instrument_id).map(|i| i.volume_multiple).unwrap_or(1);
+        let multiple = self
+            .instrument(instrument_id)
+            .map(|i| i.volume_multiple)
+            .unwrap_or(1);
         let p = price.value();
         if let Some(r) = self.margin_rate(instrument_id) {
             return r.margin(direction, p, multiple, volume);
@@ -629,7 +635,10 @@ impl RefData {
         price: f64,
         volume: i32,
     ) -> f64 {
-        let multiple = self.instrument(instrument_id).map(|i| i.volume_multiple).unwrap_or(1);
+        let multiple = self
+            .instrument(instrument_id)
+            .map(|i| i.volume_multiple)
+            .unwrap_or(1);
         if let Some(r) = self.commission_rate(instrument_id) {
             return r.commission(kind, price, multiple, volume);
         }
@@ -689,7 +698,9 @@ impl RefData {
         let mut rd = RefData::new();
         let instruments = read_jsonl(&format!("{dir}/instruments.jsonl"))?;
         if instruments.is_empty() {
-            return Err(format!("{dir}/instruments.jsonl 为空（instruments 表是必填的）"));
+            return Err(format!(
+                "{dir}/instruments.jsonl 为空（instruments 表是必填的）"
+            ));
         }
         for (n, row) in instruments.iter().enumerate() {
             let iid = row
@@ -736,12 +747,18 @@ impl RefData {
             if let Some(v) = row.int("delivery_month") {
                 inst.delivery_month = v;
             }
-            if let Some(v) = row.str("max_margin_side_algorithm").and_then(|s| s.as_bytes().first().copied()) {
+            if let Some(v) = row
+                .str("max_margin_side_algorithm")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
                 inst.max_margin_side_algorithm = v;
             }
             rd.insert_instrument(inst);
         }
-        for (n, row) in read_jsonl(&format!("{dir}/margin_rates.jsonl"))?.iter().enumerate() {
+        for (n, row) in read_jsonl(&format!("{dir}/margin_rates.jsonl"))?
+            .iter()
+            .enumerate()
+        {
             let mut r = MarginRate {
                 hedge_flag: HEDGE_FLAG_SPECULATION,
                 ..Default::default()
@@ -749,7 +766,8 @@ impl RefData {
             r.broker_id = row.str("broker_id").unwrap_or_default();
             r.investor_id = row.str("investor_id").unwrap_or_default();
             r.exchange_id = row.str("exchange_id").unwrap_or_default();
-            r.instrument_id = row.str("instrument_id")
+            r.instrument_id = row
+                .str("instrument_id")
                 .ok_or_else(|| format!("margin_rates.jsonl line {}: 缺 instrument_id", n + 1))?;
             r.invest_unit_id = row.str("invest_unit_id").unwrap_or_default();
             r.long_margin_ratio_by_money = row.num("long_margin_ratio_by_money").unwrap_or(0.0);
@@ -758,13 +776,17 @@ impl RefData {
             r.short_margin_ratio_by_volume = row.num("short_margin_ratio_by_volume").unwrap_or(0.0);
             rd.insert_margin_rate(r);
         }
-        for (n, row) in read_jsonl(&format!("{dir}/commission_rates.jsonl"))?.iter().enumerate() {
+        for (n, row) in read_jsonl(&format!("{dir}/commission_rates.jsonl"))?
+            .iter()
+            .enumerate()
+        {
             let mut r = CommissionRate::default();
             r.broker_id = row.str("broker_id").unwrap_or_default();
             r.investor_id = row.str("investor_id").unwrap_or_default();
             r.exchange_id = row.str("exchange_id").unwrap_or_default();
-            r.instrument_id = row.str("instrument_id")
-                .ok_or_else(|| format!("commission_rates.jsonl line {}: 缺 instrument_id", n + 1))?;
+            r.instrument_id = row.str("instrument_id").ok_or_else(|| {
+                format!("commission_rates.jsonl line {}: 缺 instrument_id", n + 1)
+            })?;
             r.invest_unit_id = row.str("invest_unit_id").unwrap_or_default();
             r.open_ratio_by_money = row.num("open_ratio_by_money").unwrap_or(0.0);
             r.open_ratio_by_volume = row.num("open_ratio_by_volume").unwrap_or(0.0);
@@ -774,7 +796,10 @@ impl RefData {
             r.close_today_ratio_by_volume = row.num("close_today_ratio_by_volume").unwrap_or(0.0);
             rd.insert_commission_rate(r);
         }
-        for (n, row) in read_jsonl(&format!("{dir}/order_comm_rates.jsonl"))?.iter().enumerate() {
+        for (n, row) in read_jsonl(&format!("{dir}/order_comm_rates.jsonl"))?
+            .iter()
+            .enumerate()
+        {
             let mut r = OrderCommRate {
                 hedge_flag: HEDGE_FLAG_SPECULATION,
                 ..Default::default()
@@ -782,8 +807,9 @@ impl RefData {
             r.broker_id = row.str("broker_id").unwrap_or_default();
             r.investor_id = row.str("investor_id").unwrap_or_default();
             r.exchange_id = row.str("exchange_id").unwrap_or_default();
-            r.instrument_id = row.str("instrument_id")
-                .ok_or_else(|| format!("order_comm_rates.jsonl line {}: 缺 instrument_id", n + 1))?;
+            r.instrument_id = row.str("instrument_id").ok_or_else(|| {
+                format!("order_comm_rates.jsonl line {}: 缺 instrument_id", n + 1)
+            })?;
             r.invest_unit_id = row.str("invest_unit_id").unwrap_or_default();
             r.order_comm_by_volume = row.num("order_comm_by_volume").unwrap_or(0.0);
             r.order_action_comm_by_volume = row.num("order_action_comm_by_volume").unwrap_or(0.0);
@@ -791,7 +817,10 @@ impl RefData {
             r.order_action_comm_by_trade = row.num("order_action_comm_by_trade").unwrap_or(0.0);
             rd.insert_order_comm_rate(r);
         }
-        if let Some(row) = read_jsonl(&format!("{dir}/trading_params.jsonl"))?.into_iter().next() {
+        if let Some(row) = read_jsonl(&format!("{dir}/trading_params.jsonl"))?
+            .into_iter()
+            .next()
+        {
             let mut p = TradingParams {
                 broker_id: row.str("broker_id").unwrap_or_default(),
                 investor_id: row.str("investor_id").unwrap_or_default(),
@@ -801,7 +830,8 @@ impl RefData {
             if let Some(c) = row.str("currency_id") {
                 p.currency_id = c;
             }
-            if let Some(t) = row.str("margin_price_type")
+            if let Some(t) = row
+                .str("margin_price_type")
                 .and_then(|s| s.as_bytes().first().copied())
             {
                 p.margin_price_type = t;
@@ -855,12 +885,21 @@ impl JsonRow {
     /// A non-empty string value; a numeric value is stringified so a provider
     /// that writes `delivery_year: 2026` still yields `"2026"`.
     fn str(&self, key: &str) -> Option<String> {
-        self.0.iter().find(|(k, _)| k == key).and_then(|(_, v)| match v {
-            Scalar::Str(s) => Some(s.clone()),
-            Scalar::Num(n) => Some(format!("{}", *n as i64)),
-            Scalar::Bool(b) => Some(if *b { "1".into() } else { "0".into() }),
-        })
-        .filter(|s| !s.is_empty())
+        self.0
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| match v {
+                Scalar::Str(s) => s.clone(),
+                Scalar::Num(n) => format!("{}", *n as i64),
+                Scalar::Bool(b) => {
+                    if *b {
+                        "1".into()
+                    } else {
+                        "0".into()
+                    }
+                }
+            })
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -879,9 +918,7 @@ fn read_jsonl(path: &str) -> Result<Vec<JsonRow>, String> {
         if t.is_empty() || t.starts_with('#') {
             continue;
         }
-        out.push(
-            parse_flat_object(t).map_err(|e| format!("{path} line {}: {e}", i + 1))?,
-        );
+        out.push(parse_flat_object(t).map_err(|e| format!("{path} line {}: {e}", i + 1))?);
     }
     Ok(out)
 }
@@ -920,7 +957,10 @@ fn parse_flat_object(text: &str) -> Result<JsonRow, String> {
 }
 
 fn skip_ws(c: &[char], pos: &mut usize) {
-    while matches!(c.get(*pos), Some(' ') | Some('\t') | Some('\n') | Some('\r')) {
+    while matches!(
+        c.get(*pos),
+        Some(' ') | Some('\t') | Some('\n') | Some('\r')
+    ) {
         *pos += 1;
     }
 }
@@ -946,7 +986,18 @@ fn parse_string(c: &[char], pos: &mut usize) -> Result<String, String> {
                     Some('"') => out.push('"'),
                     Some('\\') => out.push('\\'),
                     Some('/') => out.push('/'),
-                    Some(other) => out.push(*other),
+                    Some('b') => out.push('\u{0008}'),
+                    Some('f') => out.push('\u{000C}'),
+                    Some('u') => {
+                        let hex: String = c.iter().skip(*pos + 1).take(4).collect();
+                        let code = u32::from_str_radix(&hex, 16)
+                            .ok()
+                            .filter(|_| hex.len() == 4)
+                            .ok_or_else(|| format!("位置 {} 的 \\u 转义无效", pos))?;
+                        out.push(char::from_u32(code).unwrap_or('\u{FFFD}'));
+                        *pos += 4;
+                    }
+                    Some(other) => return Err(format!("位置 {} 的转义 \\{other} 无效", pos)),
                     None => return Err("字符串未结束".into()),
                 }
                 *pos += 1;
@@ -963,14 +1014,19 @@ fn parse_string(c: &[char], pos: &mut usize) -> Result<String, String> {
 fn parse_scalar(c: &[char], pos: &mut usize) -> Result<Scalar, String> {
     match c.get(*pos) {
         Some('"') => Ok(Scalar::Str(parse_string(c, pos)?)),
-        Some('t') | Some('f') => {
-            let lit: String = c.iter().skip(*pos).take(4).collect();
-            *pos += 4;
-            Ok(Scalar::Bool(lit.starts_with('t')))
-        }
-        Some('n') => {
-            *pos += 4;
-            Ok(Scalar::Str(String::new()))
+        Some('t') | Some('f') | Some('n') => {
+            let word: String = c
+                .iter()
+                .skip(*pos)
+                .take_while(|ch| ch.is_ascii_alphabetic())
+                .collect();
+            *pos += word.chars().count();
+            match word.as_str() {
+                "true" => Ok(Scalar::Bool(true)),
+                "false" => Ok(Scalar::Bool(false)),
+                "null" => Ok(Scalar::Str(String::new())),
+                other => Err(format!("无效字面量 {other:?}")),
+            }
         }
         Some(_) => {
             let start = *pos;
@@ -1080,7 +1136,12 @@ mod tests {
         inst.long_margin_ratio = 0.32;
         rd.insert_instrument(inst);
 
-        let m = rd.margin("rb2601", Direction::Buy, MarginPrice::PreSettlement(3500.0), 1);
+        let m = rd.margin(
+            "rb2601",
+            Direction::Buy,
+            MarginPrice::PreSettlement(3500.0),
+            1,
+        );
         assert!((m - 0.16 * 3500.0 * 10.0).abs() < 1e-9, "{m}");
     }
 
@@ -1091,7 +1152,12 @@ mod tests {
         inst.long_margin_ratio = 0.32;
         rd.insert_instrument(inst);
         // 未配公司费率的desk仍应得到合理数字，而不是 0 保证金。
-        let m = rd.margin("rb2601", Direction::Buy, MarginPrice::PreSettlement(3500.0), 1);
+        let m = rd.margin(
+            "rb2601",
+            Direction::Buy,
+            MarginPrice::PreSettlement(3500.0),
+            1,
+        );
         assert!((m - 0.32 * 3500.0 * 10.0).abs() < 1e-9, "{m}");
     }
 
@@ -1103,7 +1169,10 @@ mod tests {
         c.open_ratio_by_volume = 0.5;
         // ByVolume 是每手固定费，与按成交额部分相加（notes/04 D1）。
         let f = c.commission(CommissionKind::Open, 3500.0, 10, 3);
-        assert!((f - 3.0 * (3500.0 * 10.0 * 0.0001 + 0.5)).abs() < 1e-9, "{f}");
+        assert!(
+            (f - 3.0 * (3500.0 * 10.0 * 0.0001 + 0.5)).abs() < 1e-9,
+            "{f}"
+        );
     }
 
     #[test]
@@ -1147,12 +1216,30 @@ mod tests {
         rd.insert_commission_rate(c);
 
         assert!(rd.margin_rate("rb2601").is_none());
-        assert!(rd.margin("rb2601", Direction::Buy, MarginPrice::PreSettlement(3500.0), 1) >= 0.0);
+        assert!(
+            rd.margin(
+                "rb2601",
+                Direction::Buy,
+                MarginPrice::PreSettlement(3500.0),
+                1
+            ) >= 0.0
+        );
         assert!(rd.commission("rb2601", CommissionKind::Open, 3500.0, 1) > 0.0);
         assert_eq!(
             rd.commission("rb2601", CommissionKind::Open, 3500.0, 1) / (3500.0 * 10.0 * 0.0001),
             1.0
         );
+    }
+
+    #[test]
+    fn flat_parser_handles_escapes_and_rejects_bad_literals() {
+        let row =
+            parse_flat_object(r#"{"instrument_name":"螺纹","is_trading":true,"x":null}"#).unwrap();
+        assert_eq!(row.str("instrument_name").as_deref(), Some("螺纹"));
+        assert_eq!(row.num("is_trading"), Some(1.0));
+        assert!(row.str("x").is_none());
+        assert!(parse_flat_object(r#"{"a":tru}"#).is_err());
+        assert!(parse_flat_object(r#"{"a":"\q"}"#).is_err());
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! CTPBuddy wire protocol: framing, message ids, CTP struct mirrors.
 
 pub mod frame;
+pub mod gbk;
 pub mod generated;
 pub mod msgs;
 
@@ -32,7 +33,10 @@ mod tests {
         let encoded = struct_to_bytes(&order);
         let price_offset = std::mem::offset_of!(CThostFtdcInputOrderField, LimitPrice);
         let volume_offset = std::mem::offset_of!(CThostFtdcInputOrderField, VolumeTotalOriginal);
-        assert_eq!(&encoded[price_offset..price_offset + 8], &3500.5f64.to_le_bytes());
+        assert_eq!(
+            &encoded[price_offset..price_offset + 8],
+            &3500.5f64.to_le_bytes()
+        );
         assert_eq!(&encoded[volume_offset..volume_offset + 4], &[4, 3, 2, 1]);
         let decoded: CThostFtdcInputOrderField = struct_from_bytes(&encoded).unwrap();
         assert_eq!(decoded.LimitPrice, order.LimitPrice);

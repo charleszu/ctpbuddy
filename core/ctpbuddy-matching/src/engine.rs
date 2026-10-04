@@ -35,9 +35,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ctpbuddy_market::{format_hhmmss, Tick, DEPTH};
-use ctpbuddy_wire::generated::{
-    cstr, set_cstr, CThostFtdcOrderField, CThostFtdcTradeField,
-};
+use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcOrderField, CThostFtdcTradeField};
 
 use crate::{to_fixed, Catalog, Direction, Fill, OffsetFlag, OrderIntent};
 
@@ -221,7 +219,11 @@ enum Counterpart {
     /// Resting order at `idx` of the counterpart side of the taker's book.
     Book { idx: usize, price: f64, avail: i32 },
     /// Tick depth level (`None` = the depth-less last-price fallback).
-    Market { level: Option<usize>, price: f64, avail: i32 },
+    Market {
+        level: Option<usize>,
+        price: f64,
+        avail: i32,
+    },
 }
 
 #[derive(Clone)]
@@ -292,9 +294,11 @@ impl MatchingEngine {
     }
 
     pub fn last_prices(&self) -> HashMap<String, f64> {
-        self.last_md.iter().map(|(k, t)| (k.clone(), t.last_price)).collect()
+        self.last_md
+            .iter()
+            .map(|(k, t)| (k.clone(), t.last_price))
+            .collect()
     }
-
 
     /// 每合约的昨结算价, straight off the tick stream. The ledger needs it
     /// because 昨仓保证金 is always charged against it (notes/04 C2) — a
@@ -313,7 +317,10 @@ impl MatchingEngine {
     }
 
     pub fn open_order_count(&self) -> usize {
-        self.books.values().map(|b| b.bids.len() + b.asks.len()).sum()
+        self.books
+            .values()
+            .map(|b| b.bids.len() + b.asks.len())
+            .sum()
     }
 
     /// Static validation (contract, price, volume). Fund/position sufficiency
@@ -338,16 +345,11 @@ impl MatchingEngine {
                     - intent.limit_price)
                     .abs();
                 if !aligned.is_finite() || aligned > EPS {
-                    return Err((
-                        ERR_PRICE_TICK,
-                        "CTP:报单价格非最小变动价位整数倍".into(),
-                    ));
+                    return Err((ERR_PRICE_TICK, "CTP:报单价格非最小变动价位整数倍".into()));
                 }
             }
             b'1' => {} // 任意价（市价）
-            _ => {
-                return Err((ERR_BAD_FIELD, "CTP:报单字段有误".into()))
-            }
+            _ => return Err((ERR_BAD_FIELD, "CTP:报单字段有误".into())),
         }
         if intent.volume <= 0 {
             return Err((ERR_VOLUME_RANGE, "CTP:下单数量不符合交易所规范".into()));
@@ -355,10 +357,7 @@ impl MatchingEngine {
         let min_v = instr.min_volume(intent.price_type);
         let max_v = instr.max_volume(intent.price_type);
         if intent.volume < min_v || intent.volume > max_v {
-            return Err((
-                ERR_VOLUME_RANGE,
-                "CTP:下单数量不符合交易所规范".into(),
-            ));
+            return Err((ERR_VOLUME_RANGE, "CTP:下单数量不符合交易所规范".into()));
         }
         Ok(())
     }
@@ -368,7 +367,10 @@ impl MatchingEngine {
     /// remainder. The emitted event sequence follows DESIGN §8.9.
     pub fn submit(&mut self, intent: &OrderIntent, ctx: &ClockCtx) -> SubmitOutcome {
         if let Err(e) = self.check(intent) {
-            return SubmitOutcome::Rejected { error_id: e.0, msg: e.1 };
+            return SubmitOutcome::Rejected {
+                error_id: e.0,
+                msg: e.1,
+            };
         }
         // price band (涨跌停) check against the latest tick, when one exists
         if intent.price_type == b'2' {
@@ -462,7 +464,11 @@ impl MatchingEngine {
         //    (docs/notes/01 D2: below MinVolume the entire order is cancelled).
         if is_fok || is_mv {
             let avail = self.available_depth(intent, md.as_ref());
-            let threshold = if is_fok { intent.volume } else { intent.min_volume.max(1) };
+            let threshold = if is_fok {
+                intent.volume
+            } else {
+                intent.min_volume.max(1)
+            };
             if avail < threshold {
                 self.push_transition(&mut rec, b'5', &mut events, ctx);
                 self.retire(key, b'5');
@@ -521,7 +527,13 @@ impl MatchingEngine {
                     let trade_id = self.next_trade_id();
                     self.emit_fill(&mut maker, price, take, &trade_id, &mut events, ctx);
                     self.record_taker_fill(
-                        &mut rec, price, take, &trade_id, is_fak, &mut fak_fills, &mut events,
+                        &mut rec,
+                        price,
+                        take,
+                        &trade_id,
+                        is_fak,
+                        &mut fak_fills,
+                        &mut events,
                         ctx,
                     );
                     if maker.volume_total > 0 {
@@ -533,7 +545,11 @@ impl MatchingEngine {
                     }
                     remaining -= take;
                 }
-                Some(Counterpart::Market { level, price, avail }) => {
+                Some(Counterpart::Market {
+                    level,
+                    price,
+                    avail,
+                }) => {
                     let take = avail.min(remaining);
                     if let Some(l) = level {
                         used[l] += take;
@@ -541,7 +557,13 @@ impl MatchingEngine {
                     // a market fill has only the taker side to report
                     let trade_id = self.next_trade_id();
                     self.record_taker_fill(
-                        &mut rec, price, take, &trade_id, is_fak, &mut fak_fills, &mut events,
+                        &mut rec,
+                        price,
+                        take,
+                        &trade_id,
+                        is_fak,
+                        &mut fak_fills,
+                        &mut events,
                         ctx,
                     );
                     remaining -= take;
@@ -613,15 +635,21 @@ impl MatchingEngine {
                     r
                 });
                 return if self.terminal_refs.contains_key(&key) {
-                    Err((ERR_ORDER_STATUS_UNSUITABLE,
-                         "CTP:报单已全成交或已撤销，不能再撤".into()))
+                    Err((
+                        ERR_ORDER_STATUS_UNSUITABLE,
+                        "CTP:报单已全成交或已撤销，不能再撤".into(),
+                    ))
                 } else {
                     Err((ERR_ORDER_NOT_FOUND, "CTP:撤单找不到相应报单".into()))
                 };
             }
         };
         let book = self.books.get_mut(&instr).expect("book exists");
-        let side = if is_bid { &mut book.bids } else { &mut book.asks };
+        let side = if is_bid {
+            &mut book.bids
+        } else {
+            &mut book.asks
+        };
         let mut rec = side.remove(pos);
         self.retire((rec.front_id, rec.session_id, rec.order_ref), b'5');
         let mut events = Vec::new();
@@ -635,7 +663,8 @@ impl MatchingEngine {
     /// tracked per tick (`used` resets on every new snapshot).
     pub fn on_tick(&mut self, tick: &Tick) -> Vec<EngineEvent> {
         let mut events = Vec::new();
-        self.last_md.insert(tick.instrument_id.clone(), tick.clone());
+        self.last_md
+            .insert(tick.instrument_id.clone(), tick.clone());
         let book = match self.books.remove(&tick.instrument_id) {
             Some(b) => b,
             None => return events,
@@ -647,10 +676,16 @@ impl MatchingEngine {
         let mut used = [0i32; DEPTH];
         let Book { bids, asks } = book;
         let mut leftover = Book::default();
-        for mut rec in bids.into_iter().chain(asks.into_iter()) {
+        for mut rec in bids.into_iter().chain(asks) {
             let mut remaining = rec.volume_total;
             while remaining > 0 {
-                match market_counterpart(tick, rec.direction, rec.price_type, rec.limit_price, &used) {
+                match market_counterpart(
+                    tick,
+                    rec.direction,
+                    rec.price_type,
+                    rec.limit_price,
+                    &used,
+                ) {
                     Some(m) => {
                         let take = m.avail.min(remaining);
                         if let Some(l) = m.level {
@@ -698,7 +733,10 @@ impl MatchingEngine {
     }
 
     fn last_md_time(&self) -> f64 {
-        self.last_md.values().map(|t| t.virtual_ms()).fold(0.0, f64::max)
+        self.last_md
+            .values()
+            .map(|t| t.virtual_ms())
+            .fold(0.0, f64::max)
     }
 
     /// Total immediately tradable volume for `intent` (book + tick depth),
@@ -711,7 +749,12 @@ impl MatchingEngine {
                 if self.self_trade_prevention && same_account(o, intent) {
                     continue;
                 }
-                if !crosses_at(intent.direction, intent.price_type, intent.limit_price, o.limit_price) {
+                if !crosses_at(
+                    intent.direction,
+                    intent.price_type,
+                    intent.limit_price,
+                    o.limit_price,
+                ) {
                     break; // side is price-sorted: nothing deeper qualifies
                 }
                 total = total.saturating_add(o.volume_total);
@@ -719,16 +762,17 @@ impl MatchingEngine {
         }
         if let Some(tick) = md {
             let mut used = [0i32; DEPTH];
-            loop {
-                match market_counterpart(tick, intent.direction, intent.price_type, intent.limit_price, &used) {
-                    Some(m) => {
-                        total = total.saturating_add(m.avail);
-                        match m.level {
-                            Some(l) => used[l] += m.avail,
-                            None => break, // unbounded last-price fallback
-                        }
-                    }
-                    None => break,
+            while let Some(m) = market_counterpart(
+                tick,
+                intent.direction,
+                intent.price_type,
+                intent.limit_price,
+                &used,
+            ) {
+                total = total.saturating_add(m.avail);
+                match m.level {
+                    Some(l) => used[l] += m.avail,
+                    None => break, // unbounded last-price fallback
                 }
             }
         }
@@ -750,20 +794,44 @@ impl MatchingEngine {
             side.iter()
                 .position(|o| {
                     (!self.self_trade_prevention || !same_account(o, intent))
-                        && crosses_at(intent.direction, intent.price_type, intent.limit_price, o.limit_price)
+                        && crosses_at(
+                            intent.direction,
+                            intent.price_type,
+                            intent.limit_price,
+                            o.limit_price,
+                        )
                 })
                 .map(|idx| {
                     let o = &side[idx];
-                    Counterpart::Book { idx, price: o.limit_price, avail: o.volume_total }
+                    Counterpart::Book {
+                        idx,
+                        price: o.limit_price,
+                        avail: o.volume_total,
+                    }
                 })
         });
         let mkt_cp = md
-            .and_then(|t| market_counterpart(t, intent.direction, intent.price_type, intent.limit_price, used))
-            .map(|m| Counterpart::Market { level: m.level, price: m.price, avail: m.avail });
+            .and_then(|t| {
+                market_counterpart(
+                    t,
+                    intent.direction,
+                    intent.price_type,
+                    intent.limit_price,
+                    used,
+                )
+            })
+            .map(|m| Counterpart::Market {
+                level: m.level,
+                price: m.price,
+                avail: m.avail,
+            });
         match (book_cp, mkt_cp) {
             (Some(b), Some(m)) => {
                 let (bp, mp) = match (&b, &m) {
-                    (Counterpart::Book { price: bp, .. }, Counterpart::Market { price: mp, .. }) => (*bp, *mp),
+                    (
+                        Counterpart::Book { price: bp, .. },
+                        Counterpart::Market { price: mp, .. },
+                    ) => (*bp, *mp),
                     _ => unreachable!(),
                 };
                 let book_better = match intent.direction {
@@ -976,8 +1044,8 @@ impl MatchingEngine {
         tf.SequenceNo = seq;
 
         let fill = Fill {
-            broker_id: rec.broker_id.clone(),
-            investor_id: rec.investor_id.clone(),
+            broker_id: rec.broker_id,
+            investor_id: rec.investor_id,
             user_id: rec.user_id,
             instrument_id: rec.instrument_id.clone(),
             exchange_id: rec.exchange_id.clone(),
@@ -988,7 +1056,7 @@ impl MatchingEngine {
             volume,
             volume_total_original: rec.volume_total_original,
             order_sys_id: rec.order_sys_id,
-            order_ref: rec.order_ref.clone(),
+            order_ref: rec.order_ref,
             trade_id: to_fixed(trade_id),
             order_key: format!(
                 "{}/{}/{}",
@@ -1149,7 +1217,8 @@ fn crosses_at(direction: Direction, price_type: u8, limit_price: f64, price: f64
 }
 
 fn same_account(o: &OrderRecord, intent: &OrderIntent) -> bool {
-    cstr(&o.broker_id) == cstr(&intent.broker_id) && cstr(&o.investor_id) == cstr(&intent.investor_id)
+    cstr(&o.broker_id) == cstr(&intent.broker_id)
+        && cstr(&o.investor_id) == cstr(&intent.investor_id)
 }
 
 /// One tradable slice of tick depth. `level` is `None` for the depth-less
@@ -1177,7 +1246,11 @@ fn market_counterpart(
     if prices[0] <= 0.0 {
         // no depth data at all: degrade to mode 1 (last price, unbounded)
         if price_type != b'2' && tick.last_price > 0.0 {
-            return Some(MktCp { level: None, price: tick.last_price, avail: i32::MAX / 2 });
+            return Some(MktCp {
+                level: None,
+                price: tick.last_price,
+                avail: i32::MAX / 2,
+            });
         }
         return None;
     }
@@ -1193,7 +1266,11 @@ fn market_counterpart(
         if !crosses_at(direction, price_type, limit_price, p) {
             break; // levels are price-sorted: nothing deeper qualifies
         }
-        return Some(MktCp { level: Some(i), price: p, avail });
+        return Some(MktCp {
+            level: Some(i),
+            price: p,
+            avail,
+        });
     }
     None
 }
@@ -1268,12 +1345,6 @@ fn build_order_field(rec: &OrderRecord, ctx: &ClockCtx, notify_seq: i32) -> CTho
     f
 }
 
-// OffsetFlag 自成交预防等风控项在 M2 规则表落地（DESIGN.md §8.3）。
-#[allow(dead_code)]
-fn _offset_label(o: OffsetFlag) -> &'static str {
-    o.label()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1318,17 +1389,26 @@ mod tests {
     fn nonfinite_prices_never_change_the_book() {
         let mut engine = MatchingEngine::new(Catalog::bundled());
         for price in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            for price_type in [b'1', b'2'] {
+            for price_type in *b"12" {
                 let mut intent = maker("rb2601", "SHFE", price, 1);
                 intent.price_type = price_type;
-                assert!(matches!(engine.submit(&intent, &ctx()), SubmitOutcome::Rejected { error_id: ERR_BAD_FIELD, .. }));
+                assert!(matches!(
+                    engine.submit(&intent, &ctx()),
+                    SubmitOutcome::Rejected {
+                        error_id: ERR_BAD_FIELD,
+                        ..
+                    }
+                ));
                 assert_eq!(engine.open_order_count(), 0);
                 intent.limit_price = 3500.0;
                 intent.stop_price = price;
                 assert!(engine.check(&intent).is_err());
             }
         }
-        assert!(matches!(engine.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()), SubmitOutcome::Accepted { .. }));
+        assert!(matches!(
+            engine.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()),
+            SubmitOutcome::Accepted { .. }
+        ));
     }
 
     /// A FAK buy: IOC + any-volume, crossing the resting ask. `investor_id`
@@ -1426,7 +1506,13 @@ mod tests {
         let ev = fak_scenario("jd2602", "DCE", 900.0);
         assert_eq!(
             statuses(&ev),
-            vec![(b'a', false), (b'3', false), (b'1', false), (b'T', true), (b'5', false)],
+            vec![
+                (b'a', false),
+                (b'3', false),
+                (b'1', false),
+                (b'T', true),
+                (b'5', false)
+            ],
             "confirm, one synthesized 部分成交, trade, cancel",
         );
     }

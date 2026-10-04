@@ -364,15 +364,22 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
         assert close(acct["Available"], INITIAL_FUNDS - COMM_BUY + UNREALIZED_OPEN - MARGIN_OPEN, 1e-4), acct
         print("[ok] cancel released the frozen estimate")
 
-        # -- crossing limit sell close at 3498 --------------------------------
-        cli.order_insert(INSTRUMENT, direction="1", offset="1", volume=1, limit_price=SELL_PRICE, exchange="SHFE")
+        # -- crossing limit sell close-today at 3498 --------------------------
+        # 上期所区分今昨：今仓必须报平今 '3'；报「平仓」'1' 等同平昨，会被拒
+        try:
+            cli.order_insert(INSTRUMENT, direction="1", offset="1", volume=1, limit_price=SELL_PRICE, exchange="SHFE")
+            raise AssertionError("SHFE Close must not consume today's position")
+        except CTPError as e:
+            assert e.error_id == 51, e  # OVER_CLOSEYESTERDAY_POSITION
+        print("[ok] SHFE Close('1') on a today-only position rejected (ErrorID 51, 平昨仓位不足)")
+        cli.order_insert(INSTRUMENT, direction="1", offset="3", volume=1, limit_price=SELL_PRICE, exchange="SHFE")
         trade_evt = None
         for kind, field in cli.events(timeout=5.0):
             if kind == RTN_TRADE:
                 trade_evt = field
                 break
         assert trade_evt is not None and close(trade_evt["Price"], SELL_PRICE), trade_evt
-        assert trade_evt["OffsetFlag"] == ord("1"), trade_evt  # close
+        assert trade_evt["OffsetFlag"] == ord("3"), trade_evt  # SHFE keeps 平今 on the trade
         print("[ok] RTN_TRADE close: %.0f (realized pnl %.2f)" % (trade_evt["Price"], (SELL_PRICE - BUY_PRICE) * 10))
 
         acct = cli.qry_trading_account()
@@ -427,7 +434,7 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
         assert any(row["order_sys_id"] for row in real_orders), real_orders
         for fill in fills:
             raw = fill["data"]
-            assert raw["direction"] in (48, 49) and raw["offset"] in (48, 49), raw
+            assert raw["direction"] in (48, 49) and raw["offset"] in (48, 51), raw
             trade = next(row for row in real_fills if row["seq"] == fill["seq"])
             assert trade["direction"] == chr(raw["direction"]) and trade["offset_flag"] == chr(raw["offset"]), trade
             assert trade["price"] == raw["price"] and trade["volume"] == raw["volume"], trade

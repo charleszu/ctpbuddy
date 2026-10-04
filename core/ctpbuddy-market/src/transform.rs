@@ -122,7 +122,10 @@ mod tests {
         ];
         let out = apply_all(
             &ticks,
-            &[Transform::Freeze { at_ms: hms(9.0, 32.0), duration_ms: 30_000.0 }],
+            &[Transform::Freeze {
+                at_ms: hms(9.0, 32.0),
+                duration_ms: 30_000.0,
+            }],
         );
         assert_eq!(out.len(), 2);
         assert_eq!(out[1].update_time, "09:33:00");
@@ -136,7 +139,10 @@ mod tests {
         ];
         let out = apply_all(
             &ticks,
-            &[Transform::Gap { at_ms: hms(9.0, 33.0), shift: -2.0 }],
+            &[Transform::Gap {
+                at_ms: hms(9.0, 33.0),
+                shift: -2.0,
+            }],
         );
         assert_eq!(out[0].last_price, 3500.0); // before: untouched
         assert_eq!(out[1].last_price, 3493.0);
@@ -149,7 +155,10 @@ mod tests {
         let ticks = vec![tick_at("09:31:00", 3502.0, 8, 10)];
         let out = apply_all(
             &ticks,
-            &[Transform::Liquidity { from_ms: hms(9.0, 31.0), scale: 0.5 }],
+            &[Transform::Liquidity {
+                from_ms: hms(9.0, 31.0),
+                scale: 0.5,
+            }],
         );
         assert_eq!(out[0].bid_volumes[0], 4);
         assert_eq!(out[0].ask_volumes[0], 5);
@@ -167,9 +176,18 @@ mod tests {
         let out = apply_all(
             &ticks,
             &[
-                Transform::Freeze { at_ms: hms(9.0, 32.0), duration_ms: 30_000.0 },
-                Transform::Liquidity { from_ms: hms(9.0, 31.0), scale: 0.5 },
-                Transform::Gap { at_ms: hms(9.0, 33.0), shift: -2.0 },
+                Transform::Freeze {
+                    at_ms: hms(9.0, 32.0),
+                    duration_ms: 30_000.0,
+                },
+                Transform::Liquidity {
+                    from_ms: hms(9.0, 31.0),
+                    scale: 0.5,
+                },
+                Transform::Gap {
+                    at_ms: hms(9.0, 33.0),
+                    shift: -2.0,
+                },
             ],
         );
         assert_eq!(out.len(), 3); // 09:30 / 09:31 / 09:33 (09:32 frozen away)

@@ -14,3 +14,6 @@ ctpbuddy-wire = { path = "../ctpbuddy-wire" }
 ctpbuddy-market = { path = "../ctpbuddy-market" }
 ctpbuddy-matching = { path = "../ctpbuddy-matching" }
 ctpbuddy-ledger = { path = "../ctpbuddy-ledger" }
+
+[lints]
+workspace = true

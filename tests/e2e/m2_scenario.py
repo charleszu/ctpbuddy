@@ -357,8 +357,10 @@ def run_scenario(td_port: int, admin_port: int, data_dir: str, scenario: str) ->
         # -- phase 5: loop restart -------------------------------------------
         assert admin.loop(True)["looping"] is True
         assert admin.status()["playback"]["looping"] is True
-        r = admin.seek("20:00:00")
-        assert r["idx"] == TOTAL_TICKS and r["virtual_time"] == "20:00:00", r
+        # seek past the last day-session tick (17:59:59 is the end of the
+        # trading-day timeline; 18:00+ is the night session that *opens* it)
+        r = admin.seek("17:59:59")
+        assert r["idx"] == TOTAL_TICKS and r["virtual_time"] == "17:59:59", r
         deadline = time.time() + 5.0
         idx = None
         while time.time() < deadline:

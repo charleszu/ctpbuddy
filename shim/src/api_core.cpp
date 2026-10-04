@@ -134,7 +134,18 @@ void ApiCore::core_release() {
         std::lock_guard<std::mutex> g(mu_);
         close_socket_locked();
     }
-    if (reader_.joinable()) reader_.join();
+    if (reader_.joinable()) {
+        // CTP forbids Release inside an SPI callback; an app that does it
+        // anyway must not deadlock joining its own thread. Detach instead:
+        // the reader sees stopped_ and returns without touching `this` again
+        // only after this call stack unwinds, so deletion is deferred to it.
+        if (reader_.get_id() == std::this_thread::get_id()) {
+            reader_.detach();
+            delete_on_exit_ = true;
+            return;
+        }
+        reader_.join();
+    }
     delete this;  // CTP contract: Release deletes the API object
 }
 
@@ -291,7 +302,7 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
         if (auth_in_flight_) return -2;
         auto fail = [&](int id, const char* msg) {
             local_rsp.ErrorID = id;
-            set_cstr(local_rsp.ErrorMsg, sizeof(local_rsp.ErrorMsg), msg);
+            set_text(local_rsp.ErrorMsg, sizeof(local_rsp.ErrorMsg), msg);
             local_error = true;
         };
         if (!req) {
@@ -415,13 +426,16 @@ void ApiCore::reader_main() {
             CThostFtdcRspInfoField rsp{};
             // 断线期间的认证失败采用兼容策略，网络原因另由断线回调报告。
             rsp.ErrorID = 63;
-            set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
+            set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
             if (auth_pd.req_msg == msgs::AUTH) on_authenticate_rsp(nullptr, rsp, auth_pd.n_request_id);
             if (login_pd.req_msg != 0) on_auth_failed(login_pd.n_request_id, rsp);
             fire_front_disconnected(0x1001);
         }
         sleep_chunks(1.0);  // reconnect backoff
     }
+    // Release() was called from an SPI callback on this very thread: the
+    // object could not be deleted then, so the reader does it on its way out.
+    if (delete_on_exit_) delete this;
 }
 
 void ApiCore::sleep_chunks(double seconds) {
@@ -476,6 +490,7 @@ const DispatchRow* ApiCore::find_row_by_req(uint16_t req_msg) const {
 bool ApiCore::is_query_msg(uint16_t msg) {
     switch (msg) {
         case msgs::REQ_QRY_INSTRUMENT:
+        case msgs::REQ_QRY_SETTLEMENT_INFO:
         case msgs::REQ_QRY_TRADING_ACCOUNT:
         case msgs::REQ_QRY_INVESTOR_POSITION:
         case msgs::REQ_QRY_INVESTOR_POSITION_DETAIL:
@@ -539,7 +554,7 @@ void ApiCore::on_auth_rsp(const Frame& f) {
     }
 
     rsp.ErrorID = 63;  // 兼容策略：CTP:客户端认证失败
-    set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
+    set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
     if (auth_pd.req_msg == msgs::AUTH) {
         on_authenticate_rsp(nullptr, rsp, auth_pd.n_request_id);
     }
@@ -602,7 +617,7 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
             if (broker != bound_auth_broker_ || user != bound_auth_user_) {
                 CThostFtdcRspInfoField rsp{};
                 rsp.ErrorID = 15;
-                set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg),
+                set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg),
                          "ReqUserLogin BrokerID/UserID 与认证身份不一致");
                 login_errors_.emplace_back(n_request_id, rsp);
                 return 0;
@@ -642,7 +657,7 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
                     // an earlier login is still waiting for AUTH: retire it now
                     retired_nrid = take_pending(stashed_login_.req_id).n_request_id;
                     retired_rsp.ErrorID = -3;
-                    set_cstr(retired_rsp.ErrorMsg, sizeof(retired_rsp.ErrorMsg), "重复的登录请求");
+                    set_text(retired_rsp.ErrorMsg, sizeof(retired_rsp.ErrorMsg), "重复的登录请求");
                 }
                 stashed_login_ = f;
                 has_stashed_login_ = true;
@@ -662,7 +677,7 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
 void ApiCore::unsupported(int n_request_id, const char* method) {
     CThostFtdcRspInfoField rsp{};
     rsp.ErrorID = -1;
-    set_cstr(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), std::string("CTPBuddy 尚未实现 ") + method);
+    set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), std::string("CTPBuddy 尚未实现 ") + method);
     on_rsp_error_fallback(rsp, n_request_id);
 }
 

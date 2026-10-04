@@ -174,11 +174,14 @@ def count_types(events: Iterable[Dict[str, Any]]) -> Dict[str, int]:
 
 
 def fmt_vt(vt_ms: Any) -> str:
-    """34260000 -> '09:31:00.000' (for humans, never hashed)."""
+    """34260000 -> '09:31:00.000'; night-session (negative) values wrap back
+    to the evening clock, -10800000 -> '21:00:00.000' (for humans, never hashed)."""
     try:
         ms = int(float(vt_ms))
     except (TypeError, ValueError):
         return str(vt_ms)
+    if ms < 0:
+        ms += 86_400_000
     h, rem = divmod(ms, 3_600_000)
     m, rem = divmod(rem, 60_000)
     s, msec = divmod(rem, 1_000)

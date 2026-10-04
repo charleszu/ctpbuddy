@@ -185,6 +185,27 @@ inline void set_cstr(char* buf, size_t n, const std::string& s) {
     memset(buf + k, 0, n - k);
 }
 
+/// Write a message authored in this source tree (UTF-8 literal, /utf-8) into a
+/// CTP char field as GBK -- the encoding every CTP client decodes. Truncates
+/// on a character boundary and always leaves a terminating NUL.
+inline void set_text(char* buf, size_t n, const std::string& utf8) {
+    std::string gbk;
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (wlen > 0) {
+        std::wstring wide(static_cast<size_t>(wlen), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), &wide[0], wlen);
+        size_t used = 0;
+        for (wchar_t ch : wide) {
+            char tmp[4];
+            int k = WideCharToMultiByte(936, 0, &ch, 1, tmp, sizeof(tmp), "?", nullptr);
+            if (k <= 0 || used + static_cast<size_t>(k) + 1 > n) break;
+            gbk.append(tmp, static_cast<size_t>(k));
+            used += static_cast<size_t>(k);
+        }
+    }
+    set_cstr(buf, n, gbk);
+}
+
 /// Everything shared by the two API shims. Not copyable; lifetime is managed
 /// through Release() (which does `delete this`), matching the CTP contract.
 class ApiCore {public:
@@ -264,6 +285,9 @@ private:
     std::atomic<bool> started_{false};
     std::atomic<bool> stopped_{false};
     std::atomic<bool> released_{false};
+    // set when Release() runs on the reader thread itself (inside an SPI
+    // callback): the reader deletes the object once its loop unwinds
+    bool delete_on_exit_ = false;
 
     std::string front_addr_;
     std::string ns_addr_;
