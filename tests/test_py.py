@@ -844,7 +844,10 @@ def test_shim_install_faults() -> None:
 
         real_replace = os.replace
         def fail_second(source, destination):
-            if os.fspath(destination) == os.path.join(target, "thostmduserapi_se.dll"):
+            # _copy_atomic receives the final destination as a normalized
+            # string; match the target DLL by basename so this fault fixture
+            # behaves identically on Windows path/resolve variants.
+            if os.path.basename(os.fspath(destination)) == "thostmduserapi_se.dll" and os.path.dirname(os.fspath(destination)) == os.path.abspath(target):
                 raise OSError("injected second os.replace failure")
             return real_replace(source, destination)
         with patch("ctpbuddy.shim_install.os.replace", side_effect=fail_second):
