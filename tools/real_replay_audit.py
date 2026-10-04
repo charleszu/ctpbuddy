@@ -88,6 +88,7 @@ def main():
     else:
         print("[skipped] no strict candidate: no synthetic replay was claimed")
     print("skip_reason_files", dict(reasons))
+    print("note: m4_real_replay.py separately verifies one eligible row when broker exports are available")
     return 0
 
 

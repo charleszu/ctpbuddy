@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [m1_smoke, m2_scenario, m2_journal, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, settings]
+        suite: [m1_smoke, m2_scenario, m2_journal, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, m4_real_replay, settings]
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"

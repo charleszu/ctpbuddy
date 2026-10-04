@@ -38,7 +38,7 @@ M1（核心闭环 + Shim 全链路）已完成：
 - [x] 任务43 `OrderSysID`：内部订单号继续用于引擎/账本/journal关联；首条对外 OrderSysID 为空，按交易所布局在 accepted 边界后填充，交易所拒单全程为空；Trade/QryOrder/撤单使用最终非空系统号，覆盖 SHFE GFD、拒单、DCE/FAK 布局与最终关联
 - [x] M3-5（本地）：结算单原始 GBK 供给与 `ReqQrySettlementInfo` 分段查询；`tests/e2e/m3_5_settlement_info.py` 已加入 CI 矩阵，本地通过，远端 CI 已核实成功（37157525169 / 3d42505、37124374367 / 12d55e8、37124336391 / 394bff9）
 - [x] M3-6（本地 + 已验证远端）：JSONL journal 的 SQLite 投影、原子 rebuild 与只读 CLI/Web 查询；设置页已增加账户/持仓/资金快照/订单/成交/审计/结算报告只读浏览、broker/investor/day 筛选与分页；Web API 采用白名单、textContent 防注入、非实时快照边界和路径安全错误；仅开放带确认/CSRF/严格校验/审计的 `settlement_report`、`settle_day` 写入口，不暴露 reset/shutdown/任意 admin/SQL；`tests/e2e/m3_6_projection.py` 已加入 CI 矩阵，本地通过，远端 CI `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success
-- [ ] M4 交付：断言 CLI、OINK 文档站、Shim真实构建基础已有；真实导出回放审计当前0个严格候选，三渠道发布与完整发布包仍未完成，不将 M4 总项标为完成
+- [ ] M4 交付：断言 CLI、OINK 文档站、Shim真实构建基础、真实成交受控回放、三表源对齐第一阶段已有；完整账户Core回放仍受期权/RefData/初始结算状态建模限制，三渠道发布与完整发布包仍未完成，不将 M4 总项标为完成
 
 ## 快速开始
 

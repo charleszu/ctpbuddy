@@ -977,7 +977,8 @@ CREATE TABLE audit_log (
 | M4-2 e2e CI | 🟡 部分实现 | `.github/workflows/core-tests.yml` 已加入显式 `cargo build`，并覆盖 Rust/Python 单测、M1/M2、M3 bootstrap/settlement/order_sysid/投影/结算单及 settings e2e；已核实远端 runs `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success，仍未覆盖 Shim/真实下游/fresh venv demo 策略，因此 M4 总项不标完成 |
 | M4-3 三渠道发布与文档站 | 🟡 文档站已具备 | `docs-site-oink/` 使用 OINK v1.1.0、Hugo Extended 0.167.0，75 pages/22 static严格构建；`.github/workflows/docs-site.yml` 已远端成功（37173389551）；发布渠道和真实域名授权仍未完成 |
 | M4-4 Shim 安全安装与真实构建验收 | 🟡 基础+本机真实构建 | CLI `install-shim --target-dir DIR --shim-dir DIR` 默认 dry-run，只有显式 `--apply` 才替换；仅接受 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 白名单，支持 manifest 版本/架构元数据，安装前备份、原子复制、恢复和 SHA 保护。已在本机用 MSVC 实际构建两个 x64 DLL 与 `demo_td.exe`；PE Machine=0x8664，真实 DLL 临时目录 dry-run/apply/restore 与 SHA 校验通过；`m1_shim_e2e.py` 真实下游全链路 PASS。产物仍被 `.gitignore` 忽略，未触碰真实 CTP 安装目录。 |
-| M4-5 真实导出回放审计 | 🟡 候选筛选完成 | `tools/real_replay_audit.py` 严格扫描432个真实交易文件：0个可直接重演候选；318个含期权/期权样式合约、432个含随包RefData未覆盖合约，因此不伪造账本重演通过。待扩展期权/完整RefData或提供受控重演输入后再实现。 |
+| M4-5 真实导出回放审计 | 🟡 受控成交回放已实现 | `tools/real_replay_audit.py` 严格扫描432个真实交易文件；完整账户重演仍无候选（期权/RefData缺口），不伪造通过。新增 `tests/e2e/m4_real_replay.py`：从真实导出动态选取一笔普通期货成交，重建最小行情/报单并逐字段核对 ExchangeID/InstrumentID/Direction/OffsetFlag/Price/Volume；无外部真实数据时安全 SKIP，已加入CI矩阵。该项证明成交ABI路径，不等价于整账户日结重演。 |
+| M4-6 三表确定性源对齐 | 🟡 第一阶段 | `tools/audit_three_way.py` 按交易日+账号对齐前一日结算单基线、当日order/trade/account和当日结算单；当前验证20个样本的1764条成交全部可按OrderSysID/字段关联，但仅为源数据对齐，不推断期权盈亏、不替代Core账本重演。 |
 
 
 ### 12.3 后续
