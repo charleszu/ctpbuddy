@@ -11,8 +11,9 @@ investor sessions and drives the whole M2-1 matching surface:
   before the just-parked order);
 - FAK / FOK / FAK-with-MinVolume exact semantics under the official CTP
   encodings (TC_IOC='1'; VC_AV='1', VC_MV='2', VC_CV='3');
-- self-trade prevention: resting orders of the same (broker, investor) never
-  match each other;
+- self-trade prevention (opt-in via ``--self-trade-prevention true``; off by
+  default): resting orders of the same (broker, investor) never match each
+  other;
 - tick-driven matching of resting orders (`on_tick`);
 - 成交开平归一化: SHFE keeps 平今 on the trade report, DCE reports 平仓
   (the order report still carries the requested 平今);
@@ -244,6 +245,9 @@ def main() -> int:
             "--speed", "0",
             "--initial-funds", str(INITIAL_FUNDS),
             "--qry-freq", "16",
+            # off by default (real CTP lets an investor cross their own
+            # order); step 7 exercises the opt-in switch
+            "--self-trade-prevention", "true",
             "--data-dir", data_dir,
         ],
         stdout=subprocess.PIPE,

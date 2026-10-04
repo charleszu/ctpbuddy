@@ -26,6 +26,7 @@ midnight, night-session times from 18:00 negative):
       - kind: gap         # 跳空: at 起价格平移 shift（涨跌停价不动）
         at: "09:33:00"
         shift: -2.0
+        instrument: rb2601  # 可选：只作用于该合约；缺省对全部合约生效
       - kind: liquidity   # 流动性: from 起五档挂量 × scale
         from: "09:31:00"
         scale: 0.5
@@ -43,6 +44,13 @@ midnight, night-session times from 18:00 negative):
 Durations: `90s` / `5m` / `1h` / `1h30m` / plain number (seconds).
 Times: `HH:MM:SS[.mmm]` or `YYYY-MM-DD HH:MM:SS[.mmm]` (date part accepted
 for authoring compatibility; single-day replay uses the time part).
+Every transform accepts an optional `instrument` (non-empty string): the
+transform then applies to that contract only; omitted = every contract.
+
+The normalized JSON form (`scenario.json`) uses resolved millisecond keys
+(`at_ms` / `duration_ms` / `from_ms` / `start_ms` / `after_ms`) and is
+re-validated by `normalize_json_spec` on every load, so a hand-edited or
+stale cache is rejected here rather than by the core.
 """
 from __future__ import annotations
 
@@ -59,9 +67,12 @@ __all__ = [
     "load_scenario_spec",
     "compile_scenario",
     "normalize_spec",
+    "normalize_json_spec",
     "parse_duration_ms",
     "parse_time_ms",
 ]
+
+TRANSFORM_KINDS = ("freeze", "gap", "liquidity")
 
 KNOWN_METRICS = (
     "balance",
@@ -338,6 +349,16 @@ def _str(v: Any, what: str) -> str:
 # spec normalization / validation
 # --------------------------------------------------------------------------
 
+def _transform_instrument(item: Dict[str, Any], where: str) -> Optional[str]:
+    """Optional per-transform `instrument` (non-empty string); None = all."""
+    if "instrument" not in item or item["instrument"] is None:
+        return None
+    v = item["instrument"]
+    if not isinstance(v, str) or not v.strip() or "\x00" in v:
+        raise ScenarioError("%s.instrument 必须是非空字符串，得到 %r" % (where, v))
+    return v.strip()
+
+
 def _norm_transforms(raw: Any) -> List[Dict[str, Any]]:
     if raw is None:
         return []
@@ -347,27 +368,131 @@ def _norm_transforms(raw: Any) -> List[Dict[str, Any]]:
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ScenarioError("transforms[%d] 必须是映射" % i)
-        kind = _str(item.get("kind"), "transforms[%d].kind" % i)
+        where = "transforms[%d]" % i
+        kind = _str(item.get("kind"), where + ".kind")
         if kind == "freeze":
-            out.append({
+            entry = {
                 "kind": "freeze",
-                "at_ms": parse_time_ms(_str(item.get("at"), "transforms[%d].at" % i)),
+                "at_ms": parse_time_ms(_str(item.get("at"), where + ".at")),
                 "duration_ms": parse_duration_ms(item.get("duration", 0)),
-            })
+            }
         elif kind == "gap":
-            out.append({
+            entry = {
                 "kind": "gap",
-                "at_ms": parse_time_ms(_str(item.get("at"), "transforms[%d].at" % i)),
-                "shift": _num(item.get("shift"), "transforms[%d].shift" % i),
-            })
+                "at_ms": parse_time_ms(_str(item.get("at"), where + ".at")),
+                "shift": _num(item.get("shift"), where + ".shift"),
+            }
         elif kind == "liquidity":
-            out.append({
+            entry = {
                 "kind": "liquidity",
-                "from_ms": parse_time_ms(_str(item.get("from"), "transforms[%d].from" % i)),
-                "scale": _num(item.get("scale"), "transforms[%d].scale" % i),
-            })
+                "from_ms": parse_time_ms(_str(item.get("from"), where + ".from")),
+                "scale": _num(item.get("scale"), where + ".scale"),
+            }
         else:
-            raise ScenarioError("transforms[%d]: 未知 kind %r（freeze/gap/liquidity）" % (i, kind))
+            raise ScenarioError("%s: 未知 kind %r（%s）" % (where, kind, "/".join(TRANSFORM_KINDS)))
+        instrument = _transform_instrument(item, where)
+        if instrument is not None:
+            entry["instrument"] = instrument
+        out.append(entry)
+    return out
+
+
+#: Normalized (scenario.json) transform fields per kind, besides `kind` and
+#: the optional `instrument`.
+_JSON_TRANSFORM_FIELDS = {
+    "freeze": ("at_ms", "duration_ms"),
+    "gap": ("at_ms", "shift"),
+    "liquidity": ("from_ms", "scale"),
+}
+
+
+def _finite(v: Any, what: str) -> float:
+    n = _num(v, what)
+    if not math.isfinite(n):
+        raise ScenarioError("%s 必须是有限数字，得到 %r" % (what, v))
+    return n
+
+
+def _check_json_transforms(raw: Any) -> List[Dict[str, Any]]:
+    """Validate transforms already in normalized form (`*_ms` keys)."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ScenarioError("transforms 必须是列表")
+    out: List[Dict[str, Any]] = []
+    for i, item in enumerate(raw):
+        where = "transforms[%d]" % i
+        if not isinstance(item, dict):
+            raise ScenarioError("%s 必须是映射" % where)
+        kind = _str(item.get("kind"), where + ".kind")
+        fields = _JSON_TRANSFORM_FIELDS.get(kind)
+        if fields is None:
+            raise ScenarioError("%s: 未知 kind %r（%s）" % (where, kind, "/".join(TRANSFORM_KINDS)))
+        unknown = set(item) - set(fields) - {"kind", "instrument"}
+        if unknown:
+            raise ScenarioError("%s: 未知字段 %s" % (where, ", ".join(sorted(unknown))))
+        entry: Dict[str, Any] = {"kind": kind}
+        for k in fields:
+            if k not in item:
+                raise ScenarioError("%s(%s): 缺少 %s" % (where, kind, k))
+            entry[k] = _finite(item[k], "%s.%s" % (where, k))
+        if kind == "freeze" and entry["duration_ms"] < 0:
+            raise ScenarioError("%s.duration_ms 不能为负" % where)
+        instrument = _transform_instrument(item, where)
+        if instrument is not None:
+            entry["instrument"] = instrument
+        out.append(entry)
+    return out
+
+
+def _check_json_clock(raw: Any) -> Dict[str, Any]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ScenarioError("clock 必须是映射")
+    unknown = set(raw) - {"time_scale", "start_ms"}
+    if unknown:
+        raise ScenarioError("clock: 未知字段 %s（编译后形式为 time_scale/start_ms）" % ", ".join(sorted(unknown)))
+    out: Dict[str, Any] = {}
+    if raw.get("time_scale") is not None:
+        ts = _finite(raw["time_scale"], "clock.time_scale")
+        if ts < 0:
+            raise ScenarioError("clock.time_scale 不能为负（0 = 尽快）")
+        out["time_scale"] = ts
+    if raw.get("start_ms") is not None:
+        out["start_ms"] = _finite(raw["start_ms"], "clock.start_ms")
+    return out
+
+
+def _check_json_assertions(raw: Any) -> List[Dict[str, Any]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ScenarioError("assertions 必须是列表")
+    out: List[Dict[str, Any]] = []
+    for i, item in enumerate(raw):
+        where = "assertions[%d]" % i
+        if not isinstance(item, dict):
+            raise ScenarioError("%s 必须是映射" % where)
+        unknown = set(item) - {"after_ms", "investor", "metric", "op", "value"}
+        if unknown:
+            raise ScenarioError("%s: 未知字段 %s" % (where, ", ".join(sorted(unknown))))
+        metric = _str(item.get("metric"), where + ".metric")
+        if metric not in KNOWN_METRICS:
+            raise ScenarioError("%s: 未知指标 %r（可用: %s）" % (where, metric, "/".join(KNOWN_METRICS)))
+        op = _str(item.get("op"), where + ".op")
+        if op not in KNOWN_OPS:
+            raise ScenarioError("%s: 未知比较符 %r（可用: %s）" % (where, op, " ".join(KNOWN_OPS)))
+        after_ms = _finite(item.get("after_ms", 0), where + ".after_ms")
+        if after_ms < 0:
+            raise ScenarioError("%s.after_ms 不能为负" % where)
+        out.append({
+            "after_ms": after_ms,
+            "investor": _str(item.get("investor"), where + ".investor").strip(),
+            "metric": metric,
+            "op": op,
+            "value": _finite(item.get("value"), where + ".value"),
+        })
     return out
 
 
@@ -510,9 +635,14 @@ def _norm_assertions(raw: Any) -> List[Dict[str, Any]]:
     return out
 
 
-def normalize_spec(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate a parsed scenario.yaml and normalize it to the JSON spec form."""
-    unknown = set(doc) - {"name", "source", "transforms", "clock", "accounts", "assertions"}
+_TOP_LEVEL = {"name", "source", "transforms", "clock", "accounts", "assertions"}
+
+
+def _norm_head(doc: Any) -> Dict[str, Any]:
+    """Shared top-level checks + `name` / `source` (same in both forms)."""
+    if not isinstance(doc, dict):
+        raise ScenarioError("顶层必须是映射")
+    unknown = set(doc) - _TOP_LEVEL
     if unknown:
         raise ScenarioError("未知顶层字段: %s（可用: name/source/transforms/clock/accounts/assertions）" % ", ".join(sorted(unknown)))
     spec: Dict[str, Any] = {"name": _str(doc.get("name") or "", "name")}
@@ -525,17 +655,48 @@ def normalize_spec(doc: Dict[str, Any]) -> Dict[str, Any]:
             raise ScenarioError("source.kind %r 暂不支持（M2 仅 csv）" % kind)
         path = _str(src.get("path", "ticks.csv"), "source.path")
         spec["source"] = {"kind": "csv", "path": path}
-    spec["transforms"] = _norm_transforms(doc.get("transforms"))
-    clock = _norm_clock(doc.get("clock"))
+    return spec
+
+
+def _norm_tail(spec: Dict[str, Any], transforms: List[Dict[str, Any]], clock: Dict[str, Any],
+               accounts: List[Dict[str, Any]], assertions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    spec["transforms"] = transforms
     if clock:
         spec["clock"] = clock
-    accounts = _norm_accounts(doc.get("accounts"))
     if accounts:
         spec["accounts"] = accounts
-    assertions = _norm_assertions(doc.get("assertions"))
     if assertions:
         spec["assertions"] = assertions
     return spec
+
+
+def normalize_spec(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate a parsed scenario.yaml and normalize it to the JSON spec form."""
+    spec = _norm_head(doc)
+    return _norm_tail(
+        spec,
+        _norm_transforms(doc.get("transforms")),
+        _norm_clock(doc.get("clock")),
+        _norm_accounts(doc.get("accounts")),
+        _norm_assertions(doc.get("assertions")),
+    )
+
+
+def normalize_json_spec(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate a spec already in the normalized JSON form (`scenario.json`).
+
+    The equivalent of `normalize_spec` for the compiled cache: same schema
+    rules, but the time fields are the resolved `*_ms` numbers, not the
+    authoring strings. Returns the (re-)normalized spec.
+    """
+    spec = _norm_head(doc)
+    return _norm_tail(
+        spec,
+        _check_json_transforms(doc.get("transforms")),
+        _check_json_clock(doc.get("clock")),
+        _norm_accounts(doc.get("accounts")),
+        _check_json_assertions(doc.get("assertions")),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -555,17 +716,25 @@ def load_scenario_spec(scenario_dir: str) -> Dict[str, Any]:
 
     Prefers `scenario.json` when it is at least as new as `scenario.yaml`
     (compiled cache), else parses `scenario.yaml`. Returns {} when neither
-    exists (legacy ticks.csv-only scenario).
+    exists (legacy ticks.csv-only scenario). Both paths are validated: the
+    cached json goes through `normalize_json_spec`, so a corrupt or
+    hand-edited cache fails here instead of being handed to the core.
     """
     ypath, jpath = _yaml_path(scenario_dir), _json_path(scenario_dir)
     if os.path.exists(jpath) and (
         not os.path.exists(ypath) or os.path.getmtime(jpath) >= os.path.getmtime(ypath)
     ):
         with open(jpath, "r", encoding="utf-8") as f:
-            doc = json.load(f)
+            try:
+                doc = json.load(f)
+            except ValueError as e:
+                raise ScenarioError("%s: 不是合法 JSON: %s" % (jpath, e))
         if not isinstance(doc, dict):
             raise ScenarioError("%s: 顶层必须是对象" % jpath)
-        return doc
+        try:
+            return normalize_json_spec(doc)
+        except ScenarioError as e:
+            raise ScenarioError("%s: %s" % (jpath, e))
     if os.path.exists(ypath):
         with open(ypath, "r", encoding="utf-8") as f:
             return normalize_spec(parse_yaml(f.read()))

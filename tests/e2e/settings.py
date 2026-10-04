@@ -29,10 +29,12 @@ def main():
     try:
         addr=f"127.0.0.1:{ap}"; initial=wait_admin(addr)
         assert initial["settings"]["max_user_sessions"] == 0
+        assert initial["settings"]["self_trade_prevention"] is False  # 默认关闭（真实交易所不阻止自成交）
         with Admin(addr) as a:
-            got=a.update_settings({"qry_freq":3,"order_freq":4,"max_user_sessions":2,"settlement_required":False,"initial_funds":123456.5})
+            got=a.update_settings({"qry_freq":3,"order_freq":4,"max_user_sessions":2,"settlement_required":False,"self_trade_prevention":True,"initial_funds":123456.5})
             assert got["settings"]["order_freq"] == 4 and got["settings"]["initial_funds"] == 123456.5
-            for bad in ({"unknown":1},{"qry_freq":0},{"qry_freq":1.2},{"initial_funds":float("nan")}):
+            assert got["settings"]["self_trade_prevention"] is True
+            for bad in ({"unknown":1},{"qry_freq":0},{"qry_freq":1.2},{"initial_funds":float("nan")},{"self_trade_prevention":1}):
                 try: a.update_settings(bad); raise AssertionError("非法设置被接受: %r" % (bad,))
                 except RuntimeError: pass
             assert a.settings()["settings"]["qry_freq"] == 3

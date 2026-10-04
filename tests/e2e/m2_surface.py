@@ -69,6 +69,15 @@ ERR_UNKNOWN_INSTR = 16   # INSTRUMENT_NOT_FOUND CTP:找不到合约
 ERR_PRICE_TICK = 165  # PRICE_WRONG_TICK      CTP:报单价格非最小变动价位整数倍
 ERR_NO_ORDER = 25     # ORDER_NOT_FOUND       CTP:撤单找不到相应报单
 
+# Timing knobs (same convention as m2_flow.py): the order gate is a wall-clock
+# 1 s window, so each section waits it out; `no_late` waits a short while for
+# a frame that must NOT come. CTPBUDDY_E2E_SLOW=1 doubles both; defaults are
+# unchanged.
+E2E_SLOW = os.environ.get("CTPBUDDY_E2E_SLOW", "") not in ("", "0")
+TIME_SCALE = 2.0 if E2E_SLOW else 1.0
+GATE_WINDOW_SLEEP = 1.05 * TIME_SCALE   # let the per-second window roll over
+LATE_FRAME_WAIT = 0.4 * TIME_SCALE      # how long a forbidden late frame gets to show up
+
 
 def input_field_of(frame, struct: str) -> dict:
     """The client's own input struct off an ERR_RTN_* payload (input ++ rsp)."""
@@ -78,14 +87,14 @@ def input_field_of(frame, struct: str) -> dict:
 
 def no_late(cli: Client, msg_type: int, why: str) -> None:
     """A front-office refusal must NOT also push the 错单回报 half."""
-    late = cli.wait_late(msg_type, timeout=0.4)
+    late = cli.wait_late(msg_type, timeout=LATE_FRAME_WAIT)
     assert late is None, "%s: unexpected half-surface frame %r" % (why, late)
 
 
 def new_window() -> None:
     """Let the front-office order gate roll over so the next section starts
     with a full per-second budget (it is a wall-clock window, §8.3)."""
-    time.sleep(1.05)
+    time.sleep(GATE_WINDOW_SLEEP)
 
 
 def main() -> int:

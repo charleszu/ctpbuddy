@@ -43,6 +43,10 @@ use ctpbuddy_wire::{struct_from_bytes, struct_to_bytes};
 use crate::json::{self, Value};
 use crate::{Frame, GateStream, World, SERVER_NAME, SERVER_VERSION};
 
+/// error.xml: `UNSUPPORTED_FUNCTION` — 不支持的 TimeCondition/VolumeCondition/条件单。
+const ERR_UNSUPPORTED_FUNCTION: i32 = 27;
+const ERR_UNSUPPORTED_FUNCTION_MSG: &str = "CTP:不支持的功能";
+
 impl World {
     pub(crate) fn on_frame(&mut self, conn_id: u64, frame: Frame) {
         let is_admin = match self.conns.get(&conn_id) {
@@ -272,19 +276,20 @@ impl World {
         };
         let broker = cstr(&req.BrokerID);
         let user = cstr(&req.UserID);
+        // 错误码全集.md: 63 AUTH_FAILED ← BrokerID 与核心不一致；3 INVALID_LOGIN ← UserID 为空。
         if broker != self.cfg.broker_id {
             return self.send_error(
                 conn_id,
                 frame.req_id,
-                15,
+                63,
                 &format!(
-                    "BrokerID '{broker}' 与本核心服务的不一致（{}）",
+                    "CTP:客户端认证失败：BrokerID '{broker}' 与本核心服务的不一致（{}）",
                     self.cfg.broker_id
                 ),
             );
         }
         if user.is_empty() {
-            return self.send_error(conn_id, frame.req_id, 15, "UserID 为空");
+            return self.send_error(conn_id, frame.req_id, 3, "CTP:不合法的登录：UserID 为空");
         }
         let (auth_broker, auth_user) = {
             let c = self.conns.get(&conn_id).unwrap();
@@ -1688,27 +1693,45 @@ fn normalize_conditions(
         b'3' => b'3', // all volume (FOK)
         _ => {
             return Err((
-                41,
-                format!("不支持的 VolumeCondition '{}'", volume_condition as char),
+                ERR_UNSUPPORTED_FUNCTION,
+                format!(
+                    "{ERR_UNSUPPORTED_FUNCTION_MSG}：不支持的 VolumeCondition '{}'",
+                    volume_condition as char
+                ),
             ))
         }
     };
     if contingent_condition != b'1' {
         return Err((
-            41,
-            "条件单暂不支持（ContingentCondition != 立即）".to_string(),
+            ERR_UNSUPPORTED_FUNCTION,
+            format!(
+                "{ERR_UNSUPPORTED_FUNCTION_MSG}：条件单暂不支持（ContingentCondition != 立即）"
+            ),
         ));
     }
     let tc = match time_condition {
         b'1' => b'1', // IOC
         b'2' => b'3', // GFS → GFD (section 概念不建模，退化为当日有效)
         b'3' => b'3', // GFD
-        b'4' => return Err((41, "GTD（指定有效期）暂不支持".to_string())),
-        b'5' => return Err((41, "GTC（撤销前有效）暂不支持".to_string())),
+        b'4' => {
+            return Err((
+                ERR_UNSUPPORTED_FUNCTION,
+                format!("{ERR_UNSUPPORTED_FUNCTION_MSG}：GTD（指定有效期）暂不支持"),
+            ))
+        }
+        b'5' => {
+            return Err((
+                ERR_UNSUPPORTED_FUNCTION,
+                format!("{ERR_UNSUPPORTED_FUNCTION_MSG}：GTC（撤销前有效）暂不支持"),
+            ))
+        }
         _ => {
             return Err((
-                41,
-                format!("不支持的 TimeCondition '{}'", time_condition as char),
+                ERR_UNSUPPORTED_FUNCTION,
+                format!(
+                    "{ERR_UNSUPPORTED_FUNCTION_MSG}：不支持的 TimeCondition '{}'",
+                    time_condition as char
+                ),
             ))
         }
     };

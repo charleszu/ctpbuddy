@@ -34,9 +34,14 @@ import re
 import sys
 
 # --- wire message ids (mirror of core/ctpbuddy-wire/src/msgs.rs) --------------
+# Single source of truth for the codegen side: gen_structs.py imports this
+# table (registry.json "messages"), and main() below syncs any NEW name into
+# msgs.rs / api_core.hpp / wire.py (never silently renumbers an existing one).
 MSG = {
     "PING": 0x0001, "PONG": 0x0002,
     "AUTH": 0x0101, "AUTH_RSP": 0x0102,
+    "LOGOUT": 0x0103, "LOGOUT_RSP": 0x0104,
+    "ADMIN_REQ": 0x0201, "ADMIN_RSP": 0x0202,
     "REQ_USER_LOGIN": 0x1001, "RSP_USER_LOGIN": 0x1002,
     "REQ_USER_LOGOUT": 0x1003, "RSP_USER_LOGOUT": 0x1004,
     "REQ_SETTLE_CONFIRM": 0x1005, "RSP_SETTLE_CONFIRM": 0x1006,
@@ -219,7 +224,13 @@ API_CLASS_RE = {
     "td": re.compile(r"class\s+TRADER_API_EXPORT\s+CThostFtdcTraderApi\s*\{(.*?)\nprotected:", re.S),
     "md": re.compile(r"class\s+MD_API_EXPORT\s+CThostFtdcMdApi\s*\{(.*?)\nprotected:", re.S),
 }
-METHOD_RE = re.compile(r"^\s*virtual\s+((?:const\s+char\s*\*|int|void))\s+(\w+)\s*\(([^;]*?)\)\s*(?:=\s*0)?\s*;\s*$")
+# One declaration per match: `virtual <ret> <name>(<params>) = 0;`. The class
+# body is whitespace-normalised first (parse_api_methods), so a signature the
+# vendor folds over several lines still matches. `const char *Name()` (no blank
+# after the star) is a legal spelling the vendor uses for GetTradingDay.
+METHOD_RE = re.compile(r"virtual\s+(const\s+char\s*\*\s*|int\s+|void\s+)(~?\w+)\s*\(([^;{}]*?)\)\s*(?:=\s*0)?\s*;")
+VIRTUAL_RE = re.compile(r"\bvirtual\b")
+COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 PARAM_RE = re.compile(r"^\s*([\w:]+)\s*\*\s*(\w+)\s*$")
 
 
@@ -228,17 +239,30 @@ def read_text(path):
         return f.read()
 
 
-def parse_api_methods(body):
-    """-> [(ret, name, params)] for every pure virtual in the class body."""
+def parse_api_methods(body, what="API class"):
+    """-> [(ret, name, params)] for every pure virtual in the class body.
+
+    Comments are stripped and all whitespace runs collapsed before matching,
+    so folded signatures (`virtual int ReqX(\n    CThostFtdcXField *p,\n    int
+    nRequestID) = 0;`) parse like single-line ones. Every `virtual` in the
+    body MUST yield a method: a miss means the vtable we generate is shorter
+    than the vendor's -- fail loudly instead of shipping a mis-laid-out class.
+    """
+    flat = " ".join(COMMENT_RE.sub(" ", body).split())
+    n_virtual = len(VIRTUAL_RE.findall(flat))
     out = []
-    for line in body.splitlines():
-        m = METHOD_RE.match(line)
-        if not m:
-            continue
-        ret, name, params = m.group(1), m.group(2), m.group(3).strip()
-        if name in ("~CThostFtdcTraderApi", "~CThostFtdcMdApi"):
-            continue
+    matched = 0
+    for m in METHOD_RE.finditer(flat):
+        matched += 1
+        ret, name, params = m.group(1), m.group(2), " ".join(m.group(3).split())
+        if name.startswith("~"):
+            continue  # virtual destructor: not part of the Req*/core surface
         out.append((" ".join(ret.split()), name, params))
+    if matched != n_virtual:
+        unmatched = [piece.strip() for piece in METHOD_RE.split(flat) if VIRTUAL_RE.search(piece or "")]
+        raise SystemExit(
+            "%s: %d `virtual` declarations but only %d parsed; unmatched: %s"
+            % (what, n_virtual, matched, "; ".join(u[:120] for u in unmatched if u)))
     return out
 
 
@@ -318,10 +342,10 @@ def gen_reqs(api, cls_name, methods, requests, handwritten):
             if "nRequestID" in params:
                 out.append(
                     "%s %s::%s(%s) {\n"
-                    "    // not implemented by the M1 core: answer locally so the app\n"
-                    "    // never waits for a callback that will not arrive.\n"
-                    "    unsupported(nRequestID, \"%s\");\n"
-                    "    return 0;\n"
+                    "    // not implemented by the M1 core: answer locally (OnRspError on\n"
+                    "    // the reader thread) so the app never waits for a callback that\n"
+                    "    // will not arrive; -1 when not connected, like the vendor.\n"
+                    "    return unsupported(nRequestID, \"%s\");\n"
                     "}\n" % (ret, cls_name, name, params, name))
             else:
                 out.append(
@@ -354,7 +378,14 @@ def gen_reqs(api, cls_name, methods, requests, handwritten):
 
 
 def gen_dispatch(api, rows, spi_type):
-    """Frame -> SPI dispatch table."""
+    """Frame -> SPI dispatch table.
+
+    Every generated row follows one shape: (1) take/peek the pending entry
+    and copy the payload UNDER c.mu() -- send_request() mutates the same map
+    from the app thread; (2) release the lock; (3) resolve the SPI pointer and
+    bail if the app never called RegisterSpi (NULL SPI is legal in CTP: the
+    vendor API simply drops callbacks); (4) invoke the callback unlocked.
+    """
     out = []
     out.append("// @generated by shim/codegen/gen_shim.py. DO NOT EDIT.")
     out.append('#include "api_%s.hpp"' % api)
@@ -366,6 +397,12 @@ def gen_dispatch(api, rows, spi_type):
     out.append("using ctpbuddy::Frame;")
     out.append("using ctpbuddy::Pending;")
     out.append("")
+    # SPI guard emitted before every callback. The pending entry is consumed
+    # BEFORE this check so a NULL SPI never leaks map entries / query gates.
+    spi_guard = [
+        "    %s* spi = static_cast<%s*>(c.spi());" % (spi_type, spi_type),
+        "    if (!spi) return;",
+    ]
     for kind, msg, struct, fn, opt in rows:
         msg_id = MSG[msg]
         var = "row_%s" % fn
@@ -388,23 +425,28 @@ def gen_dispatch(api, rows, spi_type):
             if td:
                 out.append("        if (p) c.set_trading_day_locked(p->TradingDay);")
             out.append("    }")
-            out.append("    static_cast<%s*>(c.spi())->%s(const_cast<%s*>(p), &c.zero_rsp_info(), nrid, %s);"
-                       % (spi_type, fn, struct, "false" if kind == "qry" else "true"))
+            out.extend(spi_guard)
+            out.append("    spi->%s(const_cast<%s*>(p), &c.zero_rsp_info(), nrid, %s);"
+                       % (fn, struct, "false" if kind == "qry" else "true"))
             out.append("}")
             if kind == "qry":
                 out.append("")
                 out.append("static void %s_last(ApiCore& c, int nrid) {" % var)
-                out.append("    static_cast<%s*>(c.spi())->%s(nullptr, &c.zero_rsp_info(), nrid, true);"
-                           % (spi_type, fn))
+                out.extend(spi_guard)
+                out.append("    spi->%s(nullptr, &c.zero_rsp_info(), nrid, true);" % fn)
                 out.append("}")
             out.append("")
         elif kind == "cached":
             cache = opt["cache"]
             out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
-            out.append("    Pending pd = c.take_pending(f.req_id);")
+            out.append("    Pending pd;")
+            out.append("    {")
+            out.append("        std::lock_guard<std::mutex> g(c.mu());")
+            out.append("        pd = c.take_pending(f.req_id);")
+            out.append("    }")
             out.append("    if (pd.req_msg == 0) return;")
-            out.append("    static_cast<%s*>(c.spi())->%s(&pd.%s, &c.zero_rsp_info(), pd.n_request_id, true);"
-                       % (spi_type, fn, cache))
+            out.extend(spi_guard)
+            out.append("    spi->%s(&pd.%s, &c.zero_rsp_info(), pd.n_request_id, true);" % (fn, cache))
             out.append("}")
             out.append("")
         elif kind == "errrtn":
@@ -418,32 +460,42 @@ def gen_dispatch(api, rows, spi_type):
                 out.append("    const size_t n = sizeof(in);")
                 out.append("    if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);")
                 out.append("    if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));")
+                out.extend(spi_guard)
                 if opt.get("synth_action"):
                     out.append("    CThostFtdcOrderActionField act{};")
                     out.append("    synth_order_action(act, in);")
-                    out.append("    static_cast<%s*>(c.spi())->%s(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));" % (spi_type, fn))
+                    out.append("    spi->%s(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));" % fn)
                 else:
-                    out.append("    static_cast<%s*>(c.spi())->%s(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));" % (spi_type, fn))
+                    out.append("    spi->%s(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));" % fn)
                 out.append("}")
                 out.append("")
             elif opt.get("synth_action"):
                 out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
                 out.append("    CThostFtdcRspInfoField rsp{};")
                 out.append("    payload_as(f, rsp);")
-                out.append("    Pending pd = c.take_pending(f.req_id);")
+                out.append("    Pending pd;")
+                out.append("    {")
+                out.append("        std::lock_guard<std::mutex> g(c.mu());")
+                out.append("        pd = c.take_pending(f.req_id);")
+                out.append("    }")
                 out.append("    if (pd.req_msg == 0) return;")
+                out.extend(spi_guard)
                 out.append("    CThostFtdcOrderActionField act{};")
                 out.append("    synth_order_action(act, pd.input_action);")
-                out.append("    static_cast<%s*>(c.spi())->%s(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));" % (spi_type, fn))
+                out.append("    spi->%s(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));" % fn)
                 out.append("}")
             else:
                 out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
                 out.append("    CThostFtdcRspInfoField rsp{};")
                 out.append("    payload_as(f, rsp);")
-                out.append("    Pending pd = c.take_pending(f.req_id);")
+                out.append("    Pending pd;")
+                out.append("    {")
+                out.append("        std::lock_guard<std::mutex> g(c.mu());")
+                out.append("        pd = c.take_pending(f.req_id);")
+                out.append("    }")
                 out.append("    if (pd.req_msg == 0) return;")
-                out.append("    static_cast<%s*>(c.spi())->%s(&pd.%s, &rsp);"
-                           % (spi_type, fn, opt["cache"]))
+                out.extend(spi_guard)
+                out.append("    spi->%s(&pd.%s, &rsp);" % (fn, opt["cache"]))
                 out.append("}")
             out.append("")
         elif kind == "sub":
@@ -462,15 +514,17 @@ def gen_dispatch(api, rows, spi_type):
             out.append("        last = pd->expected_responses != 0 && pd->responses >= pd->expected_responses;")
             out.append("        if (last) c.erase_pending(f.req_id);")
             out.append("    }")
-            out.append("    static_cast<%s*>(c.spi())->%s(const_cast<%s*>(p), &c.zero_rsp_info(), nrid, last);"
-                       % (spi_type, fn, struct))
+            out.extend(spi_guard)
+            out.append("    spi->%s(const_cast<%s*>(p), &c.zero_rsp_info(), nrid, last);" % (fn, struct))
             out.append("}")
             out.append("")
         elif kind == "push":
             out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
             out.append("    %s fld{};" % struct)
             out.append("    const %s* p = payload_as(f, fld);" % struct)
-            out.append("    if (p) static_cast<%s*>(c.spi())->%s(const_cast<%s*>(p));" % (spi_type, fn, struct))
+            out.append("    if (!p) return;")
+            out.extend(spi_guard)
+            out.append("    spi->%s(const_cast<%s*>(p));" % (fn, struct))
             out.append("}")
             out.append("")
         else:
@@ -484,7 +538,8 @@ def gen_dispatch(api, rows, spi_type):
         if kind in ("rsp", "qry"):
             out.append("static void %s_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {"
                        % ("row_%s" % fn))
-            out.append("    static_cast<%s*>(c.spi())->%s(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);" % (spi_type, fn))
+            out.extend(spi_guard)
+            out.append("    spi->%s(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);" % fn)
             out.append("}")
             out.append("")
         elif kind == "cached" and opt.get("err_rsp"):
@@ -493,7 +548,8 @@ def gen_dispatch(api, rows, spi_type):
             # (DESIGN §8.12); the 错单回报 half never follows these codes.
             out.append("static void %s_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {"
                        % ("row_%s" % fn))
-            out.append("    static_cast<%s*>(c.spi())->%s(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);" % (spi_type, fn))
+            out.extend(spi_guard)
+            out.append("    spi->%s(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);" % fn)
             out.append("}")
             out.append("")
 
@@ -521,27 +577,37 @@ def gen_dispatch(api, rows, spi_type):
     out.append("const DispatchRow* %s::rows() const { return %s; }" % (
         "TraderApi" if api == "td" else "MdApi", table))
     out.append("")
+    # member-level guard: same contract as the rows above (NULL SPI -> drop)
+    member_guard = [
+        "    %s* s = static_cast<%s*>(spi());" % (spi_type, spi_type),
+        "    if (!s) return;",
+    ]
     out.append("void %s::on_rsp_error_fallback(const CThostFtdcRspInfoField& rsp, int n_request_id) {" % (
         "TraderApi" if api == "td" else "MdApi"))
-    out.append("    static_cast<%s*>(spi())->OnRspError(const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);" % spi_type)
+    out.extend(member_guard)
+    out.append("    s->OnRspError(const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);")
     out.append("}")
     out.append("")
     out.append("void %s::on_auth_failed(int n_request_id, const CThostFtdcRspInfoField& rsp) {" % (
         "TraderApi" if api == "td" else "MdApi"))
-    out.append("    static_cast<%s*>(spi())->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);" % spi_type)
+    out.extend(member_guard)
+    out.append("    s->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);")
     out.append("}")
     out.append("")
     if api == "td":
         out.append("void TraderApi::on_authenticate_rsp(const CThostFtdcRspAuthenticateField* field, const CThostFtdcRspInfoField& rsp, int n_request_id) {")
-        out.append("    static_cast<CThostFtdcTraderSpi*>(spi())->OnRspAuthenticate(const_cast<CThostFtdcRspAuthenticateField*>(field), const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);")
+        out.extend(member_guard)
+        out.append("    s->OnRspAuthenticate(const_cast<CThostFtdcRspAuthenticateField*>(field), const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);")
         out.append("}")
         out.append("")
     out.append("void %s::fire_front_connected() {" % ("TraderApi" if api == "td" else "MdApi"))
-    out.append("    static_cast<%s*>(spi())->OnFrontConnected();" % spi_type)
+    out.extend(member_guard)
+    out.append("    s->OnFrontConnected();")
     out.append("}")
     out.append("")
     out.append("void %s::fire_front_disconnected(int reason) {" % ("TraderApi" if api == "td" else "MdApi"))
-    out.append("    static_cast<%s*>(spi())->OnFrontDisconnected(reason);" % spi_type)
+    out.extend(member_guard)
+    out.append("    s->OnFrontDisconnected(reason);")
     out.append("}")
     out.append("")
     out.append("}  // namespace ctpbuddy")
@@ -612,8 +678,8 @@ def main():
     md_body = API_CLASS_RE["md"].search(md_h)
     if not td_body or not md_body:
         raise SystemExit("API class not found in headers")
-    td_methods = parse_api_methods(td_body.group(1))
-    md_methods = parse_api_methods(md_body.group(1))
+    td_methods = parse_api_methods(td_body.group(1), "CThostFtdcTraderApi (%s)" % td_path)
+    md_methods = parse_api_methods(md_body.group(1), "CThostFtdcMdApi (%s)" % md_path)
 
     # --- headers ---
     td_cls = gen_class("td", "TraderApi", "CThostFtdcTraderApi", TD_REQUESTS, TD_CORE, [], td_methods)

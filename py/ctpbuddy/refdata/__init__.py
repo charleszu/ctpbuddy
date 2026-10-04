@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
@@ -422,6 +423,14 @@ def _check_rows(rows: Iterable[Dict[str, Any]], fields: List[str], table: str) -
         if iid and iid in seen:
             problems.append("%s line %d: instrument_id 重复 %r" % (table, i, iid))
         seen.add(iid)
+        # a numeric field the core will parse as a number must be one here:
+        # writing 0 for "abc" would silently turn a typo into a zero margin
+        for k, v in row.items():
+            if k in _NUMERIC and not _is_blank(v):
+                try:
+                    _to_number(v)
+                except (TypeError, ValueError):
+                    problems.append("%s line %d: %s=%r 不是数字" % (table, i, k, v))
     return problems
 
 
@@ -485,8 +494,9 @@ def write_jsonl(provider: RefDataProvider, out_dir: str) -> List[str]:
     def dump(name: str, rows: Iterable[Dict[str, Any]]) -> None:
         full = os.path.join(out_dir, name)
         with open(full, "w", encoding="utf-8", newline="\n") as f:
-            for row in rows:
-                f.write(json.dumps(_normalize(row), ensure_ascii=False, sort_keys=True) + "\n")
+            for i, row in enumerate(rows, start=1):
+                f.write(json.dumps(_normalize(row, "%s line %d" % (name, i)),
+                                   ensure_ascii=False, sort_keys=True) + "\n")
         written.append(full)
 
     dump(INSTRUMENTS, _table(provider, "instruments"))
@@ -514,17 +524,43 @@ _NUMERIC = {
 }
 
 
-def _normalize(row: Dict[str, Any]) -> Dict[str, Any]:
-    """CSV hands back strings; JSON wants numbers where CTP has numbers."""
+def _is_blank(v: Any) -> bool:
+    return v is None or (isinstance(v, str) and not v.strip())
+
+
+def _to_number(v: Any) -> Any:
+    """Strict numeric coercion for `_NUMERIC` fields (int when integral text).
+
+    Raises TypeError / ValueError on anything that is not a number: bools,
+    non-numeric text, NaN / inf (the core's JSON has no such values).
+    """
+    if isinstance(v, bool):
+        raise TypeError("bool is not a number")
+    if isinstance(v, (int, float)):
+        n: Any = v
+    else:
+        s = str(v).strip()
+        n = float(s) if "." in s or "e" in s.lower() else int(s)
+    if isinstance(n, float) and not math.isfinite(n):
+        raise ValueError("non-finite number")
+    return n
+
+
+def _normalize(row: Dict[str, Any], where: str = "") -> Dict[str, Any]:
+    """CSV hands back strings; JSON wants numbers where CTP has numbers.
+
+    A numeric field that does not parse raises ValueError naming the
+    row/field (`where` is a "table line N" prefix) — never a silent 0.
+    """
     out: Dict[str, Any] = {}
     for k, v in row.items():
-        if v is None or (isinstance(v, str) and not v.strip()):
+        if _is_blank(v):
             continue
         if k in _NUMERIC:
             try:
-                out[k] = float(v) if "." in str(v) or "e" in str(v).lower() else int(v)
+                out[k] = _to_number(v)
             except (TypeError, ValueError):
-                out[k] = 0
+                raise ValueError("%s%s=%r 不是数字" % (where + ": " if where else "", k, v)) from None
         else:
             out[k] = v
     return out

@@ -71,5 +71,50 @@ jobs:
       - name: 运行确定性核心 e2e
         run: |
           $env:CTPBUDDY_CORE = Join-Path $env:GITHUB_WORKSPACE "core/target/debug/ctpbuddy-server.exe"
-          python "tests/e2e/${{ matrix.suite }}.py"
+          # m4_real_replay 依赖本地导出的真实行情（CI 没有）；无源时默认以退出码 3
+          # 报告 SKIPPED，这里显式允许跳过，其余套件没有跳过路径。
+          $extra = @()
+          if ("${{ matrix.suite }}" -eq "m4_real_replay") { $extra = @("--allow-skip") }
+          python "tests/e2e/${{ matrix.suite }}.py" @extra
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # C++ Shim DLL（thosttraderapi_se / thostmduserapi_se 同名替换）+ 真实 CTP
+  # 应用（demo_td.exe）经 Shim 打到 Rust 核心的端到端。
+  # 依赖：MSVC（windows-latest 自带 VS 2022，shim/build_msvc.py 自动探测
+  # vcvars64.bat）与 CTP 6.7.13 头文件。官方 SDK 目录 ctpsdk/ 不入库，但
+  # docs/api-doc-html/files/ 下已有同一版本头文件（与 SDK 仅换行符不同），
+  # 通过 --sdk 指向它；Shim 只需头文件，不链接厂商 .lib。
+  # 任何一步失败即作业失败，不做静默跳过。
+  shim:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    continue-on-error: false
+    env:
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: 安装 Python 包（e2e harness 依赖 ctpbuddy.sdk）
+        run: python -m pip install ./py
+      - name: 构建 Shim DLL + demo_td.exe（MSVC，头文件取自 docs/api-doc-html/files）
+        run: |
+          python shim/build_msvc.py --demo --sdk docs/api-doc-html/files
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 生成源码必须与模板一致（gen_shim.py 回写后 git 无差异）
+        run: |
+          git diff --exit-code --ignore-cr-at-eol -- shim/src/generated shim/src/api_core.hpp core/ctpbuddy-wire/src/msgs.rs py/ctpbuddy/wire.py
+          if ($LASTEXITCODE -ne 0) { Write-Error "shim/codegen/gen_shim.py 输出与仓库不一致，请重新生成并提交"; exit 1 }
+      - name: Rust 核心构建
+        run: cargo build --locked --bin ctpbuddy-server --manifest-path core/Cargo.toml
+      - name: Shim e2e（demo_td.exe -> Shim DLL -> ctpbuddy-server）
+        run: |
+          $env:CTPBUDDY_CORE = Join-Path $env:GITHUB_WORKSPACE "core/target/debug/ctpbuddy-server.exe"
+          python tests/e2e/m1_shim_e2e.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:CTPBUDDY_SHIM_MODE = "auth-check"
+          python tests/e2e/m1_shim_e2e.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

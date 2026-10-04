@@ -8,6 +8,7 @@
 //! up through `md_watermark` instead.
 
 use ctpbuddy_market::format_hhmmss;
+use ctpbuddy_wire::generated::cstr;
 use ctpbuddy_wire::msgs;
 use ctpbuddy_wire::Frame;
 
@@ -524,9 +525,40 @@ impl World {
         );
     }
 
+    /// Active orders of `investor` still resting on the engine books
+    /// (`""` = any investor).
+    fn active_order_count_for(&self, investor: &str) -> usize {
+        if investor.is_empty() {
+            return self.engine.open_order_count();
+        }
+        self.engine
+            .active_order_fields(&self.vt_trading_day)
+            .iter()
+            .filter(|o| cstr(&o.InvestorID) == investor)
+            .count()
+    }
+
     fn admin_reset_account(&mut self, conn_id: u64, req_id: u32, v: &Value) {
         let investor = v.get_str("investor").unwrap_or_default();
         let broker = self.cfg.broker_id.clone();
+        // Same gate as `settle_day` / `start_scenario`: the ledger is wiped
+        // but the engine books are not, so a later fill against a resting
+        // close order would hit a position the ledger no longer knows.
+        let active = self.active_order_count_for(&investor);
+        if active != 0 {
+            return self.admin_error(
+                conn_id,
+                req_id,
+                &format!(
+                    "重置账户前必须先撤销{}全部活动订单（当前 {active} 笔挂单仍在撮合簿上，重置后其成交将无法入账）",
+                    if investor.is_empty() {
+                        String::new()
+                    } else {
+                        format!("账户 {investor} 的")
+                    }
+                ),
+            );
+        }
         if investor.is_empty() {
             // reset every account
             let ids: Vec<String> = self

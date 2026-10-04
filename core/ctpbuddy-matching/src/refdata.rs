@@ -148,8 +148,11 @@ impl Instrument {
             inst_life_phase: b'1',
             is_trading: true,
             position_type: b'1',
-            // '2' = 自然人持仓（分今昨仓）; '1' = 全今仓不分昨仓
-            position_date_type: b'2',
+            // `THOST_FTDC_PDT_*` (ThostFtdcUserApiDataType.h): '1' UseHistory =
+            // 使用历史持仓（分今昨仓，上期所/能源中心）; '2' NoUseHistory = 不使用
+            // 历史持仓（不分今昨，其他四所）。合成合约默认分今昨；refdata 有值时
+            // 以文件为准（`load_jsonl_dir`）。
+            position_date_type: b'1',
             volume_multiple: 1,
             price_tick: 0.01,
             min_limit_order_volume: 1,
@@ -168,10 +171,20 @@ impl Instrument {
     /// Delivery dates are a pure function of the contract code when the
     /// provider does not supply them (`rb2610` -> 2026-10; CZCE's 3-digit
     /// `TA609` -> 2026-9). A synthetic desk has no other calendar to draw on.
+    ///
+    /// Strictly 「缺省才补」: a value the provider already supplied (delivery
+    /// year/month, any of the five dates) is never overwritten — the real
+    /// `ExpireDate` of `rb2610` is the 15th only by coincidence.
     pub fn fill_dates_from_code(&mut self) {
         if let Some((y, m)) = parse_delivery_ym(&self.instrument_id) {
-            self.delivery_year = y;
-            self.delivery_month = m;
+            if self.delivery_year == 0 {
+                self.delivery_year = y;
+            }
+            if self.delivery_month == 0 {
+                self.delivery_month = m;
+            }
+            // derived dates follow the provider's year/month when present
+            let (y, m) = (self.delivery_year, self.delivery_month);
             if self.create_date.is_empty() {
                 self.create_date = format!("{y:04}{m:02}01");
             }
@@ -753,6 +766,66 @@ impl RefData {
             {
                 inst.max_margin_side_algorithm = v;
             }
+            // 生命周期日期：文件有值就用文件的，`insert_instrument` 只补缺省。
+            if let Some(v) = row.str("create_date") {
+                inst.create_date = v;
+            }
+            if let Some(v) = row.str("open_date") {
+                inst.open_date = v;
+            }
+            if let Some(v) = row.str("expire_date") {
+                inst.expire_date = v;
+            }
+            if let Some(v) = row.str("start_deliv_date") {
+                inst.start_deliv_date = v;
+            }
+            if let Some(v) = row.str("end_deliv_date") {
+                inst.end_deliv_date = v;
+            }
+            // 单字符枚举（官方 `THOST_FTDC_*` 编码，文件里是单字符串）
+            if let Some(v) = row
+                .str("position_type")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                inst.position_type = v;
+            }
+            if let Some(v) = row
+                .str("position_date_type")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                inst.position_date_type = v;
+            }
+            if let Some(v) = row
+                .str("inst_life_phase")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                inst.inst_life_phase = v;
+            }
+            if let Some(v) = row
+                .str("product_class")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                inst.product_class = v;
+            }
+            if let Some(v) = row
+                .str("options_type")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                inst.options_type = v;
+            }
+            if let Some(v) = row
+                .str("combination_type")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                inst.combination_type = v;
+            }
+            // `is_trading`: 0/1 (or true/false) — 0 让引擎拒单为 17 合约不能交易
+            if let Some(v) = row.int("is_trading") {
+                inst.is_trading = v != 0;
+            }
+            if let Some(v) = row.num("underlying_multiple") {
+                inst.underlying_multiple = v;
+            }
             rd.insert_instrument(inst);
         }
         for (n, row) in read_jsonl(&format!("{dir}/margin_rates.jsonl"))?
@@ -1242,6 +1315,67 @@ mod tests {
         assert!(parse_flat_object(r#"{"a":"\q"}"#).is_err());
     }
 
+    /// Write one `instruments.jsonl` row into a fresh temp dir and load it.
+    fn load_one_row(tag: &str, row: &str) -> RefData {
+        let dir =
+            std::env::temp_dir().join(format!("ctpbuddy-refdata-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("instruments.jsonl"), format!("{row}\n")).unwrap();
+        let rd = RefData::load_jsonl_dir(dir.to_str().unwrap()).expect("load");
+        let _ = std::fs::remove_dir_all(&dir);
+        rd
+    }
+
+    // 文件给了的日期 / 枚举字段必须原样生效，不被代码推导覆盖；只有缺省的才补。
+    #[test]
+    fn jsonl_fields_take_precedence_over_code_derivation() {
+        let rd = load_one_row(
+            "dates",
+            r#"{"instrument_id": "rb2610", "exchange_id": "SHFE", "delivery_year": 2026, "delivery_month": 10, "expire_date": "20261014", "create_date": "20251016", "open_date": "20251017", "start_deliv_date": "20261016", "end_deliv_date": "20261020", "position_type": "2", "position_date_type": "1", "is_trading": 1, "inst_life_phase": "1", "product_class": "1", "options_type": "0", "underlying_multiple": 1, "volume_multiple": 10, "price_tick": 1}"#,
+        );
+        let i = rd.instrument("rb2610").unwrap();
+        assert_eq!(i.expire_date, "20261014", "文件值，不是代码推导的 20261015");
+        assert_eq!(i.create_date, "20251016");
+        assert_eq!(i.open_date, "20251017");
+        assert_eq!(i.start_deliv_date, "20261016");
+        assert_eq!(i.end_deliv_date, "20261020");
+        assert_eq!((i.delivery_year, i.delivery_month), (2026, 10));
+        assert_eq!(i.position_type, b'2');
+        assert_eq!(i.position_date_type, b'1');
+        assert_eq!(i.inst_life_phase, b'1');
+        assert_eq!(i.product_class, b'1');
+        assert_eq!(i.options_type, b'0');
+        assert!(i.is_trading);
+        assert_eq!(i.underlying_multiple, 1.0);
+
+        // a date the file does not carry is still derived (缺省才补)
+        let rd = load_one_row(
+            "partial",
+            r#"{"instrument_id": "rb2610", "exchange_id": "SHFE", "expire_date": "20261013"}"#,
+        );
+        let i = rd.instrument("rb2610").unwrap();
+        assert_eq!(
+            i.expire_date, "20261013",
+            "不被 fill_dates_from_code 改成 15 号"
+        );
+        assert_eq!(i.create_date, "20261001", "缺省才推导");
+        assert_eq!((i.delivery_year, i.delivery_month), (2026, 10));
+    }
+
+    // `is_trading: 0` / 期权 product_class 要从数据读到——引擎的 17 拒单靠这两个字段。
+    #[test]
+    fn is_trading_and_product_class_are_read_from_jsonl() {
+        let rd = load_one_row(
+            "halted",
+            r#"{"instrument_id": "rb2610", "exchange_id": "SHFE", "is_trading": 0, "product_class": "2", "options_type": "1"}"#,
+        );
+        let i = rd.instrument("rb2610").unwrap();
+        assert!(!i.is_trading);
+        assert_eq!(i.product_class, b'2');
+        assert_eq!(i.options_type, b'1');
+        assert_eq!(i.to_field().IsTrading, 0);
+    }
+
     #[test]
     fn bundled_refdata_loads_real_contracts() {
         let dir = crate::catalog::bundled_refdata_dir();
@@ -1250,6 +1384,13 @@ mod tests {
         let inst = rd.instrument("rb2601").expect("rb2601 in bundled data");
         assert_eq!(inst.exchange_id, "SHFE");
         assert_eq!(inst.volume_multiple, 10);
+        // 真实到期日是 2026-01-15（上期所合约月第 15 日），文件值和推导值在这里碰巧
+        // 相同；用 CZCE 的 SA506（文件 20250616，推导会是 20250615）证明读的是文件。
+        let sa = rd.instrument("SA506").expect("SA506 in bundled data");
+        assert_eq!(sa.expire_date, "20250616");
+        assert_eq!(sa.position_date_type, b'2');
+        assert!(sa.is_trading);
+        assert_eq!(sa.product_class, b'1');
         assert!(rd.margin_rate("rb2601").is_some(), "bundled margin rates");
         // 刻意不随包分发手续费表——编造的手续费比没有更糟。
         assert!(rd.commission_rate("rb2601").is_none());

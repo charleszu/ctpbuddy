@@ -45,6 +45,10 @@
 #include <thread>
 #include <vector>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 #include "ThostFtdcTraderApi.h"
 #include "ThostFtdcMdApi.h"
 
@@ -77,6 +81,23 @@ struct DemoFail : std::runtime_error {
 };
 
 std::string cstr(const char* p) { return p ? std::string(p) : std::string(); }
+
+// CTP ErrorMsg is GBK; everything else this demo prints is UTF-8 (/utf-8
+// literals). Transcode before echoing so stdout is uniformly UTF-8 and the
+// e2e harness (PYTHONUTF8=1) can decode every line.
+std::string err_msg(const char* gbk) {
+    if (!gbk || !*gbk) return std::string();
+    int wlen = MultiByteToWideChar(936, 0, gbk, -1, nullptr, 0);
+    if (wlen <= 0) return std::string(gbk);
+    std::wstring wide(static_cast<size_t>(wlen), L'\0');
+    MultiByteToWideChar(936, 0, gbk, -1, &wide[0], wlen);
+    int ulen = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (ulen <= 0) return std::string(gbk);
+    std::string utf8(static_cast<size_t>(ulen), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, &utf8[0], ulen, nullptr, nullptr);
+    utf8.resize(std::strlen(utf8.c_str()));
+    return utf8;
+}
 
 void put_cstr(char* dst, size_t n, const char* src) {
     size_t k = std::strlen(src);
@@ -192,7 +213,7 @@ struct TdSpi : public CThostFtdcTraderSpi {
         if (rsp && rsp->ErrorID != 0) {
             auth_failed = true;
             auth_error_id = rsp->ErrorID;
-            step_error = std::string("authenticate rejected: ") + std::to_string(rsp->ErrorID) + " " + rsp->ErrorMsg;
+            step_error = std::string("authenticate rejected: ") + std::to_string(rsp->ErrorID) + " " + err_msg(rsp->ErrorMsg);
         } else {
             auth_done = true;
             note(p ? "authenticate ok" : "authenticate callback missing field");
@@ -204,7 +225,7 @@ struct TdSpi : public CThostFtdcTraderSpi {
         std::lock_guard<std::mutex> g(sync.mu);
         if (rsp && rsp->ErrorID != 0) {
             login_failed = true;
-            step_error = std::string("login rejected: ") + std::to_string(rsp->ErrorID) + " " + rsp->ErrorMsg;
+            step_error = std::string("login rejected: ") + std::to_string(rsp->ErrorID) + " " + err_msg(rsp->ErrorMsg);
         } else {
             login_done = true;
             front_id = p->FrontID;
@@ -244,7 +265,7 @@ struct TdSpi : public CThostFtdcTraderSpi {
         std::lock_guard<std::mutex> g(sync.mu);
         insert_err = true;
         step_error = std::string("ErrRtnOrderInsert ref=") + (p ? p->OrderRef : "?") + ": " +
-                     std::to_string(rsp ? rsp->ErrorID : -1) + " " + (rsp ? rsp->ErrorMsg : "?");
+                     std::to_string(rsp ? rsp->ErrorID : -1) + " " + (rsp ? err_msg(rsp->ErrorMsg) : std::string("?"));
         sync.notify();
     }
     void OnRspOrderAction(CThostFtdcInputOrderActionField*, CThostFtdcRspInfoField* rsp, int, bool) override {
@@ -366,11 +387,11 @@ struct TdSpi : public CThostFtdcTraderSpi {
         error_req_id = nid;
         if (!expect_error) {
             stray_error = true;
-            step_error = std::string("stray OnRspError ") + std::to_string(error_id) + " " + (p ? p->ErrorMsg : "");
+            step_error = std::string("stray OnRspError ") + std::to_string(error_id) + " " + (p ? err_msg(p->ErrorMsg) : std::string());
         }
-        char buf[192];
-        std::snprintf(buf, sizeof(buf), "RspError id=%d req=%d msg=%s%s", p ? p->ErrorID : 0, nid, p ? p->ErrorMsg : "",
-                      expect_error ? " (expected)" : " (STRAY)");
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), "RspError id=%d req=%d msg=%s%s", p ? p->ErrorID : 0, nid,
+                      p ? err_msg(p->ErrorMsg).c_str() : "", expect_error ? " (expected)" : " (STRAY)");
         note(buf);
         sync.notify();
     }
@@ -420,7 +441,7 @@ struct MdSpi : public CThostFtdcMdSpi {
         if (rsp && rsp->ErrorID != 0) {
             sub_failed = true;
             char buf[128];
-            std::snprintf(buf, sizeof(buf), "subscribe rejected: %d %s", rsp->ErrorID, rsp->ErrorMsg);
+            std::snprintf(buf, sizeof(buf), "subscribe rejected: %d %s", rsp->ErrorID, err_msg(rsp->ErrorMsg).c_str());
             note(buf);
         } else {
             ++sub_count;

@@ -211,7 +211,7 @@ API 与 SPI 在不同线程；**API（Req*）可被多线程同时调用**（线
 
 **报单与撤单分开计算**：官方口径为 `ReqOrderInsert` 与 `ReqOrderAction` **各自**有每秒最大笔数、**分开计算**（notes/13/14 §A.3）。CTPBuddy `order_gate` **已按此实现**（两条独立预算流，2026-10-03 修正；此前的共享预算会让混做报撤的客户端被误限）。
 
-CTPBuddy 落点：Core M2 风控规则表 ✅（M2-4 落地，口径待按上述修正）。
+CTPBuddy 落点：Core M2 风控规则表 ✅（M2-4 落地，报撤单独立预算流已按上述口径实现）。
 
 ---
 
@@ -441,7 +441,7 @@ O = 现手 / 2 − S
 7. **交易所差异归一化** ✅（M2-1 落地）：平今转换（非上期所一律 Close）、市价单按所语义；郑商所 FAK-only 规则表待注入；TradingDay 各所混乱见 §7（§4.1-4.3、§7）。
 8. **成交开平标志 ≠ 报单开平标志** ✅（M2-1 落地）：非上期所平仓回 '1'（§4.3）。
 9. **结算流程**：ReqSettlementInfoConfirm 前置已校验；当前日结为显式 `ADMIN settle_day`，要求用户供给结算价、下一期货交易日、暂停 playback 且无活动订单，完成字段重置与账本滚存；不按固定 17:00 自动触发，不把离线 calendar provider 当在线市场服务。柜台参数 `settlement_required` 默认开启；登录后未对当前交易日确认时，报单前置返回官方 `42 SETTLEMENT_INFO_NOT_CONFIRMED`「CTP:结算结果未确认」，确认后允许报单；关闭开关仅用于兼容旧测试行为。
-10. **错误码全集对账** ✅（#42 落地）：error.xml 299 条逐条标注 → **19 已实现**（推送面全部对齐）/ **51 可落地**（语义在范围内但无代码路径发出，缺口清单见 [`docs/错误码全集.md`](错误码全集.md)）/ **229 暂不可达**（业务域未实现）。状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成，改代码后重跑。
+10. **错误码全集对账** ✅（#42 落地）：error.xml 299 条逐条标注 → **23 已实现**（推送面全部对齐）/ **47 可落地**（语义在范围内但无代码路径发出，缺口清单见 [`docs/错误码全集.md`](错误码全集.md)）/ **229 暂不可达**（业务域未实现）。状态列由 `tools/fill_errorcode_status.py` 按实际代码面生成，改代码后重跑。
 11. **LEDGER 扩展**：MarginPriceType 配置 ✅、平今/平昨费率 ✅、FrozenCommission 报单估算+释放 ✅（M3-2/M3-3 已补齐，2026-10-03 复核）；**品种内保证金优惠已实现**——用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按 broker/investor/exchange/ProductID 聚合；账本与 `ReqQryInvestorProductGroupMargin` 共用唯一计算，冻结计待成交开仓后的增量、成交/撤单/平仓及 mark-to-market 后重算。跨品种映射、套利取高仍不支持；当前仅投机、空投资单元，其他报单明确拒绝（§6.3、notes/04 C4）；期权权利金（§6）。
 12. **费率查询接口** ✅（M3-3 落地，2026-10-03）：`ReqQryInstrumentMarginRate` / `ReqQryInstrumentCommissionRate` / `ReqQryInstrumentOrderCommRate` / `ReqQryBrokerTradingParams` 四张由 `unsupported` 转为实装，官方语义逐字复刻——**`InstrumentID` 留空 = 返回该投资者持仓对应合约的费率（不是全市场，「目前无法通过一次查询得到所有合约保证金率」）**，`BrokerID`/`InvestorID`（及 `CurrencyID`）必填、「不填则返回值为空」。定位上四张表与账本计算**共用同一份 `RefData`**，客户端交叉核对 `ReqQryInstrumentMarginRate` 与 `ReqQryTradingAccount.CurrMargin` 时数字必然一致（§9、DESIGN §6.4/§8.6.1）。
 13. **保证金/手续费公式落地** ✅（M3-2 落地，2026-10-03）：保证金 `(MarginRatioByVolume + MarginRatioByMoney × Price × VolumeMultiple) × Volume`，**用公司费率**（`ReqQryInstrumentMarginRate` 口径），`ReqQryInstrument` 的交易所费率仅展示；`MarginPriceType` 四值（'1' 昨结算/'2' 最新价/'3' 成交均价/'4' 开仓价），**昨仓恒用昨结算价**不受该设置影响、只有 '2'/'3' 下今仓保证金随行情波动；手续费 `数量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`（两项**相加**非取 max），开仓/平昨/平今各一套，一笔 `Close` 吃掉 2 手昨仓 + 1 手今仓时**按两腿分别计价**；冻结按昨结算价（与该挂单限价无关），平仓释放按**开仓价**算（§9、DESIGN §8.6）。
@@ -449,7 +449,7 @@ O = 现手 / 2 − S
 
 ### 10.3 其他 TODO
 
-FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、同用户最大在线会话数、交易所 API 流控（§1 #4-#7）；FIX 网关、银期转账（未通读资料，需要时先读 notes 未覆盖清单里的文档）。
+FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、交易所 API 流控（§1 #4-#7；同用户最大在线会话数已由 `max_user_sessions` 实现，见 §1）；FIX 网关、银期转账（未通读资料，需要时先读 notes 未覆盖清单里的文档）。
 
 ### 10.4 入门系列带来的待修正项与新增待办（notes/11~14，2026-10-03 登记）
 

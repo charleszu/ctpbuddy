@@ -37,6 +37,12 @@ pub const SERVER_VERSION: &str = "0.1.0";
 /// World-loop pulse period: playback tick release + mark-to-market cadence.
 pub const PULSE: Duration = Duration::from_millis(10);
 
+/// Scenario assertion `status` values written to the journal (DESIGN §7.4).
+const ASSERTION_OK: &str = "ok";
+const ASSERTION_ACCOUNT_NOT_FOUND: &str = "account_not_found";
+const ASSERTION_UNKNOWN_METRIC: &str = "unknown_metric";
+const ASSERTION_NOT_FINITE: &str = "not_finite";
+
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Id the next accepted connection will receive (never reused).
@@ -90,6 +96,10 @@ pub struct Config {
     pub max_user_sessions: u32,
     /// Require settlement confirmation before orders (official error 42).
     pub settlement_required: bool,
+    /// Skip resting orders of the same (broker, investor) when matching
+    /// (DESIGN §8.3). Off by default: real CTP does not block an investor
+    /// from crossing their own order.
+    pub self_trade_prevention: bool,
     /// Fields explicitly supplied by CLI/env; they override persisted settings.
     pub settings_overrides: Vec<String>,
 }
@@ -109,6 +119,7 @@ impl Default for Config {
             order_freq: 20,
             max_user_sessions: 0,
             settlement_required: true,
+            self_trade_prevention: false,
             settings_overrides: Vec::new(),
         }
     }
@@ -357,14 +368,11 @@ impl World {
 
         // Ref data resolution order: explicit --refdata > a `refdata/`
         // directory inside the scenario > the bundled contract snapshot.
+        // A directory that *exists but fails to load* is a hard error
+        // (DESIGN §8.6.1): only a missing default path may fall back.
         let mut engine_catalog =
-            match load_refdata(cfg.refdata_dir.as_deref(), cfg.scenario_dir.as_deref()) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("[ctpbuddy] {e}");
-                    Catalog::new()
-                }
-            };
+            load_refdata(cfg.refdata_dir.as_deref(), cfg.scenario_dir.as_deref())
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let mut playback = None;
         let mut vt_day = dtime::today_trading_day();
         // Before any scenario clock exists there is no virtual time: 0.0 is
@@ -431,8 +439,10 @@ impl World {
             j.flush()?;
         }
 
+        let mut engine = MatchingEngine::new(engine_catalog);
+        engine.set_self_trade_prevention(cfg.self_trade_prevention);
         let mut world = World {
-            engine: MatchingEngine::new(engine_catalog),
+            engine,
             ledger: Ledger::new(cfg.initial_funds),
             playback,
             journal,
@@ -587,6 +597,8 @@ impl World {
         staged_ledger.refresh(&catalog);
 
         self.engine = MatchingEngine::new(catalog);
+        self.engine
+            .set_self_trade_prevention(self.cfg.self_trade_prevention);
         self.orders_today.clear();
         self.trades_today.clear();
         // explicit speed > scenario clock.time_scale > server default
@@ -612,21 +624,31 @@ impl World {
     }
 
     /// Current metric value for a scenario assertion (DESIGN §7.4).
-    fn assertion_actual(&self, broker: &str, investor: &str, metric: &str) -> f64 {
-        let acct = |f: &dyn Fn(&ctpbuddy_ledger::Account) -> f64| -> f64 {
+    ///
+    /// `Err` carries the journaled `status` reason: the account does not exist
+    /// yet (`account_not_found`) or the metric name is unknown
+    /// (`unknown_metric`). Either way the assertion fails; the caller never
+    /// has a numeric `actual` to serialize.
+    fn assertion_actual(
+        &self,
+        broker: &str,
+        investor: &str,
+        metric: &str,
+    ) -> Result<f64, &'static str> {
+        let acct = |f: &dyn Fn(&ctpbuddy_ledger::Account) -> f64| -> Result<f64, &'static str> {
             self.ledger
                 .account(broker, investor)
                 .map(f)
-                .unwrap_or(f64::NAN)
+                .ok_or(ASSERTION_ACCOUNT_NOT_FOUND)
         };
-        match metric {
-            "balance" => acct(&|a| a.dynamic_equity()),
-            "available" => acct(&|a| a.available()),
-            "close_profit" => acct(&|a| a.close_profit),
-            "commission" => acct(&|a| a.commission),
-            "position_profit" => acct(&|a| a.position_profit),
-            "used_margin" => acct(&|a| a.used_margin),
-            "frozen_margin" => acct(&|a| a.frozen_margin),
+        Ok(match metric {
+            "balance" => acct(&|a| a.dynamic_equity())?,
+            "available" => acct(&|a| a.available())?,
+            "close_profit" => acct(&|a| a.close_profit)?,
+            "commission" => acct(&|a| a.commission)?,
+            "position_profit" => acct(&|a| a.position_profit)?,
+            "used_margin" => acct(&|a| a.used_margin)?,
+            "frozen_margin" => acct(&|a| a.frozen_margin)?,
             "orders_filled" => {
                 // distinct orders with at least one fill today
                 let mut seen = HashSet::new();
@@ -648,8 +670,8 @@ impl World {
                 .iter()
                 .filter(|t| cstr(&t.InvestorID) == investor)
                 .count() as f64,
-            _ => f64::NAN,
-        }
+            _ => return Err(ASSERTION_UNKNOWN_METRIC),
+        })
     }
 
     /// (passed, failed) among evaluated assertions (admin status).
@@ -684,10 +706,10 @@ impl World {
                     ("value".into(), json::n(a.value)),
                     (
                         "actual".into(),
-                        if a.actual.is_nan() {
-                            Value::Null
-                        } else {
+                        if a.actual.is_finite() {
                             json::n(a.actual)
+                        } else {
+                            Value::Null
                         },
                     ),
                     ("pass".into(), json::b(a.pass)),
@@ -726,11 +748,18 @@ impl World {
                 let a = &self.assertions[i];
                 (a.investor.clone(), a.metric.clone(), a.after_ms)
             };
-            let actual = self.assertion_actual(&broker, &investor, &metric);
+            // A metric that cannot be evaluated (no such account yet, unknown
+            // name) fails with a reason; `actual` is then `null`, never a bare
+            // `NaN` token that would make the journal line invalid JSON.
+            let (actual, status) = match self.assertion_actual(&broker, &investor, &metric) {
+                Ok(v) if v.is_finite() => (v, ASSERTION_OK),
+                Ok(_) => (f64::NAN, ASSERTION_NOT_FINITE),
+                Err(reason) => (f64::NAN, reason),
+            };
             let (op_sym, value, pass) = {
                 let a = &mut self.assertions[i];
                 a.actual = actual;
-                a.pass = a.op.apply(actual, a.value);
+                a.pass = status == ASSERTION_OK && a.op.apply(actual, a.value);
                 a.evaluated = true;
                 (a.op.symbol(), a.value, a.pass)
             };
@@ -738,21 +767,45 @@ impl World {
                 "assertion",
                 &broker,
                 &investor,
-                json::obj_sorted(vec![
-                    ("metric".into(), json::s(&metric)),
-                    ("op".into(), json::s(op_sym)),
-                    ("value".into(), json::n(value)),
-                    ("actual".into(), json::n(actual)),
-                    ("pass".into(), json::b(pass)),
-                    ("after_ms".into(), json::n(after_ms)),
-                ]),
+                Self::assertion_result_json(&metric, op_sym, value, actual, pass, status, after_ms),
             );
             if !pass {
                 eprintln!(
-                    "[ctpbuddy] assertion FAILED: {investor} {metric} {op_sym} {value} (actual {actual})"
+                    "[ctpbuddy] assertion FAILED: {investor} {metric} {op_sym} {value} (actual {actual}, status {status})"
                 );
             }
         }
+    }
+
+    /// Journal payload of one evaluated assertion. `actual` is written as
+    /// `null` when non-finite so the line stays valid JSON; `status` says why
+    /// (`ok` / `account_not_found` / `unknown_metric` / `not_finite`).
+    fn assertion_result_json(
+        metric: &str,
+        op_sym: &str,
+        value: f64,
+        actual: f64,
+        pass: bool,
+        status: &str,
+        after_ms: f64,
+    ) -> Value {
+        json::obj_sorted(vec![
+            ("metric".into(), json::s(metric)),
+            ("op".into(), json::s(op_sym)),
+            ("value".into(), json::n(value)),
+            (
+                "actual".into(),
+                if actual.is_finite() {
+                    json::n(actual)
+                } else {
+                    Value::Null
+                },
+            ),
+            ("pass".into(), json::b(pass)),
+            ("ok".into(), json::b(status == ASSERTION_OK)),
+            ("status".into(), json::s(status)),
+            ("after_ms".into(), json::n(after_ms)),
+        ])
     }
 
     fn run_loop(&mut self, rx: Receiver<WorldMsg>) {
@@ -1037,5 +1090,45 @@ impl World {
 
     pub(crate) fn now_str(&self) -> String {
         format_hhmmss(self.vt_now_ms)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assertion_journal_line_is_valid_json_when_actual_is_nan() {
+        let v = World::assertion_result_json(
+            "balance",
+            ">=",
+            100.0,
+            f64::NAN,
+            false,
+            ASSERTION_ACCOUNT_NOT_FOUND,
+            0.0,
+        );
+        let text = v.to_json();
+        assert!(!text.contains("NaN"), "{text}");
+        let back = json::parse(&text).expect("journal payload must be valid JSON");
+        assert!(matches!(back.get("actual"), Some(Value::Null)));
+        assert_eq!(back.get_str("status").as_deref(), Some("account_not_found"));
+        assert!(matches!(back.get("ok"), Some(Value::Bool(false))));
+        assert!(matches!(back.get("pass"), Some(Value::Bool(false))));
+
+        let v = World::assertion_result_json("fills", "==", 1.0, 1.0, true, ASSERTION_OK, 0.0);
+        let back = json::parse(&v.to_json()).unwrap();
+        assert_eq!(back.get_num("actual"), Some(1.0));
+        assert_eq!(back.get_str("status").as_deref(), Some("ok"));
+        assert!(matches!(back.get("ok"), Some(Value::Bool(true))));
+    }
+
+    #[test]
+    fn explicit_refdata_load_failure_is_a_hard_error() {
+        let missing = std::env::temp_dir().join("ctpbuddy-no-such-refdata-dir");
+        let err = load_refdata(Some(missing.to_str().unwrap()), None).unwrap_err();
+        assert!(err.starts_with("--refdata "), "{err}");
+        // no explicit dir and no scenario dir -> bundled snapshot, never an error
+        assert!(load_refdata(None, None).is_ok());
     }
 }

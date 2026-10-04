@@ -5,7 +5,7 @@ weight: 40
 description: 说明 SDK 查询流、SQLite 投影和真实数据受控审计的可证范围。
 ---
 
-源码入口为 `py/ctpbuddy/sdk/client.py`、`py/ctpbuddy/store.py`、`py/ctpbuddy/journal.py` 与 `tools/audit_query_expectations.py`。主要来源提交为 `12d55e8`（投影查询）、`6d2afe2`（真实订单驱动 Core 四查询子集）和 `4d2af40`。
+源码入口为 `py/ctpbuddy/sdk/client.py`、`py/ctpbuddy/store.py`、`py/ctpbuddy/journal.py`、`tools/audit_three_way.py` 与 `tools/audit_query_expectations.py`。主要来源提交为 `12d55e8`（投影查询）、`6d2afe2`（真实订单驱动 Core 四查询子集）和 `4d2af40`。
 
 ## SDK 查询
 
@@ -27,8 +27,8 @@ ctpbuddy journal query order_record --db ./data/ctpbuddy.db --investor test01
 
 ## 真实审计口径
 
-`tools/audit_query_expectations.py` 从同交易日、同账号的 `order.csv`、`trade.csv` 和结算单构建 `ReqQryOrder`、`ReqQryTrade`、`ReqQryInvestorPosition`、`ReqQryInvestorPositionDetail` 的可核期望。订单优先使用 `CombOffsetFlag`，成交使用 `OffsetFlag`；OrderSysID 只作 trim 后关联键，OrderRef 兜底必须包含 FrontID/SessionID；多候选为 ambiguity，不能取 first。
+`tools/audit_three_way.py` 从同交易日、同账号的 `order.csv`、`trade.csv` 和结算单构建 `ReqQryOrder`、`ReqQryTrade`、`ReqQryInvestorPosition`、`ReqQryInvestorPositionDetail` 的可核期望。订单优先使用 `CombOffsetFlag`，成交使用 `OffsetFlag`；OrderSysID 只作 trim 后关联键，OrderRef 兜底必须包含 FrontID/SessionID；多候选为 ambiguity，不能取 first。`tools/audit_query_expectations.py` 是更早的子集核对脚本：CSV 读取先试 utf-8-sig 再回退 GBK，重复结算单计入 `duplicate_settlement` 并列入报告，缺同日/前日结算单的账户日记为 `position_tables_not_evaluated`。
 
 `tests/e2e/m4_real_replay.py` 只回放 controlled futures subset：普通期货、RefData 覆盖、OffsetFlag=0、HedgeFlag=1、空投资单元、唯一关联且完全成交。没有外部目录是 SKIP；有数据但没有合法候选是失败。报告仅保存匿名 hash、计数、差异和 skip/fail 原因，不保存真实正文。
 
-没有真实查询回报时状态是 `not_evaluated`，不是通过。该工具是 source alignment/query expectations，不是完整 Core 账本重演；期权只做数量变化校验，不把权利金或期权保证金换算成期货资金。
+`tools/audit_three_way.py` 没有真实查询回报（`--actual-query-dir`）时状态是 `not_evaluated`，不是通过。两个工具都是 source alignment/query expectations，不是完整 Core 账本重演；期权只做数量变化校验，不把权利金或期权保证金换算成期货资金。

@@ -268,20 +268,31 @@ def make_report(status, checks, skips, errors, candidate_count):
             "errors": errors[:20], "error_count": len(errors)}
 
 
+# 无外部源时的退出码：不是 0（通过）也不是 1（失败），调用方传 --allow-skip 才把 SKIP 视为 0。
+EXIT_SKIPPED = 3
+
+
 def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(description="四查询真实期货受控子集验收")
     parser.add_argument("--report", default=REPORT_DEFAULT, help="显式写入匿名 JSON 汇总报告")
+    parser.add_argument("--allow-skip", action="store_true",
+                        help="无外部源时以 0 退出（默认 SKIPPED 退出码 %d）" % EXIT_SKIPPED)
     args = parser.parse_args(argv)
     selected, reasons = choose_row()
     if selected is None:
         status = "fail" if source_files() else "skip"
         report = make_report(status, Counter(), reasons, [], 0)
         print("M4 REAL CONTROLLED REPLAY: %s" % status.upper())
+        if status == "skip":
+            print("SKIPPED: no external export/settlement source (%s); reasons=%s"
+                  % ("CTPBUDDY_EXPORT_DIR / CTPBUDDY_SETTLEMENT_DIR", dict(reasons)))
         print(json.dumps(report, ensure_ascii=False, indent=2))
         if args.report:
             write_report(args.report, report)
-        return 1 if status == "fail" else 0
+        if status == "fail":
+            return 1
+        return 0 if args.allow_skip else EXIT_SKIPPED
 
     checks, errors = Counter(), []
     proc = admin = cli = None

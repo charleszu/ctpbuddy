@@ -64,6 +64,16 @@ INITIAL_FUNDS = 2_000_000.0
 ERR_FREQ = 116            # ORDER_FREQ_LIMIT
 FREQ_MSG = "CTP:下单频率限制"
 
+# Timing knobs. `order_gate` is a wall-clock 1 s window (§8.11), so the flow
+# must really wait past the window before the budget is back; `drain` stops
+# once the push queue stays quiet for a while. CTPBUDDY_E2E_SLOW=1 doubles
+# both for slow machines / CI runners; the defaults are unchanged.
+E2E_SLOW = os.environ.get("CTPBUDDY_E2E_SLOW", "") not in ("", "0")
+TIME_SCALE = 2.0 if E2E_SLOW else 1.0
+GATE_WINDOW_SLEEP = 1.05 * TIME_SCALE   # let the per-second window roll over
+DRAIN_QUIET = 0.35 * TIME_SCALE         # push queue idle time that ends a drain
+SHUTDOWN_SETTLE = 0.2 * TIME_SCALE      # journal flush after admin.shutdown()
+
 # Phase-1 investors (freq gate); Phase-2 investors walk the state machine.
 P1 = ["freq001", "freq002"]
 P2 = ["flow001", "flow002", "flow003", "flow004", "flow005", "flow006", "flow007", "flow008"]
@@ -148,7 +158,7 @@ def make_scenario(dirpath: str) -> None:
     write_canonical(dirpath, rows)
 
 
-def drain(cli: Client, quiet: float = 0.35):
+def drain(cli: Client, quiet: float = DRAIN_QUIET):
     """Collect push events until the queue stays empty for `quiet` seconds."""
     out = []
     while True:
@@ -306,7 +316,7 @@ def phase1(core: str, root: str, scenario: str) -> None:
 
             # (b) wall-clock recovery: past the one-second window the budget
             # is back.
-            time.sleep(1.05)
+            time.sleep(GATE_WINDOW_SLEEP)
             A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
                            exchange="SHFE", order_ref="F4")
             print("[ok] after ~1s the per-(broker,investor) window recovers")
@@ -315,7 +325,7 @@ def phase1(core: str, root: str, scenario: str) -> None:
             # 「这两个函数流控是分开计算的」). On a fresh window: two inserts
             # spend the insert budget, yet both cancels still pass (their own
             # budget); then each stream's own third request is rejected.
-            time.sleep(1.05)
+            time.sleep(GATE_WINDOW_SLEEP)
             A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
                            exchange="SHFE", order_ref="F5")
             A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
@@ -345,7 +355,7 @@ def phase1(core: str, root: str, scenario: str) -> None:
             print("[ok] the budget is keyed per (broker, investor): B unaffected")
 
             # (e) recovery once more for both streams, so the flow ends clean.
-            time.sleep(1.05)
+            time.sleep(GATE_WINDOW_SLEEP)
             A.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3497.0,
                            exchange="SHFE", order_ref="F9")
             A.order_action(RB, order_ref="F1")
@@ -353,7 +363,7 @@ def phase1(core: str, root: str, scenario: str) -> None:
             for cli in clients.values():
                 cli.close()
         admin.shutdown()
-        time.sleep(0.2)
+        time.sleep(SHUTDOWN_SETTLE)
 
         # journal: both rejections carry the instruction-level submit status
         events = read_journal(srv.data_dir)
@@ -503,7 +513,7 @@ def phase2(core: str, root: str, scenario: str) -> None:
             for cli in clients.values():
                 cli.close()
         admin.shutdown()
-        time.sleep(0.2)
+        time.sleep(SHUTDOWN_SETTLE)
 
         events = read_journal(srv.data_dir)
         types = [e["type"] for e in events]

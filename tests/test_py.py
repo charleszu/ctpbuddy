@@ -30,6 +30,7 @@ from ctpbuddy.scenario import (  # noqa: E402
     ScenarioError,
     compile_scenario,
     load_scenario_spec,
+    normalize_json_spec,
     normalize_spec,
     parse_duration_ms,
     parse_time_ms,
@@ -201,7 +202,32 @@ def test_dsl_spec() -> None:
     assert parse_duration_ms("1h") == 3600000.0
     assert parse_duration_ms("1h30m") == 5400000.0
     assert parse_duration_ms("30") == 30000.0
-    print("[ok] dsl: DESIGN §7.4 example, flat style, expect fan-out, time/duration")
+
+    # optional per-transform `instrument` is validated and passed through verbatim
+    scoped = (
+        "transforms:\n"
+        "  - kind: gap\n"
+        '    at: "09:33:00"\n'
+        "    shift: -2.0\n"
+        "    instrument: rb2601\n"
+        "  - kind: freeze\n"
+        '    at: "09:32:00"\n'
+        "    duration: 30s\n"
+        "  - kind: liquidity\n"
+        '    from: "09:31:00"\n'
+        "    scale: 0.5\n"
+        '    instrument: " m2601 "\n'
+    )
+    spec3 = normalize_spec(parse_yaml(scoped))
+    assert spec3["transforms"] == [
+        {"kind": "gap", "at_ms": 34380000.0, "shift": -2.0, "instrument": "rb2601"},
+        {"kind": "freeze", "at_ms": 34320000.0, "duration_ms": 30000.0},
+        {"kind": "liquidity", "from_ms": 34260000.0, "scale": 0.5, "instrument": "m2601"},
+    ], spec3["transforms"]
+    # the compiled form round-trips through the json validator unchanged
+    assert normalize_json_spec(spec3) == spec3
+    assert normalize_json_spec(spec) == spec
+    print("[ok] dsl: DESIGN §7.4 example, flat style, expect fan-out, time/duration, transform instrument")
 
 
 def test_dsl_errors() -> None:
@@ -223,6 +249,33 @@ def test_dsl_errors() -> None:
     bad("transforms:\n  - kind: freeze\n    at: \"25:00:00\"\n    duration: 1s\n", "时间越界")
     bad("clock:\n\ttime_scale: 1\n", "tab")
     bad("- item\n", "顶层必须是映射")
+    # transform `instrument` must be a non-empty string when present
+    bad("transforms:\n  - kind: gap\n    at: \"09:00:00\"\n    shift: 1\n    instrument: \"\"\n", "transforms[0].instrument")
+    bad("transforms:\n  - kind: gap\n    at: \"09:00:00\"\n    shift: 1\n    instrument: 7\n", "transforms[0].instrument")
+    bad("transforms:\n  - kind: freeze\n    at: \"09:00:00\"\n    duration: 1s\n    instrument: true\n", "transforms[0].instrument")
+
+    # the compiled (json) form has its own validator with the same strictness
+    def bad_json(doc, needle: str) -> None:
+        try:
+            normalize_json_spec(doc)
+        except ScenarioError as e:
+            assert needle in str(e), (needle, str(e))
+            return
+        raise AssertionError("应当报错: %r（线索 %r）" % (doc, needle))
+
+    bad_json({"bogus": 1}, "未知顶层字段")
+    bad_json({"transforms": [{"kind": "zap"}]}, "未知 kind")
+    bad_json({"transforms": [{"kind": "gap", "at_ms": 1.0}]}, "缺少 shift")
+    bad_json({"transforms": [{"kind": "gap", "at_ms": "09:00:00", "shift": 1}]}, "transforms[0].at_ms")
+    bad_json({"transforms": [{"kind": "gap", "at": "09:00:00", "shift": 1}]}, "未知字段 at")
+    bad_json({"transforms": [{"kind": "freeze", "at_ms": 1.0, "duration_ms": -1}]}, "duration_ms")
+    bad_json({"transforms": [{"kind": "gap", "at_ms": 1.0, "shift": 1, "instrument": ""}]}, "instrument")
+    bad_json({"clock": {"start": "09:00:00"}}, "start_ms")
+    bad_json({"clock": {"time_scale": -1}}, "time_scale")
+    bad_json({"assertions": [{"after_ms": 1, "investor": "1", "metric": "bogus", "op": ">=", "value": 1}]}, "未知指标")
+    bad_json({"assertions": [{"after_ms": 1, "investor": "1", "metric": "fills", "op": "~", "value": 1}]}, "未知比较符")
+    bad_json({"assertions": [{"after_ms": 1, "investor": "1", "metric": "fills", "op": ">=", "value": "1"}]}, "assertions[0].value")
+    bad_json({"accounts": [{"investor": "1", "balance": -5}]}, "balance")
     # YAML-level errors carry the offending line number
     try:
         parse_yaml("name: x\n  stray: 1\n")
@@ -269,7 +322,29 @@ def test_dsl_compile() -> None:
         future = time.time() + 10
         os.utime(os.path.join(d, "scenario.yaml"), (future, future))
         assert load_scenario_spec(d)["name"] == "stale-yaml"
-        print("[ok] dsl: compile/load cache semantics + legacy fallback")
+
+        # a cached json that is not a valid spec must fail here, not in the core
+        os.unlink(os.path.join(d, "scenario.yaml"))
+        for broken, needle in (
+            ('{"name": "x", "transforms": [{"kind": "gap", "at_ms": 1}]}', "缺少 shift"),
+            ('{"name": "x", "bogus": 1}', "未知顶层字段"),
+            ('{"name": "x", "transforms": [{"kind": "gap", "at_ms": 1, "shift": 1, "instrument": 5}]}', "instrument"),
+            ('{"name": "x", "transforms": [{"kind": "gap", "at_ms": "09:00", "shift": 1}]}', "at_ms"),
+            ('[1, 2]', "顶层必须是对象"),
+            ('{not json', "不是合法 JSON"),
+        ):
+            with open(jpath, "w", encoding="utf-8") as fh:
+                fh.write(broken)
+            try:
+                load_scenario_spec(d)
+                raise AssertionError("坏 scenario.json 应拒绝: %s" % broken)
+            except ScenarioError as e:
+                assert needle in str(e) and "scenario.json" in str(e), (needle, str(e))
+        # a valid cached json with a scoped transform loads and keeps `instrument`
+        with open(jpath, "w", encoding="utf-8") as fh:
+            fh.write('{"name": "x", "transforms": [{"kind": "gap", "at_ms": 1, "shift": 1, "instrument": "rb2601"}]}')
+        assert load_scenario_spec(d)["transforms"][0]["instrument"] == "rb2601"
+        print("[ok] dsl: compile/load cache semantics + legacy fallback + cached json validation")
 
 
 def test_calendar() -> None:
@@ -375,15 +450,31 @@ def test_journal_hash() -> None:
     core projection drops noise types / re-encodes seq / normalizes the
     connection-numbering fields of session events."""
     from ctpbuddy.journal import (
+        ADMIN_INPUT_TYPES,
+        AUDIT_TYPES,
+        KNOWN_TYPES,
+        REPLAYABLE_ADMIN_TYPES,
+        REPLAYABLE_TYPES,
+        UNREPLAYABLE_ADMIN_TYPES,
         JournalError,
         canonical,
         core_normalize,
         count_types,
         fmt_vt,
         hash_stream,
+        iter_events,
         load_events,
         verify_events,
     )
+    from ctpbuddy import replay as replay_mod
+
+    # one vocabulary: the types the core emits today are known, and the
+    # projection / replay sets are derived from (and contained in) it
+    for t in ("settlement", "settlement_report", "settings_updated", "reset_account"):
+        assert t in KNOWN_TYPES and t in ADMIN_INPUT_TYPES and t in AUDIT_TYPES, t
+    assert REPLAYABLE_TYPES <= KNOWN_TYPES and AUDIT_TYPES <= KNOWN_TYPES
+    assert REPLAYABLE_ADMIN_TYPES.isdisjoint(UNREPLAYABLE_ADMIN_TYPES)
+    assert replay_mod.REPLAYABLE_TYPES is REPLAYABLE_TYPES
 
     def ev(seq: int, vt: float, typ: str, data=None, **kw) -> dict:
         e = {
@@ -473,7 +564,27 @@ def test_journal_hash() -> None:
                 fh.write(json.dumps(e, ensure_ascii=False) + "\n")
         assert load_events(p) == stream
         assert load_events(d) == stream  # directory form
+        assert list(iter_events(p)) == stream and list(iter_events(d)) == stream
         assert hash_stream(load_events(p)) == hash_stream(stream)
+        # a directory whose file-name order disagrees with seq (回放倒退交易日):
+        # load_events and iter_events must agree on the seq order
+        with tempfile.TemporaryDirectory() as d2:
+            with open(os.path.join(d2, "20261001.jsonl"), "w", encoding="utf-8") as fh:
+                for e in stream[3:]:
+                    fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+            with open(os.path.join(d2, "20261002.jsonl"), "w", encoding="utf-8") as fh:
+                for e in stream[:3]:
+                    fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+            assert load_events(d2) == stream
+            assert list(iter_events(d2)) == stream
+        # the settle/settlement/report/settings vocabulary verifies clean
+        admin_stream = stream + [
+            ev(7, 34300000.0, "settlement", {"next_trading_day": "20261005", "accounts": []}),
+            ev(8, 34300000.0, "settlement_report", {"settlement_id": 1}, broker="8888", investor="dsl001"),
+            ev(9, 34300000.0, "settings_updated", {"before": {}, "after": {}}),
+            ev(10, 34300000.0, "deposit", {"amount": 1.0}, broker="8888", investor="dsl001"),
+        ]
+        assert verify_events(admin_stream) == [], verify_events(admin_stream)
         with open(p, "a", encoding="utf-8") as fh:
             fh.write("{not json}\n")
         try:
@@ -923,6 +1034,218 @@ def test_shim_install_faults() -> None:
     print("[ok] shim install faults: second replace, pre-state restore, marker/script lock, links, reinstall")
 
 
+def test_sdk_subscribe() -> None:
+    """SUB_MD / UNSUB_MD answer one RSP frame per instrument under one req_id:
+    the client must collect all N (not just the first) and surface a rejection."""
+    from ctpbuddy.generated import structs as gen
+    from ctpbuddy.sdk.client import Client, CTPError
+    from ctpbuddy.wire import Frame, RSP_ERROR, RSP_SUB_MD, RSP_UNSUB_MD, RTN_DEPTH_MD, SUB_MD, UNSUB_MD
+
+    sz = gen.SIZES["CThostFtdcSpecificInstrumentField"]
+
+    def serve(peer, reject_at=None, extra_push=False):
+        req = Frame.decode_from(peer)
+        rsp = RSP_SUB_MD if req.msg_type == SUB_MD else RSP_UNSUB_MD
+        assert req.msg_type in (SUB_MD, UNSUB_MD) and len(req.payload) % sz == 0
+        for i in range(len(req.payload) // sz):
+            chunk = req.payload[i * sz:(i + 1) * sz]
+            if reject_at == i:
+                peer.sendall(Frame(RSP_ERROR, req.req_id, gen.pack(
+                    "CThostFtdcRspInfoField", ErrorID=16, ErrorMsg="CTP:合约不存在")).encode())
+                return
+            if extra_push and i == 0:
+                # an unsolicited push interleaved with the responses must not be mistaken for one
+                peer.sendall(Frame(RTN_DEPTH_MD, 0, b"tick").encode())
+            peer.sendall(Frame(rsp, req.req_id, chunk).encode())
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        with Client("127.0.0.1:%d" % listener.getsockname()[1], timeout=2.0) as client:
+            peer, _ = listener.accept()
+            with peer:
+                t = threading.Thread(target=serve, args=(peer,), kwargs={"extra_push": True})
+                t.start()
+                frames = client.subscribe(["rb2601", "m2601", "jd2601"])
+                t.join(timeout=2)
+                assert len(frames) == 3 and all(f.msg_type == RSP_SUB_MD for f in frames), frames
+                assert Client.md_instruments(frames) == ["rb2601", "m2601", "jd2601"]
+                assert client.late_frames == [], client.late_frames
+                # the interleaved push went to the push queue, untouched
+                push = client._pushes.get(timeout=1.0)
+                assert push.msg_type == RTN_DEPTH_MD and push.payload == b"tick", push
+
+                t = threading.Thread(target=serve, args=(peer,))
+                t.start()
+                by_name = client.subscribe_result(["rb2601", "m2601"])
+                t.join(timeout=2)
+                assert sorted(by_name) == ["m2601", "rb2601"], by_name
+
+                t = threading.Thread(target=serve, args=(peer,))
+                t.start()
+                frames = client.unsubscribe(["rb2601", "m2601"])
+                t.join(timeout=2)
+                assert [f.msg_type for f in frames] == [RSP_UNSUB_MD, RSP_UNSUB_MD], frames
+
+                # a rejection mid-way ends the collection with CTPError
+                t = threading.Thread(target=serve, args=(peer,), kwargs={"reject_at": 1})
+                t.start()
+                try:
+                    client.subscribe(["rb2601", "bogus", "m2601"])
+                    raise AssertionError("rejected subscribe must raise")
+                except CTPError as exc:
+                    assert exc.error_id == 16, exc
+                t.join(timeout=2)
+
+                # nothing to send -> no frames, no request on the wire
+                assert client.subscribe([]) == []
+
+                # a short reply (server stopped after 1 of 2) is a timeout, not a silent success
+                def half(peer):
+                    req = Frame.decode_from(peer)
+                    peer.sendall(Frame(RSP_SUB_MD, req.req_id, req.payload[:sz]).encode())
+                client._timeout = 0.3
+                t = threading.Thread(target=half, args=(peer,))
+                t.start()
+                try:
+                    client.subscribe(["rb2601", "m2601"])
+                    raise AssertionError("incomplete subscribe must not succeed")
+                except CTPError as exc:
+                    assert exc.error_id == -3 and "1 of 2" in str(exc), exc
+                t.join(timeout=2)
+    print("[ok] SDK: subscribe/unsubscribe collect one RSP per instrument, rejection, pushes untouched")
+
+
+def test_refdata_numeric() -> None:
+    """A numeric ref-data field that does not parse is an error naming the
+    row/field (never a silent 0)."""
+    from ctpbuddy import refdata
+
+    good = {"instrument_id": "rb2601", "exchange_id": "SHFE", "volume_multiple": "10",
+            "price_tick": "1.0", "long_margin_ratio": "0.1"}
+    assert refdata._normalize(good) == {"instrument_id": "rb2601", "exchange_id": "SHFE",
+                                        "volume_multiple": 10, "price_tick": 1.0, "long_margin_ratio": 0.1}
+    assert refdata._normalize({"price_tick": "", "volume_multiple": None}) == {}
+    for bad in ("abc", "1,0", "nan", "inf", True):
+        try:
+            refdata._normalize({"instrument_id": "rb2601", "price_tick": bad}, "instruments.jsonl line 3")
+            raise AssertionError("非数字应报错: %r" % (bad,))
+        except ValueError as e:
+            assert "instruments.jsonl line 3" in str(e) and "price_tick" in str(e), str(e)
+
+    class P:
+        def instruments(self):
+            return [dict(good), dict(good, instrument_id="m2601", volume_multiple="ten")]
+
+        def margin_rates(self):
+            return [{"instrument_id": "rb2601", "long_margin_ratio_by_money": "0.1x"}]
+
+    problems = refdata.validate(P())
+    assert any("instruments.jsonl line 2" in p and "volume_multiple='ten'" in p for p in problems), problems
+    assert any("margin_rates.jsonl line 1" in p and "long_margin_ratio_by_money" in p for p in problems), problems
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            refdata.write_jsonl(P(), d)
+            raise AssertionError("write_jsonl 必须拒绝非数字")
+        except ValueError as e:
+            assert "volume_multiple" in str(e), str(e)
+        assert not os.listdir(d)
+    print("[ok] refdata: non-numeric values are rejected with table/line/field, never written as 0")
+
+
+def test_replay_admin_inputs() -> None:
+    """Admin inputs: re-issued where an admin command exists, otherwise
+    classified `not_replayed` (counted, listed, not a problem) and excluded
+    from the core comparison."""
+    from ctpbuddy.replay import _Walker, first_core_diff, format_result, without_types
+    from ctpbuddy.journal import UNREPLAYABLE_ADMIN_TYPES, hash_stream
+
+    class FakeAdmin:
+        def __init__(self):
+            self.calls = []
+            self.fail = set()
+
+        def cmd(self, name, **kw):
+            self.calls.append((name, kw))
+            if name in self.fail:
+                raise RuntimeError("核心拒绝 " + name)
+            return {"ok": True}
+
+        def reset_account(self, investor=""):
+            return self.cmd("reset_account", investor=investor)
+
+        def settle_day(self, settlement_prices, next_trading_day=None):
+            if next_trading_day is None:
+                raise ValueError("未提供 next_trading_day")
+            return self.cmd("settle_day", settlement_prices=settlement_prices, next_trading_day=next_trading_day)
+
+        def settlement_report(self, reports):
+            return self.cmd("settlement_report", reports=reports)
+
+        def update_settings(self, patch):
+            return self.cmd("settings_update", patch=patch)
+
+    def ev(seq, typ, data=None, **kw):
+        e = {"seq": seq, "ts_wall": "t", "trading_day": "20261002", "vt_ms": 1.0,
+             "type": typ, "data": data if data is not None else {}}
+        e.update(kw)
+        return e
+
+    admin = FakeAdmin()
+    w = _Walker(admin, "127.0.0.1:1", "8888")
+    events = [
+        ev(1, "reset_account", {"all": False}, broker="8888", investor="u1"),
+        ev(2, "settlement", {"from_trading_day": "20261002", "next_trading_day": "20261005",
+                             "settlement_prices": {"rb2601": 3500.0}, "accounts": []}, broker="8888"),
+        ev(3, "settlement_report", {"broker": "8888", "investor": "u1", "trading_day": "20261002",
+                                    "settlement_id": 1, "account_id": "u1", "currency_id": "CNY",
+                                    "source": "modeled_ledger_minimal", "content_bytes": [65]},
+           broker="8888", investor="u1"),
+        ev(4, "settlement_report", {"broker": "8888", "investor": "u1", "trading_day": "20261002",
+                                    "settlement_id": 2, "account_id": "u1", "currency_id": "CNY",
+                                    "source": "user_supplied", "content_bytes": [66, 67]},
+           broker="8888", investor="u1"),
+        ev(5, "settings_updated", {"before": {"qry_freq": 1}, "after": {"qry_freq": 2}}),
+        ev(6, "deposit", {"amount": 1000.0}, broker="8888", investor="u1"),
+        ev(7, "withdraw", {"amount": 10.0}, broker="8888", investor="u1"),
+        ev(8, "fill", {"trade_id": "t1"}, broker="8888", investor="u1"),  # output, not an input
+    ]
+    w.walk(events, "")
+    assert w.problems == [], w.problems
+    assert [c[0] for c in admin.calls] == ["reset_account", "settle_day", "settlement_report", "settings_update"], admin.calls
+    assert admin.calls[1][1] == {"settlement_prices": {"rb2601": 3500.0}, "next_trading_day": "20261005"}
+    report = admin.calls[2][1]["reports"][0]
+    assert report["content_bytes"] == [66, 67] and report["source"] == "user_supplied" and report["trading_day"] == "20261002", report
+    assert admin.calls[3][1] == {"patch": {"qry_freq": 2}}
+    assert w.counts["reset"] == 1 and w.counts["settle"] == 1 and w.counts["report"] == 1
+    assert w.counts["settings"] == 1 and w.counts["not_replayed"] == 2, w.counts
+    assert len(w.not_replayed) == 2 and w.not_replayed[0].startswith("deposit (seq 6"), w.not_replayed
+
+    # the comparison drops the not-replayed types on both sides: a replay
+    # journal without the deposit/withdraw still matches
+    replayed = [dict(e, seq=i) for i, e in enumerate(
+        (e for e in events if e["type"] not in UNREPLAYABLE_ADMIN_TYPES), 1)]
+    assert hash_stream(events, core=True) != hash_stream(replayed, core=True)
+    assert hash_stream(without_types(events, UNREPLAYABLE_ADMIN_TYPES), core=True) == \
+        hash_stream(without_types(replayed, UNREPLAYABLE_ADMIN_TYPES), core=True)
+    assert first_core_diff(events, replayed) is not None
+    assert first_core_diff(events, replayed, skip=UNREPLAYABLE_ADMIN_TYPES) is None
+    report_text = format_result({"ok": True, "problems": [], "notes": [], "not_replayed": w.not_replayed,
+                                 "recorded_core": "a", "replay_core": "a", "diff": None})
+    assert "2 admin input(s) not replayable" in report_text and "PASS" in report_text, report_text
+    assert "deposit (seq 6" in report_text and "!" not in report_text.split("\n")[0], report_text
+
+    # a core rejection of a re-issued admin input IS a real difference
+    admin2 = FakeAdmin()
+    admin2.fail.add("settle_day")
+    w2 = _Walker(admin2, "127.0.0.1:1", "8888")
+    w2.walk([events[1], ev(2, "settlement", {"settlement_prices": {}}), ev(3, "settings_updated", {"before": {}})], "")
+    assert len(w2.problems) == 3 and "settlement (seq 2)" in w2.problems[0] and "核心拒绝" in w2.problems[0], w2.problems
+    assert "next_trading_day" in w2.problems[1] and "after" in w2.problems[2], w2.problems
+    assert w2.counts["settle"] == 0 and w2.not_replayed == []
+    print("[ok] replay: admin inputs re-issued (settle_day/report/settings), unreplayable ones classified not a diff")
+
+
 def test_sdk_lifecycle():
     from ctpbuddy.sdk.client import Client, CTPError
     from ctpbuddy.wire import Frame, PING, PONG
@@ -973,6 +1296,9 @@ def test_sdk_lifecycle():
 
 def main() -> int:
     test_sdk_lifecycle()
+    test_sdk_subscribe()
+    test_refdata_numeric()
+    test_replay_admin_inputs()
     test_shim_install_security()
     test_shim_install_faults()
     test_assertions_cli()

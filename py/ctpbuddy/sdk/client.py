@@ -466,19 +466,78 @@ class Client:
 
     # ---- market data ------------------------------------------------------
 
-    def subscribe(self, instruments: Iterable[str]) -> Frame:
-        # CTP wire format: back-to-back CThostFtdcSpecificInstrumentField structs.
-        # The core answers one RSP_SUB_MD per instrument (same req_id).
-        payload = b"".join(
-            generated.pack("CThostFtdcSpecificInstrumentField", InstrumentID=i) for i in instruments
-        )
-        return self._request(SUB_MD, payload, expect=RSP_SUB_MD)
+    def _md_request(self, msg_type: int, rsp_type: int, instruments: Iterable[str]) -> List[Frame]:
+        """SUB_MD / UNSUB_MD: one request, one RSP frame **per instrument**.
 
-    def unsubscribe(self, instruments: Iterable[str]) -> Frame:
+        The core answers each `CThostFtdcSpecificInstrumentField` with its
+        own `RSP_SUB_MD` / `RSP_UNSUB_MD` under the same `req_id`
+        (OnRspSubMarketData is called once per contract). A unary `_request`
+        would complete on the first frame and the reader would drop the
+        rest, so this collects exactly N frames (N = instruments sent) via
+        a multi-frame pending slot, stopping early on a rejection.
+        """
+        names = [str(i) for i in instruments]
+        if not names:
+            return []
         payload = b"".join(
-            generated.pack("CThostFtdcSpecificInstrumentField", InstrumentID=i) for i in instruments
+            generated.pack("CThostFtdcSpecificInstrumentField", InstrumentID=i) for i in names
         )
-        return self._request(UNSUB_MD, payload, expect=RSP_UNSUB_MD)
+        req_id = self._next_req_id()
+        p = _Pending(multi=True)
+        with self._lock:
+            if self._closed:
+                raise CTPError(-1, "connection closed")
+            self._pending[req_id] = p
+        out: List[Frame] = []
+        try:
+            with self._send_lock:
+                self.sock.sendall(Frame(msg_type, req_id, payload).encode())
+            while len(out) < len(names):
+                try:
+                    f = p.q.get(timeout=self._timeout)
+                except queue.Empty:
+                    raise CTPError(-3, "msg 0x%04x answered %d of %d instruments before timeout"
+                                   % (msg_type, len(out), len(names))) from None
+                if f is CLOSED:
+                    raise CTPError(-1, "connection closed")
+                if self._is_rejection(f):
+                    raise CTPError.from_frame(f)
+                if f.msg_type != rsp_type:
+                    raise CTPError(-2, "expected msg 0x%04x, got 0x%04x" % (rsp_type, f.msg_type))
+                out.append(f)
+        except OSError as exc:
+            self.close()
+            raise CTPError(-1, "connection closed") from exc
+        finally:
+            self._pending.pop(req_id, None)
+        return out
+
+    def subscribe(self, instruments: Iterable[str]) -> List[Frame]:
+        """Subscribe market data; returns one `RSP_SUB_MD` frame per instrument
+        (in request order). Raises CTPError on rejection or timeout.
+
+        Each frame's payload is a `CThostFtdcSpecificInstrumentField`; see
+        `subscribe_result` for the decoded per-instrument view.
+        """
+        return self._md_request(SUB_MD, RSP_SUB_MD, instruments)
+
+    def unsubscribe(self, instruments: Iterable[str]) -> List[Frame]:
+        """Unsubscribe; one `RSP_UNSUB_MD` frame per instrument (request order)."""
+        return self._md_request(UNSUB_MD, RSP_UNSUB_MD, instruments)
+
+    @staticmethod
+    def md_instruments(frames: Iterable[Frame]) -> List[str]:
+        """InstrumentID of each RSP_SUB_MD / RSP_UNSUB_MD frame (the
+        `CThostFtdcSpecificInstrumentField` the core echoed back)."""
+        return [
+            generated.unpack("CThostFtdcSpecificInstrumentField", f.payload)["InstrumentID"]
+            for f in frames
+        ]
+
+    def subscribe_result(self, instruments: Iterable[str]) -> Dict[str, Frame]:
+        """`subscribe` keyed by the echoed InstrumentID."""
+        frames = self.subscribe(instruments)
+        return dict(zip(self.md_instruments(frames), frames))
 
     # ---- queries ----------------------------------------------------------
 

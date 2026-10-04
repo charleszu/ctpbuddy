@@ -11,22 +11,26 @@
 //!   tick depth wins — the snapshot's volume entered the queue before the
 //!   just-parked order (time priority). Tick depth is an immutable
 //!   snapshot, so consumption is tracked per matching pass with
-//!   `used: [i32; DEPTH]`;
+//!   `used: [i32; DEPTH]` (one array per depth side: bids and asks are
+//!   consumed independently);
 //! - FAK/FOK exact semantics with the official CTP encodings
 //!   (`ThostFtdcUserApiDataType.h`): FOK = TC_IOC('1')+VC_CV('3'),
 //!   FAK = TC_IOC+VC_AV('1') or TC_IOC+VC_MV('2') with MinVolume; GFD('3')
 //!   leftovers rest, IOC leftovers are cancelled;
 //! - self-trade prevention: resting orders of the same (broker, investor)
-//!   are skipped (switchable);
+//!   are skipped when enabled (switchable, **off by default** — real CTP
+//!   does not block an investor from crossing their own resting order;
+//!   see `MatchingEngine::set_self_trade_prevention`);
 //! - callback sequence per DESIGN §8.9 / docs/notes/01: initial unknown
 //!   ('a') push (OrderSubmitStatus '0'), rest confirmation as a single '3'
 //!   push, every fill/cancel as 前态+新态 with OnRtnTrade after the new-state
 //!   OnRtnOrder — OrderSubmitStatus flips to '3' on every row after the
 //!   initial push (the exchange acted);
-//! - DCE exception (notes/01 B3, landed M2-4): the '3' confirmation is
+//! - DCE/GFEX exception (notes/01 B3, landed M2-4): the '3' confirmation is
 //!   pushed before matching (DCE returns it for every book-eligible order,
 //!   even an immediate fill), and the self-completed all-traded report
-//!   skips the 前态.
+//!   skips the 前态. GFEX shares the DCE group everywhere else
+//!   (`ioc_layout`), so it shares this rule too.
 //!
 //! Matching happens at two moments only: order arrival and tick arrival.
 //! Resting orders never match each other directly (a tick is the external
@@ -180,8 +184,10 @@ pub fn ioc_layout(exchange_id: &str) -> IocLayout {
 type FakFill = (OrderRecord, OrderRecord, f64, i32, String);
 
 /// Cancel lookup key. Resolution order: `order_sys_id` when non-empty, else
-/// exact (front_id, session_id, order_ref), else order_ref alone within the
-/// investor's orders (clients that forget front/session routing).
+/// exact (front_id, session_id, order_ref), else order_ref alone (clients
+/// that forget front/session routing). **Every** route is restricted to
+/// the caller's investor: an order owned by someone else is "not found"
+/// (25), never cancellable.
 #[derive(Clone, Debug, Default)]
 pub struct CancelQuery {
     pub front_id: i32,
@@ -231,8 +237,12 @@ pub struct MatchingEngine {
     catalog: Catalog,
     books: BTreeMap<String, Book>,
     last_md: HashMap<String, Tick>,
-    /// (front_id, session_id, order_ref) of orders still on the book.
-    active_refs: HashSet<(i32, i32, [u8; 13])>,
+    /// Every OrderRef ever accepted per (front_id, session_id) — active or
+    /// terminal. Real CTP keys an order by (FrontID, SessionID, OrderRef)
+    /// for the life of the session, so a ref reused after its order filled
+    /// or was cancelled is still DUPLICATE_ORDER_REF (22). One set per
+    /// session keeps the growth proportional to orders actually placed.
+    used_refs: HashMap<(i32, i32), HashSet<[u8; 13]>>,
     /// Terminal orders (filled '0' / cancelled '5') kept so a later cancel of
     /// the same key answers the official INSUITABLE_ORDER_STATUS (26) instead
     /// of ORDER_NOT_FOUND (25) — real CTP distinguishes the two (报单回调
@@ -242,8 +252,11 @@ pub struct MatchingEngine {
     next_trade: u64,
     next_notify: i32,
     next_arrival: u64,
-    /// Self-trade prevention (DESIGN §8.3): resting orders of the same
-    /// (broker, investor) are never matched against each other.
+    /// Self-trade prevention (DESIGN §8.3): when on, resting orders of the
+    /// same (broker, investor) are never matched against each other.
+    /// **Off by default** — real CTP lets an investor trade through their
+    /// own resting order; the switch exists for desks that want the
+    /// exchange-side 自成交 block simulated.
     self_trade_prevention: bool,
 }
 
@@ -253,20 +266,29 @@ impl MatchingEngine {
             catalog,
             books: BTreeMap::new(),
             last_md: HashMap::new(),
-            active_refs: HashSet::new(),
+            used_refs: HashMap::new(),
             terminal_refs: HashMap::new(),
             next_sys: 1,
             next_trade: 1,
             next_notify: 1,
             next_arrival: 1,
-            self_trade_prevention: true,
+            self_trade_prevention: false,
         }
     }
 
-    /// Retire an order: drop it from the active set and remember its terminal
-    /// status for later cancel-answer fidelity.
+    /// Switch self-trade prevention on/off (default off, see the field doc).
+    pub fn set_self_trade_prevention(&mut self, on: bool) {
+        self.self_trade_prevention = on;
+    }
+
+    pub fn self_trade_prevention(&self) -> bool {
+        self.self_trade_prevention
+    }
+
+    /// Retire an order: remember its terminal status for later cancel-answer
+    /// fidelity. The ref stays in `used_refs` — it can never be reused
+    /// within the session.
     fn retire(&mut self, key: (i32, i32, [u8; 13]), status: u8) {
-        self.active_refs.remove(&key);
         self.terminal_refs.insert(key, status);
     }
 
@@ -336,6 +358,11 @@ impl MatchingEngine {
         if !instr.is_trading {
             return Err((ERR_INSTRUMENT_NOT_TRADING, "CTP:合约不能交易".into()));
         }
+        // 期权等非期货合约不在仿真范围内（无权利金 / 行权 / 希腊字母路径）：合约
+        // 存在但本柜台不接单，沿用「合约不能交易」(17) 这条拒单路径。
+        if instr.product_class != b'1' {
+            return Err((ERR_INSTRUMENT_NOT_TRADING, "CTP:合约不能交易".into()));
+        }
         match intent.price_type {
             b'2' => {
                 if intent.limit_price <= 0.0 {
@@ -384,14 +411,19 @@ impl MatchingEngine {
                 }
             }
         }
+        // OrderRef uniqueness is per session for its whole life: a ref that
+        // once named a filled or cancelled order is still taken (22).
         let key = (intent.front_id, intent.session_id, intent.order_ref);
-        if self.active_refs.contains(&key) {
+        let session_refs = self
+            .used_refs
+            .entry((intent.front_id, intent.session_id))
+            .or_default();
+        if !session_refs.insert(intent.order_ref) {
             return SubmitOutcome::Rejected {
                 error_id: ERR_DUPLICATE_ORDER,
                 msg: "CTP:报单错误：不允许重复报单".into(),
             };
         }
-        self.active_refs.insert(key);
 
         let sys_id = format!("{:010}", self.next_sys);
         self.next_sys += 1;
@@ -673,19 +705,23 @@ impl MatchingEngine {
             trading_day: &tick.trading_day,
             now_ms: tick.virtual_ms(),
         };
-        let mut used = [0i32; DEPTH];
+        // Resting bids eat the tick's ask depth, resting asks eat its bid
+        // depth: two independent snapshots, two independent consumption
+        // counters. Sharing one array would let the buy side's fills
+        // silently shrink what the sell side may still take.
+        let mut used_bid = [0i32; DEPTH];
+        let mut used_ask = [0i32; DEPTH];
         let Book { bids, asks } = book;
         let mut leftover = Book::default();
         for mut rec in bids.into_iter().chain(asks) {
+            let used = match rec.direction {
+                Direction::Buy => &mut used_ask,
+                Direction::Sell => &mut used_bid,
+            };
             let mut remaining = rec.volume_total;
             while remaining > 0 {
-                match market_counterpart(
-                    tick,
-                    rec.direction,
-                    rec.price_type,
-                    rec.limit_price,
-                    &used,
-                ) {
+                match market_counterpart(tick, rec.direction, rec.price_type, rec.limit_price, used)
+                {
                     Some(m) => {
                         let take = m.avail.min(remaining);
                         if let Some(l) = m.level {
@@ -1075,12 +1111,14 @@ impl MatchingEngine {
     /// to both sides (one exchange trade, two reports), a market fill mints
     /// its own for the single taker report.
     ///
-    /// 大商所特例 (notes/01 B3, landed M2-4): on a full fill DCE returns
-    /// only the trade and CTP **self-completes** the all-traded order report
-    /// **without repeating the previous state** — so the 前态 push is
-    /// skipped exactly when this fill completes the order (`'0'`). Partial
-    /// fills keep the general 前态+新态 rule; the '3' confirmation DCE
-    /// always returns (even for an immediately-filled order) is handled in
+    /// 大商所/广期所特例 (notes/01 B3, landed M2-4): on a full fill DCE
+    /// returns only the trade and CTP **self-completes** the all-traded
+    /// order report **without repeating the previous state** — so the 前态
+    /// push is skipped exactly when this fill completes the order (`'0'`).
+    /// GFEX belongs to the DCE group everywhere else (`ioc_layout`, the
+    /// 进簿确认 in `submit` 2b), so it follows this rule too. Partial fills
+    /// keep the general 前态+新态 rule; the '3' confirmation DCE always
+    /// returns (even for an immediately-filled order) is handled in
     /// `submit` (2b).
     fn emit_fill(
         &mut self,
@@ -1091,9 +1129,11 @@ impl MatchingEngine {
         events: &mut Vec<EngineEvent>,
         ctx: &ClockCtx,
     ) {
-        // DCE self-completion: this fill takes the order to '0' and DCE
-        // never repeats the 前态 for its self-completed all-traded report.
-        let dce_self_complete = rec.exchange_id == "DCE" && rec.volume_total == volume;
+        // DCE/GFEX self-completion: this fill takes the order to '0' and the
+        // DCE group never repeats the 前态 for its self-completed all-traded
+        // report (same group as `ioc_layout`'s TradeDriven).
+        let dce_self_complete =
+            matches!(rec.exchange_id.as_str(), "DCE" | "GFEX") && rec.volume_total == volume;
         // 前态 (the state this order was last reported in)
         if !dce_self_complete {
             let mut prev = rec.clone();
@@ -1286,6 +1326,11 @@ fn trade_offset(rec: &OrderRecord) -> OffsetFlag {
 }
 
 fn matches_cancel(r: &OrderRecord, q: &CancelQuery) -> bool {
+    // every route is restricted to the caller's investor: another account's
+    // order is simply "not found" (25), whichever key the client used
+    if cstr(&r.investor_id) != q.investor_id {
+        return false;
+    }
     if !q.order_sys_id.is_empty() {
         cstr(&r.order_sys_id) == q.order_sys_id
     } else if q.front_id != 0 {
@@ -1293,8 +1338,8 @@ fn matches_cancel(r: &OrderRecord, q: &CancelQuery) -> bool {
             && r.session_id == q.session_id
             && cstr(&r.order_ref) == q.order_ref
     } else {
-        // ref-only fallback, restricted to the caller's investor
-        cstr(&r.order_ref) == q.order_ref && cstr(&r.investor_id) == q.investor_id
+        // ref-only fallback (clients that forget front/session routing)
+        cstr(&r.order_ref) == q.order_ref
     }
 }
 
@@ -1579,6 +1624,209 @@ mod tests {
             panic!("FAK must be accepted then canceled, not rejected");
         };
         assert_eq!(statuses(&events), vec![(b'a', false), (b'5', false)]);
+    }
+
+    fn order_ref13(s: &str) -> [u8; 13] {
+        let mut r = [0u8; 13];
+        r[..s.len()].copy_from_slice(s.as_bytes());
+        r
+    }
+
+    fn accepted(outcome: SubmitOutcome) -> Vec<EngineEvent> {
+        match outcome {
+            SubmitOutcome::Accepted { events } => events,
+            SubmitOutcome::Rejected { error_id, msg } => panic!("rejected: {error_id} {msg}"),
+        }
+    }
+
+    /// rb2601 tick with one bid level and one ask level.
+    fn rb_tick(bid: f64, bid_v: i32, ask: f64, ask_v: i32) -> Tick {
+        let mut t = Tick::default();
+        t.instrument_id = "rb2601".into();
+        t.exchange_id = "SHFE".into();
+        t.trading_day = "20260915".into();
+        t.update_time = "09:30:00".into();
+        t.last_price = (bid + ask) / 2.0;
+        t.bid_prices[0] = bid;
+        t.bid_volumes[0] = bid_v;
+        t.ask_prices[0] = ask;
+        t.ask_volumes[0] = ask_v;
+        t
+    }
+
+    // 跨账户撤单：B 的单对 A 来说就是「不存在」，三条定位路线（sysid / 三元组 /
+    // 仅 ref）都必须校验 investor，且 B 的单仍然挂着。
+    #[test]
+    fn cancel_never_crosses_investors() {
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        let mut b = maker("rb2601", "SHFE", 3500.0, 2);
+        b.investor_id = *b"INV0002\0\0\0\0\0\0";
+        let events = accepted(e.submit(&b, &ctx()));
+        let sys_id = events
+            .iter()
+            .rev()
+            .find_map(|ev| match ev {
+                EngineEvent::Order(f) => Some(cstr(&f.OrderSysID)),
+                _ => None,
+            })
+            .expect("order row");
+        assert!(!sys_id.is_empty(), "rest confirmation publishes OrderSysID");
+        assert_eq!(e.open_order_count(), 1);
+
+        // A tries all three routes against B's order
+        let routes = [
+            CancelQuery {
+                order_sys_id: sys_id.clone(),
+                investor_id: "INV0001".into(),
+                ..Default::default()
+            },
+            CancelQuery {
+                front_id: 1,
+                session_id: 1,
+                order_ref: "M1".into(),
+                investor_id: "INV0001".into(),
+                ..Default::default()
+            },
+            CancelQuery {
+                order_ref: "M1".into(),
+                investor_id: "INV0001".into(),
+                ..Default::default()
+            },
+        ];
+        for q in &routes {
+            match e.cancel(q, &ctx()) {
+                Err(err) => assert_eq!(err.0, ERR_ORDER_NOT_FOUND, "{q:?}"),
+                Ok(_) => panic!("A must not cancel B's order: {q:?}"),
+            }
+            assert_eq!(e.open_order_count(), 1, "B's order still resting");
+        }
+        // B itself can cancel through the sysid route
+        let q = CancelQuery {
+            order_sys_id: sys_id,
+            investor_id: "INV0002".into(),
+            ..Default::default()
+        };
+        let ev = e.cancel(&q, &ctx()).expect("owner cancels");
+        assert_eq!(statuses(&ev), vec![(b'3', false), (b'5', false)]);
+        assert_eq!(e.open_order_count(), 0);
+    }
+
+    // on_tick：买单吃 ask 档、卖单吃 bid 档，两侧消耗计数必须独立——买侧吃光
+    // ask1 的 5 手不能让卖侧在 bid1 上少成交一手。
+    #[test]
+    fn tick_depth_consumption_is_tracked_per_side() {
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        // 卖单 3510 与买单 3490：不交叉，都挂着
+        let mut sell = maker("rb2601", "SHFE", 3510.0, 5);
+        sell.order_ref = order_ref13("S1");
+        accepted(e.submit(&sell, &ctx()));
+        let mut buy = maker("rb2601", "SHFE", 3490.0, 5);
+        buy.order_ref = order_ref13("B1");
+        buy.direction = Direction::Buy;
+        accepted(e.submit(&buy, &ctx()));
+        assert_eq!(e.open_order_count(), 2);
+
+        // tick: bid1 3520×5 (crosses the resting ask), ask1 3480×5 (crosses
+        // the resting bid). Each side has exactly enough for its taker.
+        let events = e.on_tick(&rb_tick(3520.0, 5, 3480.0, 5));
+        let traded: i32 = events
+            .iter()
+            .filter_map(|ev| match ev {
+                EngineEvent::Trade { field, .. } => Some(field.Volume),
+                _ => None,
+            })
+            .sum();
+        assert_eq!(traded, 10, "both sides fully filled: 5 + 5");
+        assert_eq!(e.open_order_count(), 0, "nothing left resting");
+    }
+
+    // 自成交预防默认关闭：同账户交叉直接成交；显式开启后才跳过同账户挂单。
+    #[test]
+    fn self_trade_prevention_is_off_by_default() {
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        assert!(!e.self_trade_prevention());
+        accepted(e.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()));
+        let mut buy = maker("rb2601", "SHFE", 3500.0, 1);
+        buy.order_ref = order_ref13("B1");
+        buy.direction = Direction::Buy;
+        let ev = accepted(e.submit(&buy, &ctx()));
+        assert!(
+            ev.iter().any(|x| matches!(x, EngineEvent::Trade { .. })),
+            "same-account orders trade when prevention is off"
+        );
+        assert_eq!(e.open_order_count(), 0);
+
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        e.set_self_trade_prevention(true);
+        accepted(e.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()));
+        let ev = accepted(e.submit(&buy, &ctx()));
+        assert!(
+            !ev.iter().any(|x| matches!(x, EngineEvent::Trade { .. })),
+            "same-account resting order skipped when prevention is on"
+        );
+        assert_eq!(e.open_order_count(), 2);
+    }
+
+    // OrderRef 在同一会话内终身唯一：终态（已撤 / 全成）单的 ref 再用也是 22；
+    // 换一个会话则可以复用。
+    #[test]
+    fn terminal_order_ref_is_still_a_duplicate_within_session() {
+        let mut e = MatchingEngine::new(Catalog::bundled());
+        accepted(e.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()));
+        let q = CancelQuery {
+            front_id: 1,
+            session_id: 1,
+            order_ref: "M1".into(),
+            investor_id: "INV0001".into(),
+            ..Default::default()
+        };
+        e.cancel(&q, &ctx()).expect("cancel own order");
+        assert_eq!(e.open_order_count(), 0);
+        assert!(matches!(
+            e.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()),
+            SubmitOutcome::Rejected {
+                error_id: ERR_DUPLICATE_ORDER,
+                ..
+            }
+        ));
+        // a fully-filled FAK's ref is just as taken
+        let mut t = fak_taker("T1", 1);
+        t.limit_price = 3500.0;
+        let mut m2 = maker("rb2601", "SHFE", 3500.0, 1);
+        m2.order_ref = order_ref13("M2");
+        accepted(e.submit(&m2, &ctx()));
+        accepted(e.submit(&t, &ctx()));
+        assert_eq!(e.open_order_count(), 0);
+        assert!(matches!(
+            e.submit(&t, &ctx()),
+            SubmitOutcome::Rejected {
+                error_id: ERR_DUPLICATE_ORDER,
+                ..
+            }
+        ));
+        // another session may reuse the same ref
+        let mut other = maker("rb2601", "SHFE", 3500.0, 1);
+        other.session_id = 2;
+        accepted(e.submit(&other, &ctx()));
+    }
+
+    // refdata `is_trading = 0` / 非期货 product_class → 17 合约不能交易。
+    #[test]
+    fn halted_or_non_future_instruments_are_rejected_with_17() {
+        let mut cat = Catalog::new();
+        let mut halted = crate::Instrument::new("rb2601", "SHFE");
+        halted.is_trading = false;
+        cat.insert(halted);
+        let mut opt = crate::Instrument::new("rb2601C3500", "SHFE");
+        opt.product_class = b'2';
+        cat.insert(opt);
+        let e = MatchingEngine::new(cat);
+        let err = e.check(&maker("rb2601", "SHFE", 3500.0, 1)).unwrap_err();
+        assert_eq!(err.0, ERR_INSTRUMENT_NOT_TRADING);
+        let err = e
+            .check(&maker("rb2601C3500", "SHFE", 100.0, 1))
+            .unwrap_err();
+        assert_eq!(err.0, ERR_INSTRUMENT_NOT_TRADING);
     }
 
     /// FAK 全成：官方无形状可依，退回一般前态+新态+Trade（§8.9 场景 2）。

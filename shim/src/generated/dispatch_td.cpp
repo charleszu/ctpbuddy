@@ -19,7 +19,9 @@ static void row_OnRspUserLogin(ApiCore& c, const Frame& f) {
         p = payload_as(f, fld);
         if (p) c.set_trading_day_locked(p->TradingDay);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspUserLogin(const_cast<CThostFtdcRspUserLoginField*>(p), &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogin(const_cast<CThostFtdcRspUserLoginField*>(p), &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspUserLogout(ApiCore& c, const Frame& f) {
@@ -32,7 +34,9 @@ static void row_OnRspUserLogout(ApiCore& c, const Frame& f) {
         nrid = pd.n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspUserLogout(const_cast<CThostFtdcUserLogoutField*>(p), &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogout(const_cast<CThostFtdcUserLogoutField*>(p), &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspSettlementInfoConfirm(ApiCore& c, const Frame& f) {
@@ -45,13 +49,21 @@ static void row_OnRspSettlementInfoConfirm(ApiCore& c, const Frame& f) {
         nrid = pd.n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspSettlementInfoConfirm(const_cast<CThostFtdcSettlementInfoConfirmField*>(p), &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspSettlementInfoConfirm(const_cast<CThostFtdcSettlementInfoConfirmField*>(p), &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspOrderInsert(ApiCore& c, const Frame& f) {
-    Pending pd = c.take_pending(f.req_id);
+    Pending pd;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        pd = c.take_pending(f.req_id);
+    }
     if (pd.req_msg == 0) return;
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspOrderInsert(&pd.input_order, &c.zero_rsp_info(), pd.n_request_id, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspOrderInsert(&pd.input_order, &c.zero_rsp_info(), pd.n_request_id, true);
 }
 
 static void row_OnErrRtnOrderInsert(ApiCore& c, const Frame& f) {
@@ -60,14 +72,22 @@ static void row_OnErrRtnOrderInsert(ApiCore& c, const Frame& f) {
     const size_t n = sizeof(in);
     if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);
     if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnErrRtnOrderInsert(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnErrRtnOrderInsert(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));
 }
 
 
 static void row_OnRspOrderAction(ApiCore& c, const Frame& f) {
-    Pending pd = c.take_pending(f.req_id);
+    Pending pd;
+    {
+        std::lock_guard<std::mutex> g(c.mu());
+        pd = c.take_pending(f.req_id);
+    }
     if (pd.req_msg == 0) return;
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspOrderAction(&pd.input_action, &c.zero_rsp_info(), pd.n_request_id, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspOrderAction(&pd.input_action, &c.zero_rsp_info(), pd.n_request_id, true);
 }
 
 static void row_OnErrRtnOrderAction(ApiCore& c, const Frame& f) {
@@ -76,9 +96,11 @@ static void row_OnErrRtnOrderAction(ApiCore& c, const Frame& f) {
     const size_t n = sizeof(in);
     if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);
     if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
     CThostFtdcOrderActionField act{};
     synth_order_action(act, in);
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnErrRtnOrderAction(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));
+    spi->OnErrRtnOrderAction(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));
 }
 
 
@@ -93,11 +115,15 @@ static void row_OnRspQrySettlementInfo(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQrySettlementInfo(const_cast<CThostFtdcSettlementInfoField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQrySettlementInfo(const_cast<CThostFtdcSettlementInfoField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQrySettlementInfo_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQrySettlementInfo(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQrySettlementInfo(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryOrder(ApiCore& c, const Frame& f) {
@@ -111,11 +137,15 @@ static void row_OnRspQryOrder(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryOrder(const_cast<CThostFtdcOrderField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryOrder(const_cast<CThostFtdcOrderField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryOrder_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryOrder(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryOrder(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryTrade(ApiCore& c, const Frame& f) {
@@ -129,11 +159,15 @@ static void row_OnRspQryTrade(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryTrade(const_cast<CThostFtdcTradeField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryTrade(const_cast<CThostFtdcTradeField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryTrade_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryTrade(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryTrade(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryInvestorPosition(ApiCore& c, const Frame& f) {
@@ -147,11 +181,15 @@ static void row_OnRspQryInvestorPosition(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPosition(const_cast<CThostFtdcInvestorPositionField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorPosition(const_cast<CThostFtdcInvestorPositionField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryInvestorPosition_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPosition(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorPosition(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryInvestorPositionDetail(ApiCore& c, const Frame& f) {
@@ -165,11 +203,15 @@ static void row_OnRspQryInvestorPositionDetail(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPositionDetail(const_cast<CThostFtdcInvestorPositionDetailField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorPositionDetail(const_cast<CThostFtdcInvestorPositionDetailField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryInvestorPositionDetail_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPositionDetail(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorPositionDetail(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryInvestorProductGroupMargin(ApiCore& c, const Frame& f) {
@@ -183,11 +225,15 @@ static void row_OnRspQryInvestorProductGroupMargin(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorProductGroupMargin(const_cast<CThostFtdcInvestorProductGroupMarginField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorProductGroupMargin(const_cast<CThostFtdcInvestorProductGroupMarginField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryInvestorProductGroupMargin_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorProductGroupMargin(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorProductGroupMargin(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryTradingAccount(ApiCore& c, const Frame& f) {
@@ -201,11 +247,15 @@ static void row_OnRspQryTradingAccount(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryTradingAccount(const_cast<CThostFtdcTradingAccountField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryTradingAccount(const_cast<CThostFtdcTradingAccountField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryTradingAccount_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryTradingAccount(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryTradingAccount(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryInstrument(ApiCore& c, const Frame& f) {
@@ -219,11 +269,15 @@ static void row_OnRspQryInstrument(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrument(const_cast<CThostFtdcInstrumentField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrument(const_cast<CThostFtdcInstrumentField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryInstrument_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrument(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrument(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryInstrumentMarginRate(ApiCore& c, const Frame& f) {
@@ -237,11 +291,15 @@ static void row_OnRspQryInstrumentMarginRate(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentMarginRate(const_cast<CThostFtdcInstrumentMarginRateField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentMarginRate(const_cast<CThostFtdcInstrumentMarginRateField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryInstrumentMarginRate_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentMarginRate(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentMarginRate(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryInstrumentCommissionRate(ApiCore& c, const Frame& f) {
@@ -255,11 +313,15 @@ static void row_OnRspQryInstrumentCommissionRate(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentCommissionRate(const_cast<CThostFtdcInstrumentCommissionRateField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentCommissionRate(const_cast<CThostFtdcInstrumentCommissionRateField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryInstrumentCommissionRate_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentCommissionRate(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentCommissionRate(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryInstrumentOrderCommRate(ApiCore& c, const Frame& f) {
@@ -273,11 +335,15 @@ static void row_OnRspQryInstrumentOrderCommRate(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentOrderCommRate(const_cast<CThostFtdcInstrumentOrderCommRateField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentOrderCommRate(const_cast<CThostFtdcInstrumentOrderCommRateField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryInstrumentOrderCommRate_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentOrderCommRate(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentOrderCommRate(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspQryBrokerTradingParams(ApiCore& c, const Frame& f) {
@@ -291,91 +357,135 @@ static void row_OnRspQryBrokerTradingParams(ApiCore& c, const Frame& f) {
         nrid = pd->n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryBrokerTradingParams(const_cast<CThostFtdcBrokerTradingParamsField*>(p), &c.zero_rsp_info(), nrid, false);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryBrokerTradingParams(const_cast<CThostFtdcBrokerTradingParamsField*>(p), &c.zero_rsp_info(), nrid, false);
 }
 
 static void row_OnRspQryBrokerTradingParams_last(ApiCore& c, int nrid) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryBrokerTradingParams(nullptr, &c.zero_rsp_info(), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryBrokerTradingParams(nullptr, &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRtnOrder(ApiCore& c, const Frame& f) {
     CThostFtdcOrderField fld{};
     const CThostFtdcOrderField* p = payload_as(f, fld);
-    if (p) static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRtnOrder(const_cast<CThostFtdcOrderField*>(p));
+    if (!p) return;
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRtnOrder(const_cast<CThostFtdcOrderField*>(p));
 }
 
 static void row_OnRtnTrade(ApiCore& c, const Frame& f) {
     CThostFtdcTradeField fld{};
     const CThostFtdcTradeField* p = payload_as(f, fld);
-    if (p) static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRtnTrade(const_cast<CThostFtdcTradeField*>(p));
+    if (!p) return;
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRtnTrade(const_cast<CThostFtdcTradeField*>(p));
 }
 
 static void row_OnRspUserLogin_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspUserLogout_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspUserLogout(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogout(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspSettlementInfoConfirm_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspSettlementInfoConfirm(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspSettlementInfoConfirm(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspOrderInsert_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspOrderInsert(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspOrderInsert(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspOrderAction_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspOrderAction(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspOrderAction(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQrySettlementInfo_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQrySettlementInfo(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQrySettlementInfo(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryOrder_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryOrder(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryOrder(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryTrade_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryTrade(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryTrade(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryInvestorPosition_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPosition(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorPosition(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryInvestorPositionDetail_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorPositionDetail(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorPositionDetail(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryInvestorProductGroupMargin_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInvestorProductGroupMargin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInvestorProductGroupMargin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryTradingAccount_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryTradingAccount(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryTradingAccount(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryInstrument_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrument(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrument(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryInstrumentMarginRate_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentMarginRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentMarginRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryInstrumentCommissionRate_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentCommissionRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentCommissionRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryInstrumentOrderCommRate_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryInstrumentOrderCommRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryInstrumentOrderCommRate(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspQryBrokerTradingParams_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcTraderSpi*>(c.spi())->OnRspQryBrokerTradingParams(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcTraderSpi* spi = static_cast<CThostFtdcTraderSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspQryBrokerTradingParams(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 }  // namespace
@@ -408,23 +518,33 @@ const DispatchRow kTdDispatch[] = {
 const DispatchRow* TraderApi::rows() const { return kTdDispatch; }
 
 void TraderApi::on_rsp_error_fallback(const CThostFtdcRspInfoField& rsp, int n_request_id) {
-    static_cast<CThostFtdcTraderSpi*>(spi())->OnRspError(const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
+    CThostFtdcTraderSpi* s = static_cast<CThostFtdcTraderSpi*>(spi());
+    if (!s) return;
+    s->OnRspError(const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
 }
 
 void TraderApi::on_auth_failed(int n_request_id, const CThostFtdcRspInfoField& rsp) {
-    static_cast<CThostFtdcTraderSpi*>(spi())->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
+    CThostFtdcTraderSpi* s = static_cast<CThostFtdcTraderSpi*>(spi());
+    if (!s) return;
+    s->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
 }
 
 void TraderApi::on_authenticate_rsp(const CThostFtdcRspAuthenticateField* field, const CThostFtdcRspInfoField& rsp, int n_request_id) {
-    static_cast<CThostFtdcTraderSpi*>(spi())->OnRspAuthenticate(const_cast<CThostFtdcRspAuthenticateField*>(field), const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
+    CThostFtdcTraderSpi* s = static_cast<CThostFtdcTraderSpi*>(spi());
+    if (!s) return;
+    s->OnRspAuthenticate(const_cast<CThostFtdcRspAuthenticateField*>(field), const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
 }
 
 void TraderApi::fire_front_connected() {
-    static_cast<CThostFtdcTraderSpi*>(spi())->OnFrontConnected();
+    CThostFtdcTraderSpi* s = static_cast<CThostFtdcTraderSpi*>(spi());
+    if (!s) return;
+    s->OnFrontConnected();
 }
 
 void TraderApi::fire_front_disconnected(int reason) {
-    static_cast<CThostFtdcTraderSpi*>(spi())->OnFrontDisconnected(reason);
+    CThostFtdcTraderSpi* s = static_cast<CThostFtdcTraderSpi*>(spi());
+    if (!s) return;
+    s->OnFrontDisconnected(reason);
 }
 
 }  // namespace ctpbuddy

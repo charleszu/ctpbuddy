@@ -88,59 +88,59 @@ int TraderApi::ReqUserLogout(CThostFtdcUserLogoutField *pUserLogout, int nReques
 }
 
 int TraderApi::ReqUserPasswordUpdate(CThostFtdcUserPasswordUpdateField *pUserPasswordUpdate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqUserPasswordUpdate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqUserPasswordUpdate");
 }
 
 int TraderApi::ReqTradingAccountPasswordUpdate(CThostFtdcTradingAccountPasswordUpdateField *pTradingAccountPasswordUpdate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqTradingAccountPasswordUpdate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqTradingAccountPasswordUpdate");
 }
 
 int TraderApi::ReqUserAuthMethod(CThostFtdcReqUserAuthMethodField *pReqUserAuthMethod, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqUserAuthMethod");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqUserAuthMethod");
 }
 
 int TraderApi::ReqGenUserCaptcha(CThostFtdcReqGenUserCaptchaField *pReqGenUserCaptcha, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqGenUserCaptcha");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqGenUserCaptcha");
 }
 
 int TraderApi::ReqGenUserText(CThostFtdcReqGenUserTextField *pReqGenUserText, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqGenUserText");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqGenUserText");
 }
 
 int TraderApi::ReqUserLoginWithCaptcha(CThostFtdcReqUserLoginWithCaptchaField *pReqUserLoginWithCaptcha, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqUserLoginWithCaptcha");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqUserLoginWithCaptcha");
 }
 
 int TraderApi::ReqUserLoginWithText(CThostFtdcReqUserLoginWithTextField *pReqUserLoginWithText, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqUserLoginWithText");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqUserLoginWithText");
 }
 
 int TraderApi::ReqUserLoginWithOTP(CThostFtdcReqUserLoginWithOTPField *pReqUserLoginWithOTP, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqUserLoginWithOTP");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqUserLoginWithOTP");
 }
 
 int TraderApi::ReqOrderInsert(CThostFtdcInputOrderField *pInputOrder, int nRequestID) {
@@ -148,17 +148,17 @@ int TraderApi::ReqOrderInsert(CThostFtdcInputOrderField *pInputOrder, int nReque
 }
 
 int TraderApi::ReqParkedOrderInsert(CThostFtdcParkedOrderField *pParkedOrder, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqParkedOrderInsert");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqParkedOrderInsert");
 }
 
 int TraderApi::ReqParkedOrderAction(CThostFtdcParkedOrderActionField *pParkedOrderAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqParkedOrderAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqParkedOrderAction");
 }
 
 int TraderApi::ReqOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction, int nRequestID) {
@@ -166,10 +166,10 @@ int TraderApi::ReqOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction
 }
 
 int TraderApi::ReqQryMaxOrderVolume(CThostFtdcQryMaxOrderVolumeField *pQryMaxOrderVolume, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryMaxOrderVolume");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryMaxOrderVolume");
 }
 
 int TraderApi::ReqSettlementInfoConfirm(CThostFtdcSettlementInfoConfirmField *pSettlementInfoConfirm, int nRequestID) {
@@ -177,80 +177,80 @@ int TraderApi::ReqSettlementInfoConfirm(CThostFtdcSettlementInfoConfirmField *pS
 }
 
 int TraderApi::ReqRemoveParkedOrder(CThostFtdcRemoveParkedOrderField *pRemoveParkedOrder, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqRemoveParkedOrder");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqRemoveParkedOrder");
 }
 
 int TraderApi::ReqRemoveParkedOrderAction(CThostFtdcRemoveParkedOrderActionField *pRemoveParkedOrderAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqRemoveParkedOrderAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqRemoveParkedOrderAction");
 }
 
 int TraderApi::ReqExecOrderInsert(CThostFtdcInputExecOrderField *pInputExecOrder, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqExecOrderInsert");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqExecOrderInsert");
 }
 
 int TraderApi::ReqExecOrderAction(CThostFtdcInputExecOrderActionField *pInputExecOrderAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqExecOrderAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqExecOrderAction");
 }
 
 int TraderApi::ReqForQuoteInsert(CThostFtdcInputForQuoteField *pInputForQuote, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqForQuoteInsert");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqForQuoteInsert");
 }
 
 int TraderApi::ReqQuoteInsert(CThostFtdcInputQuoteField *pInputQuote, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQuoteInsert");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQuoteInsert");
 }
 
 int TraderApi::ReqQuoteAction(CThostFtdcInputQuoteActionField *pInputQuoteAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQuoteAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQuoteAction");
 }
 
 int TraderApi::ReqBatchOrderAction(CThostFtdcInputBatchOrderActionField *pInputBatchOrderAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqBatchOrderAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqBatchOrderAction");
 }
 
 int TraderApi::ReqOptionSelfCloseInsert(CThostFtdcInputOptionSelfCloseField *pInputOptionSelfClose, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqOptionSelfCloseInsert");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqOptionSelfCloseInsert");
 }
 
 int TraderApi::ReqOptionSelfCloseAction(CThostFtdcInputOptionSelfCloseActionField *pInputOptionSelfCloseAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqOptionSelfCloseAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqOptionSelfCloseAction");
 }
 
 int TraderApi::ReqCombActionInsert(CThostFtdcInputCombActionField *pInputCombAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqCombActionInsert");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqCombActionInsert");
 }
 
 int TraderApi::ReqQryOrder(CThostFtdcQryOrderField *pQryOrder, int nRequestID) {
@@ -270,17 +270,17 @@ int TraderApi::ReqQryTradingAccount(CThostFtdcQryTradingAccountField *pQryTradin
 }
 
 int TraderApi::ReqQryInvestor(CThostFtdcQryInvestorField *pQryInvestor, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestor");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestor");
 }
 
 int TraderApi::ReqQryTradingCode(CThostFtdcQryTradingCodeField *pQryTradingCode, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryTradingCode");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryTradingCode");
 }
 
 int TraderApi::ReqQryInstrumentMarginRate(CThostFtdcQryInstrumentMarginRateField *pQryInstrumentMarginRate, int nRequestID) {
@@ -292,24 +292,24 @@ int TraderApi::ReqQryInstrumentCommissionRate(CThostFtdcQryInstrumentCommissionR
 }
 
 int TraderApi::ReqQryUserSession(CThostFtdcQryUserSessionField *pQryUserSession, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryUserSession");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryUserSession");
 }
 
 int TraderApi::ReqQryExchange(CThostFtdcQryExchangeField *pQryExchange, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryExchange");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryExchange");
 }
 
 int TraderApi::ReqQryProduct(CThostFtdcQryProductField *pQryProduct, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryProduct");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryProduct");
 }
 
 int TraderApi::ReqQryInstrument(CThostFtdcQryInstrumentField *pQryInstrument, int nRequestID) {
@@ -317,17 +317,17 @@ int TraderApi::ReqQryInstrument(CThostFtdcQryInstrumentField *pQryInstrument, in
 }
 
 int TraderApi::ReqQryDepthMarketData(CThostFtdcQryDepthMarketDataField *pQryDepthMarketData, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryDepthMarketData");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryDepthMarketData");
 }
 
 int TraderApi::ReqQryTraderOffer(CThostFtdcQryTraderOfferField *pQryTraderOffer, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryTraderOffer");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryTraderOffer");
 }
 
 int TraderApi::ReqQrySettlementInfo(CThostFtdcQrySettlementInfoField *pQrySettlementInfo, int nRequestID) {
@@ -335,10 +335,10 @@ int TraderApi::ReqQrySettlementInfo(CThostFtdcQrySettlementInfoField *pQrySettle
 }
 
 int TraderApi::ReqQryTransferBank(CThostFtdcQryTransferBankField *pQryTransferBank, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryTransferBank");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryTransferBank");
 }
 
 int TraderApi::ReqQryInvestorPositionDetail(CThostFtdcQryInvestorPositionDetailField *pQryInvestorPositionDetail, int nRequestID) {
@@ -346,38 +346,38 @@ int TraderApi::ReqQryInvestorPositionDetail(CThostFtdcQryInvestorPositionDetailF
 }
 
 int TraderApi::ReqQryNotice(CThostFtdcQryNoticeField *pQryNotice, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryNotice");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryNotice");
 }
 
 int TraderApi::ReqQrySettlementInfoConfirm(CThostFtdcQrySettlementInfoConfirmField *pQrySettlementInfoConfirm, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySettlementInfoConfirm");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySettlementInfoConfirm");
 }
 
 int TraderApi::ReqQryInvestorPositionCombineDetail(CThostFtdcQryInvestorPositionCombineDetailField *pQryInvestorPositionCombineDetail, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorPositionCombineDetail");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorPositionCombineDetail");
 }
 
 int TraderApi::ReqQryCFMMCTradingAccountKey(CThostFtdcQryCFMMCTradingAccountKeyField *pQryCFMMCTradingAccountKey, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryCFMMCTradingAccountKey");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryCFMMCTradingAccountKey");
 }
 
 int TraderApi::ReqQryEWarrantOffset(CThostFtdcQryEWarrantOffsetField *pQryEWarrantOffset, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryEWarrantOffset");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryEWarrantOffset");
 }
 
 int TraderApi::ReqQryInvestorProductGroupMargin(CThostFtdcQryInvestorProductGroupMarginField *pQryInvestorProductGroupMargin, int nRequestID) {
@@ -385,59 +385,59 @@ int TraderApi::ReqQryInvestorProductGroupMargin(CThostFtdcQryInvestorProductGrou
 }
 
 int TraderApi::ReqQryExchangeMarginRate(CThostFtdcQryExchangeMarginRateField *pQryExchangeMarginRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryExchangeMarginRate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryExchangeMarginRate");
 }
 
 int TraderApi::ReqQryExchangeMarginRateAdjust(CThostFtdcQryExchangeMarginRateAdjustField *pQryExchangeMarginRateAdjust, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryExchangeMarginRateAdjust");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryExchangeMarginRateAdjust");
 }
 
 int TraderApi::ReqQryExchangeRate(CThostFtdcQryExchangeRateField *pQryExchangeRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryExchangeRate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryExchangeRate");
 }
 
 int TraderApi::ReqQrySecAgentACIDMap(CThostFtdcQrySecAgentACIDMapField *pQrySecAgentACIDMap, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySecAgentACIDMap");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySecAgentACIDMap");
 }
 
 int TraderApi::ReqQryProductExchRate(CThostFtdcQryProductExchRateField *pQryProductExchRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryProductExchRate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryProductExchRate");
 }
 
 int TraderApi::ReqQryProductGroup(CThostFtdcQryProductGroupField *pQryProductGroup, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryProductGroup");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryProductGroup");
 }
 
 int TraderApi::ReqQryMMInstrumentCommissionRate(CThostFtdcQryMMInstrumentCommissionRateField *pQryMMInstrumentCommissionRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryMMInstrumentCommissionRate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryMMInstrumentCommissionRate");
 }
 
 int TraderApi::ReqQryMMOptionInstrCommRate(CThostFtdcQryMMOptionInstrCommRateField *pQryMMOptionInstrCommRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryMMOptionInstrCommRate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryMMOptionInstrCommRate");
 }
 
 int TraderApi::ReqQryInstrumentOrderCommRate(CThostFtdcQryInstrumentOrderCommRateField *pQryInstrumentOrderCommRate, int nRequestID) {
@@ -445,129 +445,129 @@ int TraderApi::ReqQryInstrumentOrderCommRate(CThostFtdcQryInstrumentOrderCommRat
 }
 
 int TraderApi::ReqQrySecAgentTradingAccount(CThostFtdcQryTradingAccountField *pQryTradingAccount, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySecAgentTradingAccount");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySecAgentTradingAccount");
 }
 
 int TraderApi::ReqQrySecAgentCheckMode(CThostFtdcQrySecAgentCheckModeField *pQrySecAgentCheckMode, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySecAgentCheckMode");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySecAgentCheckMode");
 }
 
 int TraderApi::ReqQrySecAgentTradeInfo(CThostFtdcQrySecAgentTradeInfoField *pQrySecAgentTradeInfo, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySecAgentTradeInfo");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySecAgentTradeInfo");
 }
 
 int TraderApi::ReqQryOptionInstrTradeCost(CThostFtdcQryOptionInstrTradeCostField *pQryOptionInstrTradeCost, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryOptionInstrTradeCost");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryOptionInstrTradeCost");
 }
 
 int TraderApi::ReqQryOptionInstrCommRate(CThostFtdcQryOptionInstrCommRateField *pQryOptionInstrCommRate, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryOptionInstrCommRate");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryOptionInstrCommRate");
 }
 
 int TraderApi::ReqQryExecOrder(CThostFtdcQryExecOrderField *pQryExecOrder, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryExecOrder");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryExecOrder");
 }
 
 int TraderApi::ReqQryForQuote(CThostFtdcQryForQuoteField *pQryForQuote, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryForQuote");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryForQuote");
 }
 
 int TraderApi::ReqQryQuote(CThostFtdcQryQuoteField *pQryQuote, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryQuote");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryQuote");
 }
 
 int TraderApi::ReqQryOptionSelfClose(CThostFtdcQryOptionSelfCloseField *pQryOptionSelfClose, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryOptionSelfClose");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryOptionSelfClose");
 }
 
 int TraderApi::ReqQryInvestUnit(CThostFtdcQryInvestUnitField *pQryInvestUnit, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestUnit");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestUnit");
 }
 
 int TraderApi::ReqQryCombInstrumentGuard(CThostFtdcQryCombInstrumentGuardField *pQryCombInstrumentGuard, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryCombInstrumentGuard");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryCombInstrumentGuard");
 }
 
 int TraderApi::ReqQryCombAction(CThostFtdcQryCombActionField *pQryCombAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryCombAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryCombAction");
 }
 
 int TraderApi::ReqQryTransferSerial(CThostFtdcQryTransferSerialField *pQryTransferSerial, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryTransferSerial");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryTransferSerial");
 }
 
 int TraderApi::ReqQryAccountregister(CThostFtdcQryAccountregisterField *pQryAccountregister, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryAccountregister");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryAccountregister");
 }
 
 int TraderApi::ReqQryContractBank(CThostFtdcQryContractBankField *pQryContractBank, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryContractBank");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryContractBank");
 }
 
 int TraderApi::ReqQryParkedOrder(CThostFtdcQryParkedOrderField *pQryParkedOrder, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryParkedOrder");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryParkedOrder");
 }
 
 int TraderApi::ReqQryParkedOrderAction(CThostFtdcQryParkedOrderActionField *pQryParkedOrderAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryParkedOrderAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryParkedOrderAction");
 }
 
 int TraderApi::ReqQryTradingNotice(CThostFtdcQryTradingNoticeField *pQryTradingNotice, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryTradingNotice");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryTradingNotice");
 }
 
 int TraderApi::ReqQryBrokerTradingParams(CThostFtdcQryBrokerTradingParamsField *pQryBrokerTradingParams, int nRequestID) {
@@ -575,325 +575,325 @@ int TraderApi::ReqQryBrokerTradingParams(CThostFtdcQryBrokerTradingParamsField *
 }
 
 int TraderApi::ReqQryBrokerTradingAlgos(CThostFtdcQryBrokerTradingAlgosField *pQryBrokerTradingAlgos, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryBrokerTradingAlgos");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryBrokerTradingAlgos");
 }
 
 int TraderApi::ReqQueryCFMMCTradingAccountToken(CThostFtdcQueryCFMMCTradingAccountTokenField *pQueryCFMMCTradingAccountToken, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQueryCFMMCTradingAccountToken");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQueryCFMMCTradingAccountToken");
 }
 
 int TraderApi::ReqFromBankToFutureByFuture(CThostFtdcReqTransferField *pReqTransfer, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqFromBankToFutureByFuture");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqFromBankToFutureByFuture");
 }
 
 int TraderApi::ReqFromFutureToBankByFuture(CThostFtdcReqTransferField *pReqTransfer, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqFromFutureToBankByFuture");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqFromFutureToBankByFuture");
 }
 
 int TraderApi::ReqQueryBankAccountMoneyByFuture(CThostFtdcReqQueryAccountField *pReqQueryAccount, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQueryBankAccountMoneyByFuture");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQueryBankAccountMoneyByFuture");
 }
 
 int TraderApi::ReqQryClassifiedInstrument(CThostFtdcQryClassifiedInstrumentField *pQryClassifiedInstrument, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryClassifiedInstrument");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryClassifiedInstrument");
 }
 
 int TraderApi::ReqQryCombPromotionParam(CThostFtdcQryCombPromotionParamField *pQryCombPromotionParam, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryCombPromotionParam");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryCombPromotionParam");
 }
 
 int TraderApi::ReqQryRiskSettleInvstPosition(CThostFtdcQryRiskSettleInvstPositionField *pQryRiskSettleInvstPosition, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRiskSettleInvstPosition");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRiskSettleInvstPosition");
 }
 
 int TraderApi::ReqQryRiskSettleProductStatus(CThostFtdcQryRiskSettleProductStatusField *pQryRiskSettleProductStatus, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRiskSettleProductStatus");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRiskSettleProductStatus");
 }
 
 int TraderApi::ReqQrySPBMFutureParameter(CThostFtdcQrySPBMFutureParameterField *pQrySPBMFutureParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPBMFutureParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPBMFutureParameter");
 }
 
 int TraderApi::ReqQrySPBMOptionParameter(CThostFtdcQrySPBMOptionParameterField *pQrySPBMOptionParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPBMOptionParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPBMOptionParameter");
 }
 
 int TraderApi::ReqQrySPBMIntraParameter(CThostFtdcQrySPBMIntraParameterField *pQrySPBMIntraParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPBMIntraParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPBMIntraParameter");
 }
 
 int TraderApi::ReqQrySPBMInterParameter(CThostFtdcQrySPBMInterParameterField *pQrySPBMInterParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPBMInterParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPBMInterParameter");
 }
 
 int TraderApi::ReqQrySPBMPortfDefinition(CThostFtdcQrySPBMPortfDefinitionField *pQrySPBMPortfDefinition, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPBMPortfDefinition");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPBMPortfDefinition");
 }
 
 int TraderApi::ReqQrySPBMInvestorPortfDef(CThostFtdcQrySPBMInvestorPortfDefField *pQrySPBMInvestorPortfDef, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPBMInvestorPortfDef");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPBMInvestorPortfDef");
 }
 
 int TraderApi::ReqQryInvestorPortfMarginRatio(CThostFtdcQryInvestorPortfMarginRatioField *pQryInvestorPortfMarginRatio, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorPortfMarginRatio");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorPortfMarginRatio");
 }
 
 int TraderApi::ReqQryInvestorProdSPBMDetail(CThostFtdcQryInvestorProdSPBMDetailField *pQryInvestorProdSPBMDetail, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorProdSPBMDetail");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorProdSPBMDetail");
 }
 
 int TraderApi::ReqQryInvestorCommoditySPMMMargin(CThostFtdcQryInvestorCommoditySPMMMarginField *pQryInvestorCommoditySPMMMargin, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorCommoditySPMMMargin");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorCommoditySPMMMargin");
 }
 
 int TraderApi::ReqQryInvestorCommodityGroupSPMMMargin(CThostFtdcQryInvestorCommodityGroupSPMMMarginField *pQryInvestorCommodityGroupSPMMMargin, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorCommodityGroupSPMMMargin");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorCommodityGroupSPMMMargin");
 }
 
 int TraderApi::ReqQrySPMMInstParam(CThostFtdcQrySPMMInstParamField *pQrySPMMInstParam, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPMMInstParam");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPMMInstParam");
 }
 
 int TraderApi::ReqQrySPMMProductParam(CThostFtdcQrySPMMProductParamField *pQrySPMMProductParam, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPMMProductParam");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPMMProductParam");
 }
 
 int TraderApi::ReqQrySPBMAddOnInterParameter(CThostFtdcQrySPBMAddOnInterParameterField *pQrySPBMAddOnInterParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySPBMAddOnInterParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySPBMAddOnInterParameter");
 }
 
 int TraderApi::ReqQryRCAMSCombProductInfo(CThostFtdcQryRCAMSCombProductInfoField *pQryRCAMSCombProductInfo, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRCAMSCombProductInfo");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRCAMSCombProductInfo");
 }
 
 int TraderApi::ReqQryRCAMSInstrParameter(CThostFtdcQryRCAMSInstrParameterField *pQryRCAMSInstrParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRCAMSInstrParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRCAMSInstrParameter");
 }
 
 int TraderApi::ReqQryRCAMSIntraParameter(CThostFtdcQryRCAMSIntraParameterField *pQryRCAMSIntraParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRCAMSIntraParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRCAMSIntraParameter");
 }
 
 int TraderApi::ReqQryRCAMSInterParameter(CThostFtdcQryRCAMSInterParameterField *pQryRCAMSInterParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRCAMSInterParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRCAMSInterParameter");
 }
 
 int TraderApi::ReqQryRCAMSShortOptAdjustParam(CThostFtdcQryRCAMSShortOptAdjustParamField *pQryRCAMSShortOptAdjustParam, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRCAMSShortOptAdjustParam");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRCAMSShortOptAdjustParam");
 }
 
 int TraderApi::ReqQryRCAMSInvestorCombPosition(CThostFtdcQryRCAMSInvestorCombPositionField *pQryRCAMSInvestorCombPosition, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRCAMSInvestorCombPosition");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRCAMSInvestorCombPosition");
 }
 
 int TraderApi::ReqQryInvestorProdRCAMSMargin(CThostFtdcQryInvestorProdRCAMSMarginField *pQryInvestorProdRCAMSMargin, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorProdRCAMSMargin");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorProdRCAMSMargin");
 }
 
 int TraderApi::ReqQryRULEInstrParameter(CThostFtdcQryRULEInstrParameterField *pQryRULEInstrParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRULEInstrParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRULEInstrParameter");
 }
 
 int TraderApi::ReqQryRULEIntraParameter(CThostFtdcQryRULEIntraParameterField *pQryRULEIntraParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRULEIntraParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRULEIntraParameter");
 }
 
 int TraderApi::ReqQryRULEInterParameter(CThostFtdcQryRULEInterParameterField *pQryRULEInterParameter, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryRULEInterParameter");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryRULEInterParameter");
 }
 
 int TraderApi::ReqQryInvestorProdRULEMargin(CThostFtdcQryInvestorProdRULEMarginField *pQryInvestorProdRULEMargin, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorProdRULEMargin");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorProdRULEMargin");
 }
 
 int TraderApi::ReqQryInvestorPortfSetting(CThostFtdcQryInvestorPortfSettingField *pQryInvestorPortfSetting, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorPortfSetting");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorPortfSetting");
 }
 
 int TraderApi::ReqQryInvestorInfoCommRec(CThostFtdcQryInvestorInfoCommRecField *pQryInvestorInfoCommRec, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryInvestorInfoCommRec");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryInvestorInfoCommRec");
 }
 
 int TraderApi::ReqQryCombLeg(CThostFtdcQryCombLegField *pQryCombLeg, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryCombLeg");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryCombLeg");
 }
 
 int TraderApi::ReqOffsetSetting(CThostFtdcInputOffsetSettingField *pInputOffsetSetting, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqOffsetSetting");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqOffsetSetting");
 }
 
 int TraderApi::ReqCancelOffsetSetting(CThostFtdcInputOffsetSettingField *pInputOffsetSetting, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqCancelOffsetSetting");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqCancelOffsetSetting");
 }
 
 int TraderApi::ReqQryOffsetSetting(CThostFtdcQryOffsetSettingField *pQryOffsetSetting, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryOffsetSetting");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryOffsetSetting");
 }
 
 int TraderApi::ReqGenSMSCode(CThostFtdcReqGenSMSCodeField *pReqGenSMSCode, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqGenSMSCode");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqGenSMSCode");
 }
 
 int TraderApi::ReqSpdApply(CThostFtdcInputSpdApplyField *pInputSpdApply, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqSpdApply");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqSpdApply");
 }
 
 int TraderApi::ReqSpdApplyAction(CThostFtdcInputSpdApplyActionField *pInputSpdApplyAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqSpdApplyAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqSpdApplyAction");
 }
 
 int TraderApi::ReqQrySpdApply(CThostFtdcQrySpdApplyField *pQrySpdApply, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQrySpdApply");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQrySpdApply");
 }
 
 int TraderApi::ReqHedgeCfm(CThostFtdcInputHedgeCfmField *pInputHedgeCfm, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqHedgeCfm");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqHedgeCfm");
 }
 
 int TraderApi::ReqHedgeCfmAction(CThostFtdcInputHedgeCfmActionField *pInputHedgeCfmAction, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqHedgeCfmAction");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqHedgeCfmAction");
 }
 
 int TraderApi::ReqQryHedgeCfm(CThostFtdcQryHedgeCfmField *pQryHedgeCfm, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryHedgeCfm");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryHedgeCfm");
 }
 
 

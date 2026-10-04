@@ -6,7 +6,7 @@
 
 > 通用 CTP 开发指南见 [`docs/CTP开发知识库/README.md`](docs/CTP开发知识库/README.md)；它用于分层检索和工程入门，**不是官方权威**。官方 HTML 与项目考证 notes 的优先级、适用基线及真实样本边界见该 README；项目进度仍以本文件和 [`DESIGN.md`](DESIGN.md) 为准。
 
-> 完整设计见 [DESIGN.md](DESIGN.md)。源码反向映射索引见 [`docs-site-oink/content/architecture/source-layout.md`](docs-site-oink/content/architecture/source-layout.md)，按协议、场景时间、撮合回报、账本日结、查询审计、Web 安全、Docker/Shim 发布和测试 CI 指向实际模块路径。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`。官方资料可读版：SDK《6.7.13_API接口说明》HTML 版（405 页干净 HTML，剔除 CHM 主题框架、保留表格/代码/内嵌图片，页间链接与 `anchor-id-*` 锚点均已校验；另有 1 页目录漏收附录、8 个官方附件与 84 条官方源死链/1 条悬空锚点的公示）在 [docs/api-doc-html/](docs/api-doc-html/)，error.xml 错误码全集（299 条，逐条标注「已实现 19 / 可落地 51 / 暂不可达 229」+ 推送面）在 [docs/错误码全集.md](docs/错误码全集.md)，双推送面口径见 [docs/notes/09](docs/notes/09-错单推送面与错误码对账.md)；FAK 部成部撤的**三所分流**回报（上期所/大商所+广期所/郑商所三种不同形状）见 [docs/notes/10](docs/notes/10-FAK回报按交易所分流.md)；程序化交易入门系列 17 份客户端实操资料（连接认证/穿透式监管、行情现手开平、报撤单成交回报、查询流控与持仓更新）的整理与实现影响清单见 [docs/notes/11](docs/notes/11-入门系列-连接认证与穿透式监管.md)~[docs/notes/14](docs/notes/14-入门系列-查询流控与持仓查询更新.md)（汇总登记在知识库 §10.4）。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；本项目不附带任何官方 SDK 文件，`ctpsdk/` 目录中的头文件由使用者自备、禁止入库与分发。
+> 完整设计见 [DESIGN.md](DESIGN.md)。源码反向映射索引见 [`docs-site-oink/content/architecture/source-layout.md`](docs-site-oink/content/architecture/source-layout.md)，按协议、场景时间、撮合回报、账本日结、查询审计、Web 安全、Docker/Shim 发布和测试 CI 指向实际模块路径。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`（编号 01~05、09~14；06~08 跳号：06「API 文档 Markdown 转换」与 07「错误码全集」已分别上移为 `docs/api-doc-html/` 与 `docs/错误码全集.md`（提交 `17e2f8e`），08 从未发布，编号不回收）。官方资料可读版：SDK《6.7.13_API接口说明》HTML 版（405 页干净 HTML，剔除 CHM 主题框架、保留表格/代码/内嵌图片，页间链接与 `anchor-id-*` 锚点均已校验；另有 1 页目录漏收附录、8 个官方附件与 84 条官方源死链/1 条悬空锚点的公示）在 [docs/api-doc-html/](docs/api-doc-html/)，error.xml 错误码全集（299 条，逐条标注「已实现 23 / 可落地 47 / 暂不可达 229」+ 推送面，由 `tools/fill_errorcode_status.py` 全量重算、`--check` 可校验）在 [docs/错误码全集.md](docs/错误码全集.md)，双推送面口径见 [docs/notes/09](docs/notes/09-错单推送面与错误码对账.md)；FAK 部成部撤的**三所分流**回报（上期所/大商所+广期所/郑商所三种不同形状）见 [docs/notes/10](docs/notes/10-FAK回报按交易所分流.md)；程序化交易入门系列 17 份客户端实操资料（连接认证/穿透式监管、行情现手开平、报撤单成交回报、查询流控与持仓更新）的整理与实现影响清单见 [docs/notes/11](docs/notes/11-入门系列-连接认证与穿透式监管.md)~[docs/notes/14](docs/notes/14-入门系列-查询流控与持仓查询更新.md)（汇总登记在知识库 §10.4）。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；仓库**不包含** `ctpsdk/*/` 下的官方二进制 SDK（`.dll`/`.lib`，由使用者自备，`.gitignore` 禁止入库与分发），但 `docs/api-doc-html/files/` 附带了由官方 CHM 文档转换得到的头文件、`error.xml` 与 PDF，仅供文档交叉引用（许可与来源说明见下文「许可」）。
 
 ## 它解决什么问题
 
@@ -94,7 +94,7 @@ python tools/audit_query_expectations.py --limit 20 --report C:/temp/query-audit
 python tests/e2e/m4_real_replay.py --report C:/temp/core-query-subset-audit.json
 ```
 
-M4 真实回放只验收 `controlled futures subset`：动态选择 RefData 覆盖交易日的普通期货、`OffsetFlag=0`、`HedgeFlag=1`、空投资单元、唯一关联且一笔完全成交的真实 order/trade。回放在临时目录和匿名隔离账户中使用原 order 的 LimitPrice/VolumeTotalOriginal/TimeCondition/VolumeCondition/MinVolume；卖单 bid 使用真实成交价，买单 ask 使用真实成交价。报告仅保存匿名计数与 skip 原因，不生成真实正文；未提供外部目录时 SKIP，有数据但无合法候选时失败。它不声称真实账户前日权益或完整账户重演，初仓 empty 仅指该隔离 controlled open 子集。
+M4 真实回放只验收 `controlled futures subset`：动态选择 RefData 覆盖交易日的普通期货、`OffsetFlag=0`、`HedgeFlag=1`、空投资单元、唯一关联且一笔完全成交的真实 order/trade。回放在临时目录和匿名隔离账户中使用原 order 的 LimitPrice/VolumeTotalOriginal/TimeCondition/VolumeCondition/MinVolume；卖单 bid 使用真实成交价，买单 ask 使用真实成交价。报告仅保存匿名计数与 skip 原因，不生成真实正文；未提供外部目录时打印 SKIPPED 并以退出码 3 退出（传 `--allow-skip` 才为 0，CI 需显式传入），有数据但无合法候选时失败。它不声称真实账户前日权益或完整账户重演，初仓 empty 仅指该隔离 controlled open 子集。
 
 `audit_query_expectations.py` 从严格同交易日、同账号的 `order.csv` / `trade.csv` 与结算单构建
 `ReqQryOrder`、`ReqQryTrade`、`ReqQryInvestorPosition`、`ReqQryInvestorPositionDetail` 的可核期望。
@@ -103,7 +103,7 @@ M4 真实回放只验收 `controlled futures subset`：动态选择 RefData 覆�
 并与同日结算单核对；非 SHFE/INE 的平仓年龄/FIFO 不完整时只记 ambiguity，不从今平量猜昨仓。期权仅做数量变化校验，
 不将权利金或期权保证金转换为期货资金。没有真实查询回报时状态为 `not_evaluated`，不是通过。
 支持 `--date`、`--investor`、`--limit`、`--report`；报告只写匿名 hash、计数、差异和 skip/fail 理由，不保存真实正文。
-坏数据返回非零；缺源显式 skip。该脚本是 source alignment / query expectations，不代表 Core 账本重演已完成。
+坏数据返回非零；缺源显式 skip；缺同日/前日结算单的账户日记为 `not_evaluated`（与 `audit_three_way.py` 口径一致，不算通过）；同一 (结算日, 账号) 出现多份结算单计入 `duplicate_settlement`、列入报告并按坏数据判失败；CSV 先按 UTF-8(BOM) 再按 GBK 解码。该脚本是 source alignment / query expectations，不代表 Core 账本重演已完成。
 目录可用 `CTPBUDDY_EXPORT_DIR` / `CTPBUDDY_SETTLEMENT_DIR` 指定；未提供则跳过，不影响上面的回归。
 口径细节见 DESIGN §8.7.1。
 
@@ -176,7 +176,7 @@ Web 启动可指定 `ctpbuddy web --workspace . --db data/ctpbuddy.db`；目录�
 Linux 容器验收只覆盖不依赖 Windows ABI 的边界：Python wheel/CLI、Rust `ctpbuddy-server` build/run、随包 `refdata`，以及 Web/OINK（镜像没有 Hugo 二进制时明确 `SKIP`，可在独立 Hugo 环境构建）。容器**绝不运行 Windows Shim**，也不复制 `ctpsdk/`、Windows DLL/EXE 或真实账户/行情数据。
 
 ```bash
-python tools/docker_acceptance.py       # 无 Docker 或 daemon 不可用时安全 SKIP
+python tools/docker_acceptance.py       # 无 Docker 或 daemon 不可用时打印 SKIPPED、退出码 3；--allow-skip 才为 0
 # CI / 本机 Docker：
 docker compose -f docker/compose.yml build
 docker compose -f docker/compose.yml run --rm acceptance
@@ -186,17 +186,25 @@ Windows Shim 发布包只从本机已构建的 `shim/bin/` 白名单复制 `thos
 
 ```bash
 python tools/release_package.py          # 输出系统临时目录中的 dist
-python tests/e2e/release_package.py      # 临时 PE fixture；真实产物可选
+python tests/e2e/release_package.py      # 临时 PE fixture 必跑；真实产物段未启用时 SKIPPED、退出码 3（--allow-skip 为 0）
 CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py
 ```
 
 包内有 `manifest.json`（version、commit、逐文件 SHA256、PE machine、architecture、SDK `6.7.13`）、`LICENSE`、`INSTALL.txt` 和 `shim/ctpbuddy-shim-manifest.json`。脚本不读取/复制原始 `ctpsdk`，不读取/复制 `data`，不构建或执行 Shim；真实产物验收必须在 Windows 上单独完成。
 
+## 许可
+
+本项目代码以 [MIT](LICENSE) 许可发布。以下随仓库附带的数据**不在 MIT 范围内**，各自按来源声明使用：
+
+- `docs/api-doc-html/files/` 中由官方 CHM 转换得到的头文件、`error.xml` 与 PDF 属上期技术所有，仅供文档交叉引用，不构成再分发授权；`ctpsdk/*/` 二进制 SDK 不入库。
+- `calendar/production/` 下的交易日历快照取自六所公开休市公告的事实摘录（来源、提取 revision 与事实 hash 登记在 `calendar/production/MANIFEST.json`），快照 `source.license` 自述「原网页再分发许可未确认」——即这些数据**不随 MIT 授权、再分发许可状态未确认**，生产使用前须自行复核公告并固定 SHA256。
+- `refdata/` 随包合约快照源自 LocalCTP 参考实现的 `instrument.csv` 导出，见 DESIGN §8.6.1。
+
 ## 结构
 
 ```
-ctpsdk/                  # 使用者自备的官方 SDK（禁止入库，见 .gitignore）
-docs/                    # 设计文档 + CTP 语义知识库 + 官方 API 文档/错误码全集（CHM 与 error.xml 的可读化）
+ctpsdk/                  # 使用者自备的官方 SDK 二进制（禁止入库，见 .gitignore）
+docs/                    # 设计文档 + CTP 语义知识库 + 官方 API 文档/错误码全集（CHM 与 error.xml 的可读化；api-doc-html/files/ 附带 CHM 转出的 .h/error.xml/PDF）
 shim/                    # C++ Shim（DLL/so 同名替换）+ codegen
 core/                    # Rust workspace：wire / market / matching / ledger / server
 py/                      # Python 包 ctpbuddy

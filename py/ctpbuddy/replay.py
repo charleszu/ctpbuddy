@@ -21,8 +21,15 @@ in order —
 
 After the walk the fresh journal's **core hash** (§11.4) must equal the
 recording's: the replay reproduces the recording's semantic core
-byte-for-byte. `reset_account` / `deposit` / `withdraw` / `settle` /
-`admin` inputs are re-issued as admin commands when supported.
+byte-for-byte. Admin inputs are re-issued as admin commands where one
+exists (`reset_account`, `settlement` -> settle_day, user-supplied
+`settlement_report`, `settings_updated` -> settings_update; see
+`journal.REPLAYABLE_ADMIN_TYPES`). Admin inputs no command can re-issue
+(`journal.UNREPLAYABLE_ADMIN_TYPES`: `deposit` / `withdraw` / `settle` /
+`admin`) are counted and listed as `not_replayed` — they are excluded from
+the core-hash comparison on both sides and never reported as a problem,
+so a recording that carries them still PASSes when everything replayable
+matches.
 
 Limitations (documented in DESIGN §11.2): distinct tick `vt_ms` values
 are assumed for seek patterns (ties resolve to the first tick); the
@@ -40,9 +47,12 @@ import sys
 import tempfile
 import time
 from collections import deque
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
 
 from .journal import (
+    ADMIN_INPUT_TYPES,
+    REPLAYABLE_TYPES,
+    UNREPLAYABLE_ADMIN_TYPES,
     canonical,
     core_normalize,
     hash_stream,
@@ -53,16 +63,9 @@ from .sdk import Admin, Client, CTPError
 from .scenario import load_scenario_spec
 from .wire import ERR_RTN_ORDER_INSERT
 
-#: Journal events that are inputs to a replay (requests + the tick trace).
-REPLAYABLE_TYPES = frozenset({
-    "scenario_loaded",
-    "session_auth", "session_login", "session_logout",
-    "order_insert", "order_cancel",
-    "reset_account", "deposit", "withdraw", "settle", "admin",
-    "md_watermark",
-})
-#: Admin-command inputs the driver knows how to re-issue.
-_ADMIN_INPUTS = frozenset({"reset_account", "deposit", "withdraw", "settle", "admin"})
+#: `settlement_report.source` the core writes for the reports it generates
+#: itself at settle_day — reproduced by re-issuing settle_day, never an input.
+_DERIVED_REPORT_SOURCE = "modeled_ledger_minimal"
 
 _STEP_TIMEOUT = 20.0
 #: How long a replay waits for the post-response 错单回报 half of a
@@ -120,12 +123,28 @@ def _connect_admin(addr: str, timeout: float = 10.0) -> Admin:
             time.sleep(0.05)
 
 
+def without_types(events: Iterable[Dict[str, Any]],
+                  skip: Optional[Iterable[str]]) -> List[Dict[str, Any]]:
+    """Drop event types **before** core normalization (so `seq` is re-encoded
+    over the remaining stream on both sides) — unlike `hash_stream(skip=)`,
+    which filters after normalizing."""
+    if not skip:
+        return list(events)
+    skip_s = frozenset(skip)
+    return [e for e in events if e.get("type") not in skip_s]
+
+
 def first_core_diff(
-    recorded: List[Dict[str, Any]], replay: List[Dict[str, Any]]
+    recorded: List[Dict[str, Any]], replay: List[Dict[str, Any]],
+    skip: Optional[Iterable[str]] = None,
 ) -> Optional[Tuple[int, str, str]]:
-    """First differing event of the two normalized cores: `(index, a, b)`."""
-    a = core_normalize(recorded)
-    b = core_normalize(replay)
+    """First differing event of the two normalized cores: `(index, a, b)`.
+
+    `skip` drops event types from both sides before normalizing (the
+    not-replayed admin inputs, which the replay journal cannot contain).
+    """
+    a = core_normalize(without_types(recorded, skip))
+    b = core_normalize(without_types(replay, skip))
     for i in range(min(len(a), len(b))):
         ca, cb = canonical(a[i]), canonical(b[i])
         if ca != cb:
@@ -175,6 +194,9 @@ class _Walker:
         self.verbose = verbose
         self.problems: List[str] = []
         self.notes: List[str] = []
+        #: admin inputs recognised but not re-issued (no admin command for
+        #: them) — reported apart from `problems`, never a FAIL by themselves
+        self.not_replayed: List[str] = []
         self.authed: Dict[Tuple[str, str], Deque[Client]] = {}
         self.active: Dict[Tuple[str, str], Client] = {}
         self.by_front: Dict[int, Client] = {}
@@ -183,7 +205,8 @@ class _Walker:
         self.scenario_dir = ""
         self._load_checked = False
         self.counts = {"load": 0, "session": 0, "order": 0, "cancel": 0,
-                       "reset": 0, "admin": 0, "tick": 0}
+                       "reset": 0, "settle": 0, "report": 0, "settings": 0,
+                       "not_replayed": 0, "tick": 0}
 
     # -- helpers ------------------------------------------------------------
 
@@ -456,16 +479,67 @@ class _Walker:
 
     def on_admin_input(self, ev: Dict[str, Any]) -> None:
         t = ev["type"]
+        d = ev.get("data") or {}
         if t == "reset_account":
             # standalone admin reset (a start_scenario byproduct never
             # reaches the journal — only scenario_loaded does)
             self.admin.reset_account(ev.get("investor") or "")
             self.counts["reset"] += 1
             self._say("reset_account %s" % (ev.get("investor") or "(all)"))
+        elif t == "settlement":
+            self._admin_reissue(ev, "settle", lambda: self.admin.settle_day(
+                d.get("settlement_prices") or {},
+                next_trading_day=d.get("next_trading_day")))
+            self._say("settle_day %s -> %s" % (
+                d.get("from_trading_day") or ev.get("trading_day"), d.get("next_trading_day")))
+        elif t == "settlement_report":
+            if d.get("source") == _DERIVED_REPORT_SOURCE:
+                # the core's own minimal report, journaled by settle_day:
+                # reproduced by the settle_day re-issue above, not an input
+                return
+            report = {
+                "broker": d.get("broker") or ev.get("broker") or self.broker_id,
+                "investor": d.get("investor") or ev.get("investor") or "",
+                "trading_day": d.get("trading_day") or ev.get("trading_day") or "",
+                "settlement_id": d.get("settlement_id"),
+                "account_id": d.get("account_id", ""),
+                "currency_id": d.get("currency_id", ""),
+                "content_bytes": d.get("content_bytes") or [],
+            }
+            if d.get("source"):
+                report["source"] = d["source"]
+            self._admin_reissue(ev, "report", lambda: self.admin.settlement_report([report]))
+            self._say("settlement_report %s/%s %s" % (
+                report["broker"], report["investor"], report["trading_day"]))
+        elif t == "settings_updated":
+            after = d.get("after")
+            if not isinstance(after, dict):
+                self.problems.append(
+                    "settings_updated (seq %s) carries no `after` object" % ev.get("seq"))
+                return
+            self._admin_reissue(ev, "settings", lambda: self.admin.update_settings(after))
+            self._say("settings_update %s" % sorted(after))
+        elif t in UNREPLAYABLE_ADMIN_TYPES:
+            # recognised admin input with no admin command to re-issue it:
+            # classified, counted, excluded from the hash — not a difference
+            self.counts["not_replayed"] += 1
+            self.not_replayed.append("%s (seq %s, %s/%s)" % (
+                t, ev.get("seq"), ev.get("broker") or self.broker_id,
+                ev.get("investor") or "-"))
+            self._say("not replayed: %s (seq %s)" % (t, ev.get("seq")))
+        else:  # pragma: no cover - ADMIN_INPUT_TYPES and this dispatch drifted
+            raise ReplayError("unhandled admin input type %r" % t)
+
+    def _admin_reissue(self, ev: Dict[str, Any], counter: str, send: Any) -> None:
+        """Re-issue one admin input; a core rejection is a real difference."""
+        try:
+            send()
+        except (RuntimeError, ValueError, ConnectionError) as e:
+            self.problems.append(
+                "%s (seq %s) was accepted in the recording but rejected on replay: %s"
+                % (ev["type"], ev.get("seq"), e))
             return
-        self.problems.append(
-            "%s input events are not replayable by this version (event %s)"
-            % (t, ev.get("type")))
+        self.counts[counter] += 1
 
     # -- main loop ----------------------------------------------------------
 
@@ -492,7 +566,7 @@ class _Walker:
                 self.on_order_insert(ev)
             elif t == "order_cancel":
                 self.on_order_cancel(ev)
-            elif t in _ADMIN_INPUTS:
+            elif t in ADMIN_INPUT_TYPES:
                 self.on_admin_input(ev)
 
     def close(self) -> None:
@@ -515,8 +589,10 @@ def replay_journal(
 ) -> Dict[str, Any]:
     """Replay `journal` against `scenario` and compare core hashes.
 
-    Returns a result dict: `ok`, `problems`, `notes`, `recorded_core`,
-    `replay_core`, `diff`, `counts`, `data_dir` (kept when `keep_data`).
+    Returns a result dict: `ok`, `problems`, `notes`, `not_replayed`,
+    `recorded_core`, `replay_core`, `diff`, `counts`, `data_dir` (kept when
+    `keep_data`). `not_replayed` lists the admin inputs no command could
+    re-issue; their types are skipped from both core hashes.
     """
     core = core or find_core()
     if core is None:
@@ -527,8 +603,8 @@ def replay_journal(
     if problems:
         return {
             "ok": False, "problems": ["recording is structurally invalid:"] + problems,
-            "notes": [], "recorded_core": None, "replay_core": None, "diff": None,
-            "counts": {}, "data_dir": None, "events": len(events),
+            "notes": [], "not_replayed": [], "recorded_core": None, "replay_core": None,
+            "diff": None, "counts": {}, "data_dir": None, "events": len(events),
         }
 
     first_load = next((e for e in events if e["type"] == "scenario_loaded"), None)
@@ -580,14 +656,19 @@ def replay_journal(
         admin.close()
 
         replay_events = load_events(os.path.join(data_dir, "journal"))
-        recorded_core = hash_stream(events, core=True)
-        replay_core = hash_stream(replay_events, core=True)
-        diff = first_core_diff(events, replay_events)
+        # admin inputs that could not be re-issued cannot appear in the
+        # replay journal: drop their types on both sides so the comparison
+        # only reports real differences
+        skip = UNREPLAYABLE_ADMIN_TYPES if walker.not_replayed else None
+        recorded_core = hash_stream(without_types(events, skip), core=True)
+        replay_core = hash_stream(without_types(replay_events, skip), core=True)
+        diff = first_core_diff(events, replay_events, skip=skip)
         ok = not walker.problems and recorded_core == replay_core
         return {
             "ok": ok,
             "problems": walker.problems,
             "notes": walker.notes,
+            "not_replayed": walker.not_replayed,
             "recorded_core": recorded_core,
             "replay_core": replay_core,
             "diff": diff,
@@ -622,6 +703,12 @@ def format_result(result: Dict[str, Any]) -> str:
         lines.append("  ! %s" % p)
     for n in result.get("notes", []):
         lines.append("  - note: %s" % n)
+    skipped = result.get("not_replayed") or []
+    if skipped:
+        lines.append("  ~ %d admin input(s) not replayable by this version "
+                     "(excluded from the core comparison, not a difference):" % len(skipped))
+        for s in skipped:
+            lines.append("      %s" % s)
     if result.get("recorded_core"):
         lines.append("recorded core hash  %s" % result["recorded_core"])
     if result.get("replay_core"):

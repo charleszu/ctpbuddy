@@ -151,24 +151,32 @@ pub fn parse_spec(v: &Value) -> Result<Spec, String> {
             let kind = item
                 .get_str("kind")
                 .ok_or_else(|| format!("transforms[{i}]: 缺少 kind"))?;
+            // 可选 `instrument`：只对该合约生效；缺省 / 空串 = 全部合约。
+            let instrument = item
+                .get_str("instrument")
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
             let t = match kind.as_str() {
                 "freeze" => Transform::Freeze {
                     at_ms: get_num(item, "at_ms")
                         .ok_or_else(|| format!("transforms[{i}](freeze): 缺少 at_ms"))?,
                     duration_ms: get_num(item, "duration_ms")
                         .ok_or_else(|| format!("transforms[{i}](freeze): 缺少 duration_ms"))?,
+                    instrument,
                 },
                 "gap" => Transform::Gap {
                     at_ms: get_num(item, "at_ms")
                         .ok_or_else(|| format!("transforms[{i}](gap): 缺少 at_ms"))?,
                     shift: get_num(item, "shift")
                         .ok_or_else(|| format!("transforms[{i}](gap): 缺少 shift"))?,
+                    instrument,
                 },
                 "liquidity" => Transform::Liquidity {
                     from_ms: get_num(item, "from_ms")
                         .ok_or_else(|| format!("transforms[{i}](liquidity): 缺少 from_ms"))?,
                     scale: get_num(item, "scale")
                         .ok_or_else(|| format!("transforms[{i}](liquidity): 缺少 scale"))?,
+                    instrument,
                 },
                 other => return Err(format!("transforms[{i}]: 未知 kind '{other}'")),
             };
@@ -364,8 +372,8 @@ mod tests {
             "source": {"kind": "csv", "path": "ticks.csv"},
             "transforms": [
                 {"kind": "freeze", "at_ms": 34200000, "duration_ms": 30000},
-                {"kind": "gap", "at_ms": 34380000, "shift": -2},
-                {"kind": "liquidity", "from_ms": 34260000, "scale": 0.5}
+                {"kind": "gap", "at_ms": 34380000, "shift": -2, "instrument": "rb2610"},
+                {"kind": "liquidity", "from_ms": 34260000, "scale": 0.5, "instrument": ""}
             ],
             "clock": {"time_scale": 0, "start_ms": 34200000},
             "accounts": [{"investor": "smoke001", "balance": 500000}],
@@ -375,6 +383,10 @@ mod tests {
         let spec = parse_spec(&v).unwrap();
         assert_eq!(spec.name, "demo");
         assert_eq!(spec.transforms.len(), 3);
+        // instrument 可选：缺省和空串都是「全部合约」，给了就只动该合约
+        assert_eq!(spec.transforms[0].instrument(), None);
+        assert_eq!(spec.transforms[1].instrument(), Some("rb2610"));
+        assert_eq!(spec.transforms[2].instrument(), None);
         assert_eq!(spec.time_scale, Some(0.0));
         assert_eq!(spec.start_ms, Some(34200000.0));
         assert_eq!(spec.accounts.len(), 1);

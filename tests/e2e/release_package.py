@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""发布包验收：默认使用临时 PE fixture，可选验收本机真实 Shim 产物。"""
+"""发布包验收：默认使用临时 PE fixture，可选验收本机真实 Shim 产物。
+
+fixture 段永远执行；真实产物段未启用（CTPBUDDY_TEST_REAL_RELEASE!=1）时默认以 EXIT_SKIPPED(3)
+退出并打印 SKIPPED 原因，仅 --allow-skip 时才以 0 退出。
+"""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -13,6 +18,8 @@ import tempfile
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 from release_package import DLLS, build_package  # noqa: E402
+
+EXIT_SKIPPED = 3
 
 
 def fake_pe(path: Path, dll: bool = True) -> None:
@@ -64,16 +71,20 @@ def verify(root: Path) -> None:
     print("fixture release package: PASS (%s)" % output)
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="发布包验收")
+    parser.add_argument("--allow-skip", action="store_true",
+                        help="真实产物段被跳过时以 0 退出（默认退出码 %d）" % EXIT_SKIPPED)
+    args = parser.parse_args(argv)
     root = fixture()
     try:
         verify(root)
         if os.environ.get("CTPBUDDY_TEST_REAL_RELEASE") == "1":
             output = build_package(REPO)
             print("real release package: PASS (%s)" % output)
-        else:
-            print("real release package: SKIP (set CTPBUDDY_TEST_REAL_RELEASE=1)")
-        return 0
+            return 0
+        print("real release package: SKIPPED (set CTPBUDDY_TEST_REAL_RELEASE=1 to build from shim/bin)")
+        return 0 if args.allow_skip else EXIT_SKIPPED
     finally:
         # fixture/output are temporary by design; real output is retained for inspection.
         import shutil

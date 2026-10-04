@@ -4,6 +4,11 @@
 //! starts. Each one is a total function `Vec<Tick> -> Vec<Tick>`; the input is
 //! never mutated, so the transformed stream is fully determined by the source
 //! data plus the scenario file (the §7.6 determinism promise).
+//!
+//! Every transform carries an optional `instrument` filter: `None` applies
+//! to the whole stream, `Some(id)` only to that contract's ticks. A
+//! multi-contract scenario can thus gap one product without shifting the
+//! others (a gap on `rb2610` must not move `au2612`).
 
 use crate::{Tick, DEPTH};
 
@@ -11,15 +16,30 @@ use crate::{Tick, DEPTH};
 #[derive(Clone, Debug)]
 pub enum Transform {
     /// 停牌: drop every tick in `[at, at + duration)` — no new market data.
-    Freeze { at_ms: f64, duration_ms: f64 },
+    Freeze {
+        at_ms: f64,
+        duration_ms: f64,
+        /// Only this contract (`None` = every contract).
+        instrument: Option<String>,
+    },
     /// 跳空: from `at` on, shift last/average/five-level prices by `shift`.
     /// Price limits are NOT shifted (the band is a rule-table concept; a jump
     /// inside the band does not move it — a jump through it gets rejected by
     /// the engine's price-limit check, which is the realistic behavior).
-    Gap { at_ms: f64, shift: f64 },
+    Gap {
+        at_ms: f64,
+        shift: f64,
+        /// Only this contract (`None` = every contract).
+        instrument: Option<String>,
+    },
     /// 流动性缩放: from `from` on, scale five-level volumes by `scale`
     /// (rounded half away from zero, clamped at 0).
-    Liquidity { from_ms: f64, scale: f64 },
+    Liquidity {
+        from_ms: f64,
+        scale: f64,
+        /// Only this contract (`None` = every contract).
+        instrument: Option<String>,
+    },
 }
 
 impl Transform {
@@ -29,6 +49,23 @@ impl Transform {
             Transform::Freeze { .. } => "freeze",
             Transform::Gap { .. } => "gap",
             Transform::Liquidity { .. } => "liquidity",
+        }
+    }
+
+    /// The contract filter (`None` = applies to every contract).
+    pub fn instrument(&self) -> Option<&str> {
+        match self {
+            Transform::Freeze { instrument, .. }
+            | Transform::Gap { instrument, .. }
+            | Transform::Liquidity { instrument, .. } => instrument.as_deref(),
+        }
+    }
+
+    /// Does this transform touch `tick`'s contract?
+    fn targets(&self, tick: &Tick) -> bool {
+        match self.instrument() {
+            None => true,
+            Some(id) => tick.instrument_id == id,
         }
     }
 }
@@ -44,19 +81,21 @@ pub fn apply_all(ticks: &[Tick], transforms: &[Transform]) -> Vec<Tick> {
 
 fn apply_one(ticks: &[Tick], t: &Transform) -> Vec<Tick> {
     match *t {
-        Transform::Freeze { at_ms, duration_ms } => ticks
+        Transform::Freeze {
+            at_ms, duration_ms, ..
+        } => ticks
             .iter()
             .filter(|tk| {
                 let vt = tk.virtual_ms();
-                !(vt >= at_ms && vt < at_ms + duration_ms)
+                !(t.targets(tk) && vt >= at_ms && vt < at_ms + duration_ms)
             })
             .cloned()
             .collect(),
-        Transform::Gap { at_ms, shift } => ticks
+        Transform::Gap { at_ms, shift, .. } => ticks
             .iter()
             .map(|tk| {
                 let mut tk = tk.clone();
-                if shift != 0.0 && tk.virtual_ms() >= at_ms {
+                if shift != 0.0 && t.targets(&tk) && tk.virtual_ms() >= at_ms {
                     tk.last_price += shift;
                     tk.average_price += shift;
                     for k in 0..DEPTH {
@@ -71,11 +110,11 @@ fn apply_one(ticks: &[Tick], t: &Transform) -> Vec<Tick> {
                 tk
             })
             .collect(),
-        Transform::Liquidity { from_ms, scale } => ticks
+        Transform::Liquidity { from_ms, scale, .. } => ticks
             .iter()
             .map(|tk| {
                 let mut tk = tk.clone();
-                if scale != 1.0 && tk.virtual_ms() >= from_ms {
+                if scale != 1.0 && t.targets(&tk) && tk.virtual_ms() >= from_ms {
                     for k in 0..DEPTH {
                         tk.bid_volumes[k] = scale_vol(tk.bid_volumes[k], scale);
                         tk.ask_volumes[k] = scale_vol(tk.ask_volumes[k], scale);
@@ -125,6 +164,7 @@ mod tests {
             &[Transform::Freeze {
                 at_ms: hms(9.0, 32.0),
                 duration_ms: 30_000.0,
+                instrument: None,
             }],
         );
         assert_eq!(out.len(), 2);
@@ -142,6 +182,7 @@ mod tests {
             &[Transform::Gap {
                 at_ms: hms(9.0, 33.0),
                 shift: -2.0,
+                instrument: None,
             }],
         );
         assert_eq!(out[0].last_price, 3500.0); // before: untouched
@@ -158,6 +199,7 @@ mod tests {
             &[Transform::Liquidity {
                 from_ms: hms(9.0, 31.0),
                 scale: 0.5,
+                instrument: None,
             }],
         );
         assert_eq!(out[0].bid_volumes[0], 4);
@@ -179,14 +221,17 @@ mod tests {
                 Transform::Freeze {
                     at_ms: hms(9.0, 32.0),
                     duration_ms: 30_000.0,
+                    instrument: None,
                 },
                 Transform::Liquidity {
                     from_ms: hms(9.0, 31.0),
                     scale: 0.5,
+                    instrument: None,
                 },
                 Transform::Gap {
                     at_ms: hms(9.0, 33.0),
                     shift: -2.0,
+                    instrument: None,
                 },
             ],
         );
@@ -195,5 +240,72 @@ mod tests {
         assert_eq!(out[1].ask_volumes[0], 5); // liquidity only
         assert_eq!(out[2].last_price, 3493.0); // gap (and liquidity)
         assert_eq!(out[2].ask_volumes[0], 4);
+    }
+
+    // 多合约：带 instrument 的 transform 只动该合约，其他品种的 tick 原封不动；
+    // 不带 instrument 仍对全部生效。
+    #[test]
+    fn instrument_filter_scopes_each_transform() {
+        let mut au = tick_at("09:33:00", 800.0, 20, 30);
+        au.instrument_id = "au2612".into();
+        let ticks = vec![
+            tick_at("09:32:00", 3503.0, 8, 10),
+            tick_at("09:33:00", 3495.0, 6, 8),
+            au,
+        ];
+        let out = apply_all(
+            &ticks,
+            &[
+                Transform::Gap {
+                    at_ms: hms(9.0, 33.0),
+                    shift: -2.0,
+                    instrument: Some("rb2610".into()),
+                },
+                Transform::Liquidity {
+                    from_ms: hms(9.0, 30.0),
+                    scale: 0.5,
+                    instrument: Some("rb2610".into()),
+                },
+                Transform::Freeze {
+                    at_ms: hms(9.0, 32.0),
+                    duration_ms: 30_000.0,
+                    instrument: Some("au2612".into()),
+                },
+            ],
+        );
+        // rb 09:32 survives the au-only freeze; rb 09:33 gapped + halved
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].last_price, 3503.0);
+        assert_eq!(out[0].bid_volumes[0], 4);
+        assert_eq!(out[1].last_price, 3493.0);
+        assert_eq!(out[1].ask_volumes[0], 4);
+        // au: untouched by the rb-scoped gap/liquidity, outside the freeze window
+        assert_eq!(out[2].instrument_id, "au2612");
+        assert_eq!(out[2].last_price, 800.0);
+        assert_eq!(out[2].bid_volumes[0], 20);
+
+        // an au-scoped freeze covering 09:33 drops only the au tick
+        let out = apply_all(
+            &ticks,
+            &[Transform::Freeze {
+                at_ms: hms(9.0, 33.0),
+                duration_ms: 30_000.0,
+                instrument: Some("au2612".into()),
+            }],
+        );
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().all(|t| t.instrument_id == "rb2610"));
+
+        // no filter: everything shifts
+        let out = apply_all(
+            &ticks,
+            &[Transform::Gap {
+                at_ms: hms(9.0, 33.0),
+                shift: -2.0,
+                instrument: None,
+            }],
+        );
+        assert_eq!(out[1].last_price, 3493.0);
+        assert_eq!(out[2].last_price, 798.0);
     }
 }

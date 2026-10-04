@@ -5,13 +5,17 @@ use crate::{
 };
 use std::{collections::HashSet, io::Write, path::Path};
 
-pub const KEYS: [&str; 5] = [
+pub const KEYS: [&str; 6] = [
     "qry_freq",
     "order_freq",
     "max_user_sessions",
     "settlement_required",
+    "self_trade_prevention",
     "initial_funds",
 ];
+
+/// Boolean settings (everything else in `KEYS` is numeric).
+pub const BOOL_KEYS: [&str; 2] = ["settlement_required", "self_trade_prevention"];
 
 pub fn values(cfg: &Config) -> Value {
     json::obj_sorted(vec![
@@ -24,6 +28,10 @@ pub fn values(cfg: &Config) -> Value {
         (
             "settlement_required".into(),
             json::b(cfg.settlement_required),
+        ),
+        (
+            "self_trade_prevention".into(),
+            json::b(cfg.self_trade_prevention),
         ),
         ("initial_funds".into(), json::n(cfg.initial_funds)),
     ])
@@ -42,11 +50,15 @@ pub fn patch(cfg: &Config, v: &Value) -> Result<Config, String> {
         if !KEYS.contains(&key.as_str()) {
             return Err(format!("未知参数 {key}"));
         }
-        if key == "settlement_required" {
+        if BOOL_KEYS.contains(&key.as_str()) {
             let Value::Bool(b) = value else {
-                return Err("settlement_required 必须是布尔值".into());
+                return Err(format!("{key} 必须是布尔值"));
             };
-            next.settlement_required = *b;
+            match key.as_str() {
+                "settlement_required" => next.settlement_required = *b,
+                "self_trade_prevention" => next.self_trade_prevention = *b,
+                _ => unreachable!(),
+            }
             continue;
         }
         let Value::Num(n) = value else {
@@ -148,6 +160,7 @@ pub fn schema() -> Value {
             "order_freq" => ("报单 / 撤单额度", "每用户每秒额度，报单与撤单各自独立计数，超出返回 116。", "runtime", 1.0, 100000.0, "integer"),
             "max_user_sessions" => ("用户在线会话上限", "按 BrokerID + UserID 计已登录连接，0 关闭限制（兼容旧行为）；降低不踢已有会话。", "runtime", 0.0, 10000.0, "integer"),
             "settlement_required" => ("结算确认门禁", "默认开启；未确认当前交易日的报单返回官方 42；不实施日结。", "runtime", 0.0, 0.0, "boolean"),
+            "self_trade_prevention" => ("自成交预防", "默认关闭（真实交易所不阻止同一投资者与自己的挂单成交）；开启后撮合跳过同账户挂单，会打破价格时间优先。", "runtime", 0.0, 0.0, "boolean"),
             _ => ("初次开户默认资金", "仅影响首次登录自动开户；已有账户与场景显式账户资金不变。", "new-account", 0.0, 1e12, "number"),
         };
         json::obj_sorted(vec![("key".into(), json::s(k)), ("label".into(), json::s(label)), ("description".into(), json::s(description)), ("lifecycle".into(), json::s(lifecycle)), ("type".into(), json::s(kind)), ("min".into(), json::n(min)), ("max".into(), json::n(max))])
@@ -176,6 +189,8 @@ impl World {
         let before = values(&self.cfg);
         let after = values(&next);
         self.ledger.set_initial_funds(next.initial_funds);
+        self.engine
+            .set_self_trade_prevention(next.self_trade_prevention);
         self.cfg = next;
         self.journal_record_json(
             "settings_updated",
@@ -226,6 +241,7 @@ mod tests {
             "{\"qry_freq\":\"2\"}",
             "{\"max_user_sessions\":10001}",
             "{\"settlement_required\":1}",
+            "{\"self_trade_prevention\":\"true\"}",
             "{\"initial_funds\":1e999}",
             "{\"qry_freq\":3,\"unknown\":4}",
             "{\"qry_freq\":2,\"qry_freq\":3}",
@@ -233,6 +249,15 @@ mod tests {
             assert!(patch(&cfg, &json::parse(text).unwrap()).is_err(), "{text}");
         }
         assert_eq!(cfg.qry_freq, 2);
+        assert!(!cfg.self_trade_prevention);
+        assert!(
+            patch(
+                &cfg,
+                &json::parse("{\"self_trade_prevention\":true}").unwrap()
+            )
+            .unwrap()
+            .self_trade_prevention
+        );
         assert_eq!(
             patch(
                 &cfg,

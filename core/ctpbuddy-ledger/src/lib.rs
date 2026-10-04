@@ -364,7 +364,10 @@ pub struct Position {
     pub frozen_today: i32,
     pub frozen_yd: i32,
     pub commission: f64,
+    /// 逐日盯市 realized PnL (昨仓 against 昨结算, 今仓 against 开仓价).
     pub close_profit: f64,
+    /// 逐笔对冲 realized PnL (every lot against its own 开仓价).
+    pub close_profit_trade: f64,
     pub position_profit: f64,
     pub pre_settlement_price: f64,
     pub settlement_price: f64,
@@ -390,6 +393,7 @@ impl Position {
             frozen_yd: 0,
             commission: 0.0,
             close_profit: 0.0,
+            close_profit_trade: 0.0,
             position_profit: 0.0,
             pre_settlement_price: 0.0,
             settlement_price: 0.0,
@@ -670,7 +674,7 @@ impl Position {
         f.PreSettlementPrice = self.pre_settlement_price;
         f.SettlementPrice = self.settlement_price;
         f.CloseProfitByDate = self.close_profit;
-        f.CloseProfitByTrade = self.close_profit;
+        f.CloseProfitByTrade = self.close_profit_trade;
         let cost = self.avg_cost(mult);
         f.PositionCostOffset = cost;
         f.SettlementID = 1;
@@ -1223,7 +1227,8 @@ impl Ledger {
             pos.open_amount += turnover;
             pos.open_volume += fill.volume;
             pos.position_cost += turnover;
-            pos.open_cost += commission;
+            // 开仓成本 = Σ开仓价×乘数×手数; commission is tracked separately.
+            pos.open_cost += turnover;
             pos.margin += margin_actual;
             // notes/04 B2: an opening fill creates its own detail, keyed by
             // (OpenDate, TradeID). The margin travels with the lot so a later
@@ -1256,6 +1261,7 @@ impl Ledger {
             // aggregate average cost (what this ledger did before details
             // existed) is wrong by exactly the age mix.
             let mut pnl = 0.0;
+            let mut trade_pnl = 0.0;
             let mut closed_amount = 0.0;
             let mut margin_released = 0.0;
             let mut today_take = 0;
@@ -1274,6 +1280,7 @@ impl Ledger {
                 let leg_pnl = Position::detail_pnl(side, basis, fill.price, n, mult);
                 let leg_trade_pnl = Position::detail_pnl(side, d.open_price, fill.price, n, mult);
                 pnl += leg_pnl;
+                trade_pnl += leg_trade_pnl;
                 closed_amount += d.open_price * n as f64 * mult as f64;
                 d.close_amount += fill.price * n as f64 * mult as f64;
                 // Margin travels with the lot: release the pro-rata share of
@@ -1330,6 +1337,12 @@ impl Ledger {
                 .iter()
                 .map(|d| d.mark_basis(trading_day) * d.volume as f64 * mult as f64)
                 .sum();
+            // 开仓成本 stays on the 开仓价 basis of the surviving lots.
+            pos.open_cost = pos
+                .details
+                .iter()
+                .map(|d| d.open_price * d.volume as f64 * mult as f64)
+                .sum();
 
             // Commission is charged per leg: the 平今 portion at today's rate,
             // the 平昨 portion at yesterday's. Summing two legs is the whole
@@ -1348,10 +1361,10 @@ impl Ledger {
             );
             let commission = comm_today + comm_yd;
             pos.commission += commission;
-            pos.open_cost += commission;
 
             pos.margin = (pos.margin - margin_released).max(0.0);
             pos.close_profit += pnl;
+            pos.close_profit_trade += trade_pnl;
 
             let a = self.accounts.get_mut(&key).expect("account exists");
             a.balance -= commission;
@@ -1481,6 +1494,7 @@ impl Ledger {
                     .unwrap_or(1) as f64;
             position.position_profit = 0.0;
             position.close_profit = 0.0;
+            position.close_profit_trade = 0.0;
             position.commission = 0.0;
             position.details.retain(|d| d.volume > 0);
             position.open_volume = position.details.iter().map(|d| d.volume).sum();
@@ -1585,7 +1599,7 @@ impl Ledger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ctpbuddy_matching::{to_fixed, Instrument, MarginRate, TradingParams};
+    use ctpbuddy_matching::{to_fixed, CommissionRate, Instrument, MarginRate, TradingParams};
 
     fn fixture(enabled: bool) -> Catalog {
         // 明确虚构的测试合约和费率，不代表生产默认值。
@@ -2224,5 +2238,74 @@ mod tests {
             .unwrap();
         assert_eq!(p.today_position, 1);
         assert_eq!(p.frozen_today, 1, "OTHER 的预留不能被迟到的成交再扣一次");
+    }
+
+    #[test]
+    fn open_cost_excludes_commission_and_close_profit_by_trade_is_per_lot() {
+        let mut catalog = fixture(false);
+        let mut inst = Instrument::new("rb2601", "DCE");
+        inst.product_id = "rb".into();
+        inst.volume_multiple = 10;
+        catalog.insert(inst);
+        catalog.insert_commission_rate(CommissionRate {
+            instrument_id: "rb2601".into(),
+            open_ratio_by_volume: 2.0,
+            close_ratio_by_volume: 3.0,
+            close_today_ratio_by_volume: 3.0,
+            ..Default::default()
+        });
+        let mut ledger = Ledger::new(1_000_000.0);
+        ledger.ensure_account("TEST", "alice");
+        // 1 手昨仓：开仓价 8，昨结算 10
+        ledger
+            .position_mut_or_create("TEST", "alice", "rb2601", PositionSide::Long)
+            .add_bootstrap_detail("20261002", "YD1", 8.0, 1, 0.0, 10.0, 10);
+        let mut open = fill("rb2601", Direction::Buy, OffsetFlag::Open, 2);
+        open.exchange_id = "DCE".into();
+        open.price = 12.0;
+        ledger.on_fill(&open, &catalog, 10.0, "20261003");
+        let p = ledger
+            .position("TEST", "alice", "rb2601", PositionSide::Long)
+            .unwrap();
+        assert_eq!(p.commission, 4.0);
+        // 开仓成本 = Σ开仓价×乘数×手数，不含手续费
+        assert_eq!(p.open_cost, 8.0 * 10.0 + 12.0 * 2.0 * 10.0);
+        assert_eq!(p.position_cost, 10.0 * 10.0 + 12.0 * 2.0 * 10.0);
+        let f = p.to_field("TEST", "alice", "DCE", "20261003", 10);
+        assert_eq!(f.OpenCost, 320.0);
+        assert_eq!(f.PositionCost, 340.0);
+
+        // 平 2 手（先开先平：1 手昨仓 + 1 手今仓）@ 14
+        ledger
+            .freeze_close_position(
+                "c1",
+                "TEST",
+                "alice",
+                "rb2601",
+                "DCE",
+                PositionSide::Long,
+                OffsetFlag::Close,
+                2,
+            )
+            .unwrap();
+        let mut close = fill("rb2601", Direction::Sell, OffsetFlag::Close, 2);
+        close.exchange_id = "DCE".into();
+        close.order_key = "c1".into();
+        close.price = 14.0;
+        ledger.on_fill(&close, &catalog, 10.0, "20261003");
+        let p = ledger
+            .position("TEST", "alice", "rb2601", PositionSide::Long)
+            .unwrap();
+        assert_eq!(p.commission, 10.0);
+        assert_eq!(p.open_cost, 12.0 * 10.0, "剩余 1 手今仓的开仓成本");
+        // 盯市：昨仓 (14-10)*10 + 今仓 (14-12)*10 = 60；逐笔：(14-8)*10 + (14-12)*10 = 80
+        assert_eq!(p.close_profit, 60.0);
+        assert_eq!(p.close_profit_trade, 80.0);
+        let f = p.to_field("TEST", "alice", "DCE", "20261003", 10);
+        assert_eq!(f.OpenCost, 120.0);
+        assert_eq!(f.CloseProfitByDate, 60.0);
+        assert_eq!(f.CloseProfitByTrade, 80.0);
+        let detail_trade: f64 = p.details.iter().map(|d| d.close_profit_trade).sum();
+        assert_eq!(f.CloseProfitByTrade, detail_trade);
     }
 }

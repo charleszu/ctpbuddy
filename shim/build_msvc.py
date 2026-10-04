@@ -3,7 +3,18 @@
 """Build the CTPBuddy CTP ABI shim DLLs with MSVC (Windows-only).
 
 Usage:
-    python build_msvc.py [--demo]
+    python build_msvc.py [--demo] [--sdk DIR]
+
+SDK headers (CTP 6.7.13): --sdk / CTPBUDDY_SDK, default ctpsdk/6.7.13_20260225
+(gitignored, user-supplied). Both layouts are accepted:
+    <sdk>/td/win64/*.h + <sdk>/md/win64/*.h      the vendor zip layout
+    <sdk>/*.h                                      a flat directory, e.g. the
+                                                   checked-in copies under
+                                                   docs/api-doc-html/files/
+                                                   (same bytes, CRLF) -- what CI
+                                                   uses, since ctpsdk/ is not
+                                                   committed.
+Only the headers are needed: the shim never links the vendor .lib.
 
 Outputs (all under shim/):
     bin/thosttraderapi_se.dll + lib/thosttraderapi_se.lib
@@ -22,16 +33,17 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-SDK = os.path.join(REPO, "ctpsdk", "6.7.13_20260225")
+DEFAULT_SDK = os.path.join(REPO, "ctpsdk", "6.7.13_20260225")
 GENERATED = os.path.join(HERE, "src", "generated")
 
+# VS 2022 installs under "Program Files" (64-bit, e.g. GitHub's windows-latest
+# Enterprise image) or "Program Files (x86)" (Build Tools); probe both.
 VCVARS_CANDIDATES = [
-    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-    r"C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
-    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat",
-    r"C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
+    r"%s\Microsoft Visual Studio\2022\%s\VC\Auxiliary\Build\vcvars64.bat" % (pf, ed)
+    for ed in ("BuildTools", "Enterprise", "Professional", "Community")
+    for pf in (r"C:\Program Files (x86)", r"C:\Program Files")
 ]
+VSWHERE = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 
 def find_vcvars():
@@ -41,7 +53,29 @@ def find_vcvars():
     for cand in VCVARS_CANDIDATES:
         if os.path.exists(cand):
             return cand
+    if os.path.exists(VSWHERE):
+        proc = subprocess.run([VSWHERE, "-latest", "-products", "*", "-requires",
+                               "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                               "-property", "installationPath"],
+                              capture_output=True, text=True, errors="replace")
+        root = proc.stdout.strip().splitlines()
+        if proc.returncode == 0 and root:
+            cand = os.path.join(root[0], "VC", "Auxiliary", "Build", "vcvars64.bat")
+            if os.path.exists(cand):
+                return cand
     raise SystemExit("vcvars64.bat not found; set VCVARS64 to its path")
+
+
+def sdk_include_dirs(sdk):
+    """-> (td_dir, md_dir) holding the vendor headers; fails loudly if absent."""
+    td = os.path.join(sdk, "td", "win64")
+    md = os.path.join(sdk, "md", "win64")
+    if not os.path.exists(os.path.join(td, "ThostFtdcTraderApi.h")):
+        td = md = sdk  # flat layout
+    for d, h in ((td, "ThostFtdcTraderApi.h"), (md, "ThostFtdcMdApi.h"), (td, "ThostFtdcUserApiStruct.h")):
+        if not os.path.exists(os.path.join(d, h)):
+            raise SystemExit("CTP header %s not found under %s (use --sdk / CTPBUDDY_SDK)" % (h, sdk))
+    return td, md
 
 
 def run_cl(vcvars, args):
@@ -56,16 +90,23 @@ def run_cl(vcvars, args):
 
 
 def main():
+    # cl's (GBK/locale) output is echoed through our stdout, which may be a
+    # different code page (CI console, redirected pipe): never die on that.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true", help="also build shim/demo/demo_td.exe")
+    ap.add_argument("--sdk", default=os.environ.get("CTPBUDDY_SDK") or DEFAULT_SDK,
+                    help="CTP 6.7.13 header dir (vendor layout or flat); env CTPBUDDY_SDK")
     args = ap.parse_args()
+    sdk = os.path.abspath(args.sdk)
+    sdk_td, sdk_md = sdk_include_dirs(sdk)
 
     # keep the generated sources in sync with the SDK headers
-    subprocess.run([sys.executable, os.path.join(HERE, "codegen", "gen_shim.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(HERE, "codegen", "gen_shim.py"), "--sdk", sdk], check=True)
 
     vcvars = find_vcvars()
-    sdk_td = os.path.join(SDK, "td", "win64")
-    sdk_md = os.path.join(SDK, "md", "win64")
     # shim root is on the path so "generated/registry.hpp" resolves to
     # shim/generated/registry.hpp while "api_td.hpp" resolves from the
     # including file's own directory (shim/src/generated).

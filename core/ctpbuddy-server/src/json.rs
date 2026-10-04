@@ -82,7 +82,11 @@ impl Value {
             Value::Null => out.push_str("null"),
             Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
             Value::Num(n) => {
-                if n.fract() == 0.0 && n.abs() < 1e15 {
+                if !n.is_finite() {
+                    // JSON has no NaN/Infinity literal; emit null rather than
+                    // corrupt the journal / admin payload.
+                    out.push_str("null");
+                } else if n.fract() == 0.0 && n.abs() < 1e15 {
                     let _ = write!(out, "{}", *n as i64);
                 } else {
                     let _ = write!(out, "{n}");
@@ -313,4 +317,29 @@ impl Parser {
 pub fn obj_sorted(pairs: Vec<(String, Value)>) -> Value {
     let map: BTreeMap<String, Value> = pairs.into_iter().collect();
     Value::Obj(map.into_iter().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_finite_numbers_serialize_as_null() {
+        let v = obj_sorted(vec![
+            ("nan".into(), n(f64::NAN)),
+            ("inf".into(), n(f64::INFINITY)),
+            ("neg_inf".into(), n(f64::NEG_INFINITY)),
+            ("one".into(), n(1.0)),
+            ("half".into(), n(0.5)),
+        ]);
+        let text = v.to_json();
+        assert_eq!(
+            text,
+            r#"{"half":0.5,"inf":null,"nan":null,"neg_inf":null,"one":1}"#
+        );
+        // the output must round-trip through our own parser (valid JSON)
+        let back = parse(&text).unwrap();
+        assert!(matches!(back.get("nan"), Some(Value::Null)));
+        assert_eq!(back.get_num("one"), Some(1.0));
+    }
 }

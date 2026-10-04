@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -79,6 +80,10 @@ constexpr uint16_t REQ_QRY_INVESTOR_POSITION_DETAIL = 0x1059;
 constexpr uint16_t RSP_QRY_INVESTOR_POSITION_DETAIL = 0x105A;
 constexpr uint16_t REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN = 0x105B;
 constexpr uint16_t RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN = 0x105C;
+constexpr uint16_t LOGOUT = 0x0103;
+constexpr uint16_t LOGOUT_RSP = 0x0104;
+constexpr uint16_t ADMIN_REQ = 0x0201;
+constexpr uint16_t ADMIN_RSP = 0x0202;
 }  // namespace msgs
 
 class ApiCore;  // completed at the bottom of this header
@@ -234,19 +239,34 @@ class ApiCore {public:
     void* spi() const { return spi_; }
 
     // ---- request surface (generated Req* overrides call these) ----
+    // Return codes follow the vendor API: 0 sent, -1 network / bad argument,
+    // -2 too many pending requests, -3 per-second flow control.
     template <typename S>
     int send_req(uint16_t msg, const S* p, int n_request_id) {
+        if (!p) return -1;  // NULL input struct: never memcpy from it
         return send_request(msg, p, sizeof(S), n_request_id);
     }
     int send_request(uint16_t msg, const void* payload, size_t len, int n_request_id);
     int send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_request_id);
-    void unsupported(int n_request_id, const char* method);
+    /// Request the M1 core does not implement: answers OnRspError(-1) on the
+    /// reader thread (see post_callback). Returns -1 when not connected.
+    int unsupported(int n_request_id, const char* method);
+    /// Hand a locally-produced SPI callback to the reader thread so apps
+    /// never see a callback on their own stack (vendor contract: all SPI
+    /// callbacks arrive on the API's internal thread). The reader drains the
+    /// queue between frames (<=100ms) and during reconnect backoff. Returns
+    /// -1 and drops the callback when no connection exists -- the same
+    /// answer the vendor gives a request issued before OnFrontConnected.
+    int post_callback(std::function<void()> fn);
 
     // ---- used by the generated dispatch rows ----
     std::mutex& mu() { return mu_; }
     // CTP SPI callbacks take non-const pointers; apps treat them as read-only
     // (same contract as the vendor API's internal buffers).
     CThostFtdcRspInfoField& zero_rsp_info() { return zero_rsp_; }
+    // pending_ accessors: the CALLER must hold mu() (send_request inserts into
+    // the same map from the app thread). Rows lock, copy the Pending out,
+    // unlock, then invoke the SPI.
     Pending take_pending(uint32_t req_id);
     Pending* find_pending(uint32_t req_id);
     void erase_pending(uint32_t req_id);
@@ -266,6 +286,7 @@ private:
     void write_frame_locked(const Frame& f);
     void send_auth_locked(const char* broker, const char* user);
     void drain_auth_errors();
+    void drain_deferred();
     void on_auth_rsp(const Frame& f);
     void on_rsp_error(const Frame& f);
     void on_qry_last(const Frame& f);
@@ -304,6 +325,8 @@ private:
     bool has_stashed_login_ = false;
     Frame stashed_login_;
     std::vector<std::pair<int, CThostFtdcRspInfoField>> auth_errors_;
+    // locally-answered callbacks waiting for the reader thread (post_callback)
+    std::vector<std::function<void()>> deferred_;
     uint32_t next_req_id_ = 1;
     std::unordered_map<uint32_t, Pending> pending_;
     // CTP 查询流控 (docs: 报单流控、查询流控和会话数控制): the vendor API

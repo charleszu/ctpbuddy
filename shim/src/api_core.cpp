@@ -5,7 +5,11 @@
 //     SPI callbacks (so callbacks never run on the app's thread);
 //   * `mu_` guards shared state; dispatch rows lock only to extract data and
 //     invoke SPI callbacks with the lock RELEASED (apps routinely call back
-//     into the API from a callback -- e.g. ReqQryOrder inside OnRspUserLogin).
+//     into the API from a callback -- e.g. ReqQryOrder inside OnRspUserLogin);
+//   * callbacks the shim answers LOCALLY (unsupported Req*, duplicate login,
+//     bad ReqAuthenticate, MD for-quote stubs) are never invoked on the app's
+//     stack either: they go through post_callback() / auth_errors_ /
+//     login_errors_ and the reader thread drains them between frames.
 #include "api_core.hpp"
 
 // compile-time layout contract: every CTP struct the wire protocol carries
@@ -20,7 +24,11 @@ namespace ctpbuddy {
 
 namespace {
 
-// One WSAStartup/WSACleanup pair per DLL; both shim DLLs link this file.
+// One WSAStartup/WSACleanup pair per DLL; both shim DLLs link this file, so a
+// process loading td+md runs two pairs. That is correct: Winsock keeps a
+// per-process reference count, every WSAStartup must be matched by exactly one
+// WSACleanup, and the library is torn down only when the count hits zero.
+// The static object below guarantees the pairing per DLL image.
 struct WinsockInit {
     WinsockInit() {
         WSADATA d;
@@ -150,9 +158,17 @@ void ApiCore::core_release() {
 }
 
 const char* ApiCore::core_trading_day() {
-    // stable pointer; only the reader thread (under mu_) writes it
+    // trading_day_ is written by the reader thread (set_trading_day_locked)
+    // on every login response; handing its address out would let the app
+    // read it while the reader rewrites it. Copy under mu_ into a
+    // thread_local buffer instead: the pointer stays valid for the calling
+    // thread until its next GetTradingDay() call -- the same "copy it if you
+    // keep it" contract the vendor API documents. Trade-off vs. a write-once
+    // buffer: a re-login on a new trading day is reflected immediately.
+    thread_local char buf[sizeof(trading_day_)];
     std::lock_guard<std::mutex> g(mu_);
-    return trading_day_;
+    memcpy(buf, trading_day_, sizeof(buf));
+    return buf;
 }
 
 void ApiCore::core_front_info(CThostFtdcFrontInfoField* out) {
@@ -353,6 +369,7 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
 }
 
 void ApiCore::drain_auth_errors() {
+    // reader thread only: flush every locally-produced callback in order
     std::vector<std::pair<int, CThostFtdcRspInfoField>> errors;
     std::vector<std::pair<int, CThostFtdcRspInfoField>> login_errors;
     {
@@ -362,6 +379,23 @@ void ApiCore::drain_auth_errors() {
     }
     for (const auto& entry : errors) on_authenticate_rsp(nullptr, entry.second, entry.first);
     for (const auto& entry : login_errors) on_auth_failed(entry.first, entry.second);
+    drain_deferred();
+}
+
+void ApiCore::drain_deferred() {
+    std::vector<std::function<void()>> fns;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        fns.swap(deferred_);
+    }
+    for (auto& fn : fns) fn();
+}
+
+int ApiCore::post_callback(std::function<void()> fn) {
+    std::lock_guard<std::mutex> g(mu_);
+    if (stopped_.load() || sock_ == INVALID_SOCKET) return -1;
+    deferred_.push_back(std::move(fn));
+    return 0;
 }
 
 // ---- reader thread ----------------------------------------------------------
@@ -443,6 +477,9 @@ void ApiCore::sleep_chunks(double seconds) {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::milliseconds>(
                                                                std::chrono::duration<double>(seconds));
     while (!stopped_.load()) {
+        // callbacks posted while the socket was still up must not wait for
+        // the reconnect to finish
+        drain_auth_errors();
         if (std::chrono::steady_clock::now() >= deadline) return;
         std::this_thread::sleep_for(step);
     }
@@ -604,11 +641,13 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
     f.payload.assign(static_cast<const uint8_t*>(payload),
                      static_cast<const uint8_t*>(payload) + len);
 
-    int retired_nrid = -1;  // an older stashed login retired by this one
-    CThostFtdcRspInfoField retired_rsp{};
     {
         std::lock_guard<std::mutex> g(mu_);
-        if (stopped_.load()) return -1;
+        // CTP: -1 = 网络连接失败. Checked before any state change so a request
+        // issued before OnFrontConnected neither arms the one-in-flight query
+        // gate (which would then answer -2 forever: the frame was never sent,
+        // so nothing can ever complete it) nor leaks a pending entry.
+        if (stopped_.load() || sock_ == INVALID_SOCKET) return -1;
         if (msg == msgs::REQ_USER_LOGIN && (authed_ || auth_in_flight_) &&
             len == sizeof(CThostFtdcReqUserLoginField)) {
             const auto* req = static_cast<const CThostFtdcReqUserLoginField*>(payload);
@@ -654,10 +693,14 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
                     auth_user_ = cstr_of(req->UserID, sizeof(req->UserID));
                 }
                 if (has_stashed_login_) {
-                    // an earlier login is still waiting for AUTH: retire it now
-                    retired_nrid = take_pending(stashed_login_.req_id).n_request_id;
+                    // an earlier login is still waiting for AUTH: retire it now.
+                    // Answered through the reader thread like every other
+                    // callback -- never on the app's own stack.
+                    const int retired_nrid = take_pending(stashed_login_.req_id).n_request_id;
+                    CThostFtdcRspInfoField retired_rsp{};
                     retired_rsp.ErrorID = -3;
                     set_text(retired_rsp.ErrorMsg, sizeof(retired_rsp.ErrorMsg), "重复的登录请求");
+                    login_errors_.emplace_back(retired_nrid, retired_rsp);
                 }
                 stashed_login_ = f;
                 has_stashed_login_ = true;
@@ -670,20 +713,22 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
             }
         }
     }
-    if (retired_nrid >= 0) on_auth_failed(retired_nrid, retired_rsp);
     return 0;
 }
 
-void ApiCore::unsupported(int n_request_id, const char* method) {
+int ApiCore::unsupported(int n_request_id, const char* method) {
     CThostFtdcRspInfoField rsp{};
     rsp.ErrorID = -1;
     set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), std::string("CTPBuddy 尚未实现 ") + method);
-    on_rsp_error_fallback(rsp, n_request_id);
+    // the vendor never calls back on the app's stack: hand it to the reader
+    return post_callback([this, rsp, n_request_id] { on_rsp_error_fallback(rsp, n_request_id); });
 }
 
-// ---- pending helpers --------------------------------------------------------
+// ---- pending helpers (caller holds mu_) --------------------------------------
 
 Pending ApiCore::take_pending(uint32_t req_id) {
+    // caller holds mu_: send_request() inserts from the app thread while the
+    // reader completes entries here -- same unordered_map, one lock.
     auto it = pending_.find(req_id);
     if (it == pending_.end()) return Pending{};
     Pending pd = it->second;
@@ -692,11 +737,12 @@ Pending ApiCore::take_pending(uint32_t req_id) {
 }
 
 Pending* ApiCore::find_pending(uint32_t req_id) {
+    // caller holds mu_; the pointer is valid only while the lock is held
     auto it = pending_.find(req_id);
     return it == pending_.end() ? nullptr : &it->second;
 }
 
-void ApiCore::erase_pending(uint32_t req_id) { pending_.erase(req_id); }
+void ApiCore::erase_pending(uint32_t req_id) { pending_.erase(req_id); }  // caller holds mu_
 
 void ApiCore::set_trading_day_locked(const char* day) {
     set_cstr(trading_day_, sizeof(trading_day_), cstr_of(day, 9));

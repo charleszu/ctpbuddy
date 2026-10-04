@@ -16,6 +16,10 @@ import os
 import re
 from collections import Counter
 
+# No export directory / no trade files: not a pass. Exit 3 unless the caller
+# opts in with --allow-skip (CI wiring decides, not the script).
+EXIT_SKIPPED = 3
+
 
 def read_rows(path):
     with open(path, encoding="utf-8-sig", newline="") as fh:
@@ -68,9 +72,14 @@ def main():
     ap.add_argument("--export-dir", default=os.environ.get("CTPBUDDY_EXPORT_DIR", r"C:\workspace\src\CTP\ctp_export"))
     ap.add_argument("--refdata-dir", default="refdata")
     ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--allow-skip", action="store_true",
+                    help="无导出目录/无 *_trade.csv 时以 0 退出（默认退出码 %d）" % EXIT_SKIPPED)
     args = ap.parse_args()
     known = ref_instruments(args.refdata_dir)
     files = sorted(glob.glob(os.path.join(args.export_dir, "*_trade.csv")))
+    if not files:
+        print("SKIPPED: no *_trade.csv under %s (set CTPBUDDY_EXPORT_DIR / --export-dir)" % args.export_dir)
+        return 0 if args.allow_skip else EXIT_SKIPPED
     candidates = []
     reasons = Counter()
     for path in files:

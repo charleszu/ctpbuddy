@@ -19,11 +19,25 @@ options:
   -f, --initial-funds <n>
                           new-account initial funds    (default 2000000)
       --qry-freq <n>     ReqQry* budget per second     (default 2)
-      --order-freq <n>   order insert+cancel budget per
-                          second, per investor          (default 20)
-      --refdata <dir>   contracts + margin / commission
+      --order-freq <n>   per-investor per-second budget,
+                          applied separately to order
+                          inserts and to cancels (two
+                          independent streams)         (default 20)
+      --max-user-sessions <n>
+                          max online sessions per
+                          BrokerID+UserID; 0 = unlimited (default 0)
+      --settlement-required <true|false>
+                          reject orders until the current
+                          trading day's settlement is
+                          confirmed (error 42)          (default true)
+      --self-trade-prevention <true|false>
+                          skip resting orders of the same
+                          investor when matching (real CTP
+                          does not; opt-in)             (default false)
+      --refdata <dir>    contracts + margin / commission
                           rates (JSONL from a ref-data
-                          provider; default = bundled
+                          provider; must load, else the
+                          server exits; default = bundled
                           snapshot)
       --scenario <dir>   scenario dir with refdata/ + ticks.csv
       --speed <n>        playback speed multiplier    (0 = as fast as possible)
@@ -76,9 +90,10 @@ fn apply_env(cfg: &mut Config) {
     for (env, key) in [
         ("CTPBUDDY_MAX_USER_SESSIONS", "max_user_sessions"),
         ("CTPBUDDY_SETTLEMENT_REQUIRED", "settlement_required"),
+        ("CTPBUDDY_SELF_TRADE_PREVENTION", "self_trade_prevention"),
     ] {
         if let Ok(v) = std::env::var(env) {
-            let value = if key == "settlement_required" {
+            let value = if ctpbuddy_server::settings::BOOL_KEYS.contains(&key) {
                 match v.as_str() {
                     "true" => ctpbuddy_server::json::b(true),
                     "false" => ctpbuddy_server::json::b(false),
@@ -165,18 +180,18 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 }
                 cfg.settings_overrides.push("order_freq".into());
             }
-            "--max-user-sessions" | "--settlement-required" => {
-                let key = if arg == "--max-user-sessions" {
-                    "max_user_sessions"
-                } else {
-                    "settlement_required"
+            "--max-user-sessions" | "--settlement-required" | "--self-trade-prevention" => {
+                let key = match arg.as_str() {
+                    "--max-user-sessions" => "max_user_sessions",
+                    "--settlement-required" => "settlement_required",
+                    _ => "self_trade_prevention",
                 };
                 let v = take(&arg)?;
-                let value = if key == "settlement_required" {
+                let value = if ctpbuddy_server::settings::BOOL_KEYS.contains(&key) {
                     match v.as_str() {
                         "true" => ctpbuddy_server::json::b(true),
                         "false" => ctpbuddy_server::json::b(false),
-                        _ => return Err("--settlement-required expects true/false".into()),
+                        _ => return Err(format!("{arg} expects true/false")),
                     }
                 } else {
                     ctpbuddy_server::json::n(

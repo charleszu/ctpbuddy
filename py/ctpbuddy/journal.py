@@ -20,6 +20,10 @@ stream (DESIGN §11.2). Two hash levels serve two purposes:
 
 Canonical form: `json.dumps(..., sort_keys=True, separators=(",", ":"),
 ensure_ascii=False)` — one event per line, `\n`-joined, sha256.
+
+This module is also the single vocabulary of journal event types: the
+SQLite projection (`store.py`) and the replay driver (`replay.py`) import
+their type sets from here so the three never drift apart.
 """
 from __future__ import annotations
 
@@ -28,14 +32,45 @@ import json
 import os
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
-#: Event types per DESIGN §11.4 (some not yet emitted by the core).
+#: Admin-port inputs the core knows how to journal AND the replay driver
+#: knows how to re-issue (`reset_account` -> reset_account, `settlement` ->
+#: settle_day, `settlement_report` -> settlement_report, `settings_updated`
+#: -> settings_update).
+REPLAYABLE_ADMIN_TYPES = frozenset({
+    "reset_account", "settlement", "settlement_report", "settings_updated",
+})
+
+#: Admin inputs named by DESIGN §11.4 that no admin command re-issues yet
+#: (the core does not emit them either). A replay classifies them as
+#: `not_replayed` rather than as a difference.
+UNREPLAYABLE_ADMIN_TYPES = frozenset({"deposit", "withdraw", "settle", "admin"})
+
+#: Every admin-side input event (state changes that reach the journal via
+#: the ADMIN port rather than a CTP session).
+ADMIN_INPUT_TYPES = REPLAYABLE_ADMIN_TYPES | UNREPLAYABLE_ADMIN_TYPES
+
+#: Journal events that are inputs to a replay (requests + the tick trace).
+REPLAYABLE_TYPES = frozenset({
+    "scenario_loaded",
+    "session_auth", "session_login", "session_logout",
+    "order_insert", "order_cancel",
+    "md_watermark",
+}) | ADMIN_INPUT_TYPES
+
+#: Types the SQLite projection records in `audit_log`.
+AUDIT_TYPES = frozenset({"scenario_loaded"}) | ADMIN_INPUT_TYPES
+
+#: Day-settlement events (the core emits `settlement`; `settle` is the
+#: DESIGN §11.4 name kept for compatibility) — both carry `accounts`.
+SETTLEMENT_TYPES = frozenset({"settlement", "settle"})
+
+#: Event types per DESIGN §11.4 plus the ones the core emits today.
 KNOWN_TYPES = frozenset({
     "server_start", "server_stop", "scenario_loaded",
     "session_auth", "session_login", "session_logout",
     "order_insert", "order_cancel", "order_update", "fill",
-    "deposit", "withdraw", "reset_account", "settle", "admin",
     "md_watermark", "assertion",
-})
+}) | ADMIN_INPUT_TYPES
 
 #: Types excluded from the core hash: transport/ops noise, not semantics.
 CORE_NOISE_TYPES = frozenset({
@@ -61,24 +96,28 @@ def journal_paths(path: str) -> List[str]:
     return [path]
 
 
+def _iter_file(p: str) -> Iterator[Dict[str, Any]]:
+    with open(p, "r", encoding="utf-8") as f:
+        for ln, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise JournalError("%s:%d: %s" % (p, ln, e))
+            if not isinstance(ev, dict):
+                raise JournalError("%s:%d: event is not a JSON object" % (p, ln))
+            yield ev
+
+
 def load_events(path: str) -> List[Dict[str, Any]]:
-    """Parse a journal file (or a whole journal directory), in file order."""
+    """Parse a journal file (in file order) or a whole journal directory
+    (sorted by `seq`: 回放可以倒退交易日，文件名顺序不等于事件序号顺序)."""
     out: List[Dict[str, Any]] = []
     for p in journal_paths(path):
-        with open(p, "r", encoding="utf-8") as f:
-            for ln, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except json.JSONDecodeError as e:
-                    raise JournalError("%s:%d: %s" % (p, ln, e))
-                if not isinstance(ev, dict):
-                    raise JournalError("%s:%d: event is not a JSON object" % (p, ln))
-                out.append(ev)
+        out.extend(_iter_file(p))
     if os.path.isdir(path):
-        # 回放可以倒退交易日，文件名顺序不等于事件序号顺序。
         out.sort(key=lambda ev: ev.get("seq", 0))
     return out
 
@@ -189,17 +228,13 @@ def fmt_vt(vt_ms: Any) -> str:
 
 
 def iter_events(path: str) -> Iterator[Dict[str, Any]]:
-    """Lazy variant of `load_events` (same order)."""
-    for p in journal_paths(path):
-        with open(p, "r", encoding="utf-8") as f:
-            for ln, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except json.JSONDecodeError as e:
-                    raise JournalError("%s:%d: %s" % (p, ln, e))
-                if not isinstance(ev, dict):
-                    raise JournalError("%s:%d: event is not a JSON object" % (p, ln))
-                yield ev
+    """Iterator variant of `load_events` (same order).
+
+    A single file streams lazily. A directory must be ordered by `seq`
+    across files, which needs every file read first, so the directory
+    form materializes through `load_events` and yields from that.
+    """
+    if os.path.isdir(path):
+        yield from load_events(path)
+        return
+    yield from _iter_file(path)

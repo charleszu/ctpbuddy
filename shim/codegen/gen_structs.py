@@ -19,8 +19,10 @@ Design notes:
 - CTP structs use natural alignment (no pragma pack); Rust repr(C) and Python
   native '@' struct format both match the C layout on the build platform.
 - Struct ids are assigned once (0x2000 + sorted index) and never reused.
-- Message ids are hand-assigned in core/ctpbuddy-wire/src/msgs.rs; this script
-  only validates that every referenced struct exists.
+- Message ids are hand-assigned in gen_shim.py's MSG table (which syncs them
+  into core/ctpbuddy-wire/src/msgs.rs / api_core.hpp / wire.py); this script
+  imports that table and only adds the payload-struct column, validating that
+  every referenced struct exists.
 - Structs containing nested CThostFtdc members are skipped (listed in output);
   CTP API structs are expected to be flat.
 """
@@ -30,6 +32,9 @@ import json
 import os
 import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gen_shim import MSG  # noqa: E402  single source of wire message ids
 
 BASE_TYPES = {
     "char": ("u8", "B", 1),
@@ -42,35 +47,66 @@ BASE_TYPES = {
     "long long": ("i64", "q", 8),
 }
 
-# Messages referenced by the M1 wire protocol (must stay in sync with msgs.rs).
-MESSAGES = [
-    (0x0101, "AUTH", None),
-    (0x0102, "AUTH_RSP", None),
-    (0x0103, "LOGOUT", None),
-    (0x0104, "LOGOUT_RSP", None),
-    (0x0201, "ADMIN_REQ", None),
-    (0x0202, "ADMIN_RSP", None),
-    (0x1001, "REQ_USER_LOGIN", "CThostFtdcReqUserLoginField"),
-    (0x1002, "RSP_USER_LOGIN", "CThostFtdcRspUserLoginField"),
-    (0x1003, "REQ_USER_LOGOUT", "CThostFtdcUserLogoutField"),
-    (0x1004, "RSP_USER_LOGOUT", "CThostFtdcUserLogoutField"),
-    (0x1005, "REQ_SETTLE_CONFIRM", "CThostFtdcSettlementInfoConfirmField"),
-    (0x1006, "RSP_SETTLE_CONFIRM", "CThostFtdcSettlementInfoConfirmField"),
-    (0x1010, "REQ_ORDER_INSERT", "CThostFtdcInputOrderField"),
-    (0x1011, "RSP_ORDER_INSERT", "CThostFtdcRspInfoField"),
-    (0x1012, "ERR_RTN_ORDER_INSERT", "CThostFtdcRspInfoField"),
-    (0x1013, "RTN_ORDER", "CThostFtdcOrderField"),
-    (0x1014, "RTN_TRADE", "CThostFtdcTradeField"),
-    (0x1015, "REQ_ORDER_ACTION", "CThostFtdcInputOrderActionField"),
-    (0x1016, "RSP_ORDER_ACTION", "CThostFtdcRspInfoField"),
-    (0x1017, "ERR_RTN_ORDER_ACTION", "CThostFtdcRspInfoField"),
-    (0x1020, "SUB_MD", None),
-    (0x1021, "RSP_SUB_MD", "CThostFtdcRspInfoField"),
-    (0x1022, "RTN_DEPTH_MD", "CThostFtdcDepthMarketDataField"),
-    (0x1030, "RSP_ERROR", "CThostFtdcRspInfoField"),
-    (0x1031, "REQ_QRY_SETTLEMENT_INFO", "CThostFtdcQrySettlementInfoField"),
-    (0x1032, "RSP_QRY_SETTLEMENT_INFO", "CThostFtdcSettlementInfoField"),
-]
+# Payload struct per wire message, as the shim dispatch tables consume it
+# (gen_shim.TD_DISPATCH / MD_DISPATCH). None = JSON / empty / packed-array /
+# composite payload. Ids come from gen_shim.MSG -- never list a number here.
+# Every name must exist in MSG; every MSG entry gets a registry.json row
+# (struct None when not listed).
+MESSAGE_STRUCTS = {
+    "REQ_USER_LOGIN": "CThostFtdcReqUserLoginField",
+    "RSP_USER_LOGIN": "CThostFtdcRspUserLoginField",
+    "REQ_USER_LOGOUT": "CThostFtdcUserLogoutField",
+    "RSP_USER_LOGOUT": "CThostFtdcUserLogoutField",
+    "REQ_SETTLE_CONFIRM": "CThostFtdcSettlementInfoConfirmField",
+    "RSP_SETTLE_CONFIRM": "CThostFtdcSettlementInfoConfirmField",
+    "REQ_ORDER_INSERT": "CThostFtdcInputOrderField",
+    # RSP_ORDER_INSERT / RSP_ORDER_ACTION: empty payload (shim echoes the
+    # cached input); ERR_RTN_*: input struct ++ RspInfoField (composite).
+    "RTN_ORDER": "CThostFtdcOrderField",
+    "RTN_TRADE": "CThostFtdcTradeField",
+    "REQ_ORDER_ACTION": "CThostFtdcInputOrderActionField",
+    # SUB_MD / UNSUB_MD: packed array of SpecificInstrumentField; one RSP per
+    # element.
+    "RSP_SUB_MD": "CThostFtdcSpecificInstrumentField",
+    "RSP_UNSUB_MD": "CThostFtdcSpecificInstrumentField",
+    "RTN_DEPTH_MD": "CThostFtdcDepthMarketDataField",
+    "RSP_ERROR": "CThostFtdcRspInfoField",
+    "REQ_QRY_SETTLEMENT_INFO": "CThostFtdcQrySettlementInfoField",
+    "RSP_QRY_SETTLEMENT_INFO": "CThostFtdcSettlementInfoField",
+    "REQ_QRY_INSTRUMENT": "CThostFtdcQryInstrumentField",
+    "RSP_QRY_INSTRUMENT": "CThostFtdcInstrumentField",
+    "REQ_QRY_TRADING_ACCOUNT": "CThostFtdcQryTradingAccountField",
+    "RSP_QRY_TRADING_ACCOUNT": "CThostFtdcTradingAccountField",
+    "REQ_QRY_INVESTOR_POSITION": "CThostFtdcQryInvestorPositionField",
+    "RSP_QRY_INVESTOR_POSITION": "CThostFtdcInvestorPositionField",
+    "REQ_QRY_ORDER": "CThostFtdcQryOrderField",
+    "RSP_QRY_ORDER": "CThostFtdcOrderField",
+    "REQ_QRY_TRADE": "CThostFtdcQryTradeField",
+    "RSP_QRY_TRADE": "CThostFtdcTradeField",
+    "REQ_QRY_INSTRUMENT_MARGIN_RATE": "CThostFtdcQryInstrumentMarginRateField",
+    "RSP_QRY_INSTRUMENT_MARGIN_RATE": "CThostFtdcInstrumentMarginRateField",
+    "REQ_QRY_INSTRUMENT_COMMISSION_RATE": "CThostFtdcQryInstrumentCommissionRateField",
+    "RSP_QRY_INSTRUMENT_COMMISSION_RATE": "CThostFtdcInstrumentCommissionRateField",
+    "REQ_QRY_INSTRUMENT_ORDER_COMM_RATE": "CThostFtdcQryInstrumentOrderCommRateField",
+    "RSP_QRY_INSTRUMENT_ORDER_COMM_RATE": "CThostFtdcInstrumentOrderCommRateField",
+    "REQ_QRY_BROKER_TRADING_PARAMS": "CThostFtdcQryBrokerTradingParamsField",
+    "RSP_QRY_BROKER_TRADING_PARAMS": "CThostFtdcBrokerTradingParamsField",
+    "REQ_QRY_INVESTOR_POSITION_DETAIL": "CThostFtdcQryInvestorPositionDetailField",
+    "RSP_QRY_INVESTOR_POSITION_DETAIL": "CThostFtdcInvestorPositionDetailField",
+    "REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN": "CThostFtdcQryInvestorProductGroupMarginField",
+    "RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN": "CThostFtdcInvestorProductGroupMarginField",
+}
+
+
+def message_table():
+    """-> [(id, name, struct_or_None)] sorted by id, derived from gen_shim.MSG."""
+    unknown = sorted(set(MESSAGE_STRUCTS) - set(MSG))
+    if unknown:
+        raise SystemExit("MESSAGE_STRUCTS names not in gen_shim.MSG: %s" % ", ".join(unknown))
+    return [(mid, name, MESSAGE_STRUCTS.get(name)) for name, mid in sorted(MSG.items(), key=lambda kv: kv[1])]
+
+
+MESSAGES = message_table()
 
 TYPEDEF_BASE_RE = re.compile(
     r"typedef\s+(char|double|int|short|unsigned\s+char|unsigned\s+int|unsigned\s+short|long\s+long)"

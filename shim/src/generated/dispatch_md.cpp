@@ -19,7 +19,9 @@ static void row_OnRspUserLogin(ApiCore& c, const Frame& f) {
         p = payload_as(f, fld);
         if (p) c.set_trading_day_locked(p->TradingDay);
     }
-    static_cast<CThostFtdcMdSpi*>(c.spi())->OnRspUserLogin(const_cast<CThostFtdcRspUserLoginField*>(p), &c.zero_rsp_info(), nrid, true);
+    CThostFtdcMdSpi* spi = static_cast<CThostFtdcMdSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogin(const_cast<CThostFtdcRspUserLoginField*>(p), &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspUserLogout(ApiCore& c, const Frame& f) {
@@ -32,7 +34,9 @@ static void row_OnRspUserLogout(ApiCore& c, const Frame& f) {
         nrid = pd.n_request_id;
         p = payload_as(f, fld);
     }
-    static_cast<CThostFtdcMdSpi*>(c.spi())->OnRspUserLogout(const_cast<CThostFtdcUserLogoutField*>(p), &c.zero_rsp_info(), nrid, true);
+    CThostFtdcMdSpi* spi = static_cast<CThostFtdcMdSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogout(const_cast<CThostFtdcUserLogoutField*>(p), &c.zero_rsp_info(), nrid, true);
 }
 
 static void row_OnRspSubMarketData(ApiCore& c, const Frame& f) {
@@ -50,7 +54,9 @@ static void row_OnRspSubMarketData(ApiCore& c, const Frame& f) {
         last = pd->expected_responses != 0 && pd->responses >= pd->expected_responses;
         if (last) c.erase_pending(f.req_id);
     }
-    static_cast<CThostFtdcMdSpi*>(c.spi())->OnRspSubMarketData(const_cast<CThostFtdcSpecificInstrumentField*>(p), &c.zero_rsp_info(), nrid, last);
+    CThostFtdcMdSpi* spi = static_cast<CThostFtdcMdSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspSubMarketData(const_cast<CThostFtdcSpecificInstrumentField*>(p), &c.zero_rsp_info(), nrid, last);
 }
 
 static void row_OnRspUnSubMarketData(ApiCore& c, const Frame& f) {
@@ -68,21 +74,30 @@ static void row_OnRspUnSubMarketData(ApiCore& c, const Frame& f) {
         last = pd->expected_responses != 0 && pd->responses >= pd->expected_responses;
         if (last) c.erase_pending(f.req_id);
     }
-    static_cast<CThostFtdcMdSpi*>(c.spi())->OnRspUnSubMarketData(const_cast<CThostFtdcSpecificInstrumentField*>(p), &c.zero_rsp_info(), nrid, last);
+    CThostFtdcMdSpi* spi = static_cast<CThostFtdcMdSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUnSubMarketData(const_cast<CThostFtdcSpecificInstrumentField*>(p), &c.zero_rsp_info(), nrid, last);
 }
 
 static void row_OnRtnDepthMarketData(ApiCore& c, const Frame& f) {
     CThostFtdcDepthMarketDataField fld{};
     const CThostFtdcDepthMarketDataField* p = payload_as(f, fld);
-    if (p) static_cast<CThostFtdcMdSpi*>(c.spi())->OnRtnDepthMarketData(const_cast<CThostFtdcDepthMarketDataField*>(p));
+    if (!p) return;
+    CThostFtdcMdSpi* spi = static_cast<CThostFtdcMdSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRtnDepthMarketData(const_cast<CThostFtdcDepthMarketDataField*>(p));
 }
 
 static void row_OnRspUserLogin_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcMdSpi*>(c.spi())->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcMdSpi* spi = static_cast<CThostFtdcMdSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 static void row_OnRspUserLogout_err(ApiCore& c, const CThostFtdcRspInfoField& rsp, int nrid, const Pending&) {
-    static_cast<CThostFtdcMdSpi*>(c.spi())->OnRspUserLogout(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
+    CThostFtdcMdSpi* spi = static_cast<CThostFtdcMdSpi*>(c.spi());
+    if (!spi) return;
+    spi->OnRspUserLogout(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), nrid, true);
 }
 
 }  // namespace
@@ -99,19 +114,27 @@ const DispatchRow kMdDispatch[] = {
 const DispatchRow* MdApi::rows() const { return kMdDispatch; }
 
 void MdApi::on_rsp_error_fallback(const CThostFtdcRspInfoField& rsp, int n_request_id) {
-    static_cast<CThostFtdcMdSpi*>(spi())->OnRspError(const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
+    CThostFtdcMdSpi* s = static_cast<CThostFtdcMdSpi*>(spi());
+    if (!s) return;
+    s->OnRspError(const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
 }
 
 void MdApi::on_auth_failed(int n_request_id, const CThostFtdcRspInfoField& rsp) {
-    static_cast<CThostFtdcMdSpi*>(spi())->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
+    CThostFtdcMdSpi* s = static_cast<CThostFtdcMdSpi*>(spi());
+    if (!s) return;
+    s->OnRspUserLogin(nullptr, const_cast<CThostFtdcRspInfoField*>(&rsp), n_request_id, true);
 }
 
 void MdApi::fire_front_connected() {
-    static_cast<CThostFtdcMdSpi*>(spi())->OnFrontConnected();
+    CThostFtdcMdSpi* s = static_cast<CThostFtdcMdSpi*>(spi());
+    if (!s) return;
+    s->OnFrontConnected();
 }
 
 void MdApi::fire_front_disconnected(int reason) {
-    static_cast<CThostFtdcMdSpi*>(spi())->OnFrontDisconnected(reason);
+    CThostFtdcMdSpi* s = static_cast<CThostFtdcMdSpi*>(spi());
+    if (!s) return;
+    s->OnFrontDisconnected(reason);
 }
 
 }  // namespace ctpbuddy

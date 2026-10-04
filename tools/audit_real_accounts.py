@@ -82,7 +82,7 @@ import json
 import os
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 EXPORT_DIR = os.environ.get("CTPBUDDY_EXPORT_DIR", r"C:\workspace\src\CTP\ctp_export")
 SETTLEMENT_DIR = os.environ.get("CTPBUDDY_SETTLEMENT_DIR", r"C:\workspace\src\CTP\ctp_settlement")
@@ -346,16 +346,21 @@ def audit_detail_pnl(settlement_dir):
         return None
 
     checked = 0
-    skipped = 0
+    # Every skipped unit is counted **by reason** so the report shows what the
+    # row count excludes; a silent `continue` would let a narrowing of coverage
+    # look like a stronger pass (same lesson as the `os.walk` fix in §8.7.1).
+    skipped = Counter()
     failures = []
     for name in files:
         try:
             doc = load_statement(settlement_dir, name)
         except (ValueError, OSError):
+            skipped["statement_unreadable"] += 1
             continue
         details = doc.get("positions_detail") or []
         summary = doc.get("positions_summary") or []
         if not details or not summary:
+            skipped["no_position_tables"] += 1
             continue
         # Per-instrument, per-side grouping: the statement's 持仓汇总 rows
         # collapse the lot rows by (合约, 买/卖), and the detail 买卖 column is
@@ -364,10 +369,12 @@ def audit_detail_pnl(settlement_dir):
         groups = defaultdict(float)
         for d in details:
             if "期权" in str(d.get("品种", "")):
+                skipped["option_detail_row"] += 1
                 continue  # option MTM mixes premium in; out of v1 scope
             groups[(d.get("合约"), d.get("买卖"))] += float(d.get("盯市盈亏") or 0.0)
         for row in summary:
             if "期权" in str(row.get("品种", "")):
+                skipped["option_summary_row"] += 1
                 continue
             side = "买" if float(row.get("买持") or 0) > 0 else "卖"
             got = groups.get((row.get("合约"), side), 0.0)
@@ -376,11 +383,12 @@ def audit_detail_pnl(settlement_dir):
             # compare when the instrument is single-sided; mixed positions
             # would need the row's own split to be unambiguous.
             if float(row.get("买持") or 0) > 0 and float(row.get("卖持") or 0) > 0:
+                skipped["hedged_summary_row"] += 1
                 continue
             if abs(got - want) > CENT:
                 failures.append((name, row.get("合约"), side, want, got))
             checked += 1
-    return checked, failures
+    return checked, failures, skipped
 
 
 def audit_statements(settlement_dir):
@@ -504,6 +512,10 @@ def main():
         checks, failures, *rest = result
         if label.startswith("margin"):
             extra = " (%d single-sided, %d hedged)" % (rest[0], checks - rest[0])
+        elif rest and isinstance(rest[0], Counter):
+            total = sum(rest[0].values())
+            by_reason = ", ".join("%s=%d" % kv for kv in sorted(rest[0].items()))
+            extra = " (%d skipped: %s)" % (total, by_reason or "-")
         else:
             extra = " (%d skipped: 期权行权/交割 out of v1 scope)" % rest[0] if rest else ""
         print("[ok] %s on %d real rows%s" % (label, checks, extra))

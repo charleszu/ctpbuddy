@@ -204,12 +204,13 @@ def run_smoke(td_port: int, admin_port: int, data_dir: str, scenario: str) -> No
         v = cli.auth(BROKER, INVESTOR)
         assert v["broker_id"] == BROKER, v
         # 绕过 Shim，直接验证服务端拒绝认证身份与登录身份不一致。
-        for broker, user in ((BROKER, "other-user"), ("9999", INVESTOR)):
+        # UserID 与认证身份不符 → 15 BAD_FIELD；BrokerID 与核心不一致 → 63 AUTH_FAILED
+        for broker, user, expected in ((BROKER, "other-user", 15), ("9999", INVESTOR, 63)):
             try:
                 cli.login(broker, user, password="")
                 raise AssertionError("Auth A -> Login B was accepted")
             except CTPError as e:
-                assert e.error_id == 15, e
+                assert e.error_id == expected, e
         print("[ok] AUTH/login BrokerID/UserID mismatch rejected")
         login = cli.login(BROKER, INVESTOR, password="")
         assert login["FrontID"] > 0 and login["SessionID"] > 0, login

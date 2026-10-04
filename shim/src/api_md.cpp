@@ -29,33 +29,41 @@ int MdApi::UnSubscribeMarketData(char* ppInstrumentID[], int nCount) {
     return send_request(msgs::UNSUB_MD, fields.data(), fields.size() * sizeof(fields[0]), -1);
 }
 
-int MdApi::SubscribeForQuoteRsp(char* ppInstrumentID[], int nCount) {
-    // for-quote is a M2+ feature: answer locally, never leave the app hanging.
+namespace {
+
+// For-quote subscription is a M2+ feature: answer locally with ErrorID 41 so
+// the app never hangs. The callback is posted to the reader thread (vendor
+// contract: SPI callbacks never run on the app's stack) and dropped when the
+// app registered no SPI; -1 (网络连接失败) when not connected, like the vendor.
+template <typename Fn>
+int for_quote_stub(ApiCore& core, char* ppInstrumentID[], int nCount, Fn fire) {
     CThostFtdcRspInfoField rsp{};
     rsp.ErrorID = 41;
     set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTPBuddy 暂不支持询价订阅");
-    if (nCount > 0 && ppInstrumentID && ppInstrumentID[0]) {
-        CThostFtdcSpecificInstrumentField f{};
-        set_cstr(f.InstrumentID, sizeof(f.InstrumentID), ppInstrumentID[0]);
-        static_cast<CThostFtdcMdSpi*>(spi())->OnRspSubForQuoteRsp(&f, &rsp, -1, true);
-    } else {
-        static_cast<CThostFtdcMdSpi*>(spi())->OnRspSubForQuoteRsp(nullptr, &rsp, -1, true);
-    }
-    return 0;
+    CThostFtdcSpecificInstrumentField f{};
+    const bool have_id = nCount > 0 && ppInstrumentID && ppInstrumentID[0];
+    if (have_id) set_cstr(f.InstrumentID, sizeof(f.InstrumentID), ppInstrumentID[0]);
+    return core.post_callback([&core, f, have_id, rsp, fire]() mutable {
+        auto* s = static_cast<CThostFtdcMdSpi*>(core.spi());
+        if (!s) return;
+        fire(s, have_id ? &f : nullptr, &rsp);
+    });
+}
+
+}  // namespace
+
+int MdApi::SubscribeForQuoteRsp(char* ppInstrumentID[], int nCount) {
+    return for_quote_stub(*this, ppInstrumentID, nCount,
+                          [](CThostFtdcMdSpi* s, CThostFtdcSpecificInstrumentField* f, CThostFtdcRspInfoField* rsp) {
+                              s->OnRspSubForQuoteRsp(f, rsp, -1, true);
+                          });
 }
 
 int MdApi::UnSubscribeForQuoteRsp(char* ppInstrumentID[], int nCount) {
-    CThostFtdcRspInfoField rsp{};
-    rsp.ErrorID = 41;
-    set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTPBuddy 暂不支持询价订阅");
-    if (nCount > 0 && ppInstrumentID && ppInstrumentID[0]) {
-        CThostFtdcSpecificInstrumentField f{};
-        set_cstr(f.InstrumentID, sizeof(f.InstrumentID), ppInstrumentID[0]);
-        static_cast<CThostFtdcMdSpi*>(spi())->OnRspUnSubForQuoteRsp(&f, &rsp, -1, true);
-    } else {
-        static_cast<CThostFtdcMdSpi*>(spi())->OnRspUnSubForQuoteRsp(nullptr, &rsp, -1, true);
-    }
-    return 0;
+    return for_quote_stub(*this, ppInstrumentID, nCount,
+                          [](CThostFtdcMdSpi* s, CThostFtdcSpecificInstrumentField* f, CThostFtdcRspInfoField* rsp) {
+                              s->OnRspUnSubForQuoteRsp(f, rsp, -1, true);
+                          });
 }
 
 }  // namespace ctpbuddy

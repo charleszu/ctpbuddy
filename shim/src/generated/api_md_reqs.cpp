@@ -48,10 +48,10 @@ int MdApi::ReqUserLogout(CThostFtdcUserLogoutField *pUserLogout, int nRequestID)
 }
 
 int MdApi::ReqQryMulticastInstrument(CThostFtdcQryMulticastInstrumentField *pQryMulticastInstrument, int nRequestID) {
-    // not implemented by the M1 core: answer locally so the app
-    // never waits for a callback that will not arrive.
-    unsupported(nRequestID, "ReqQryMulticastInstrument");
-    return 0;
+    // not implemented by the M1 core: answer locally (OnRspError on
+    // the reader thread) so the app never waits for a callback that
+    // will not arrive; -1 when not connected, like the vendor.
+    return unsupported(nRequestID, "ReqQryMulticastInstrument");
 }
 
 

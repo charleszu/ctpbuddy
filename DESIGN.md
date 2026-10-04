@@ -29,6 +29,11 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | §6.4 登录后核心补发快照；TERT_RESTART/RESUME 私有流重传 | 未实现；`SubscribePrivateTopic` 被忽略 | 依赖重启后回放当日回报恢复状态的下游需改为登录后主动查询 |
 | §5 Shim DLL/so | 仅 Windows（winsock）DLL | Linux 下游暂无法替换 `.so` |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | — |
+| §8.6 / §8.7 昨仓保证金按昨结算价计 | `settle_trading_day` 推进 `last_settlement_price` 但**不重估存续持仓的保证金**（`PositionDetail.margin` 仍为成交时刻按 `MarginPrice::{PreSettlement,Last,Average,Open}` 算出的快照）；`Last`/`Average` 也只在成交时刻取值，不随行情/结算滚动 | 真实柜台日结按当日结算价重算全部持仓保证金；跨日持仓的 `CurrMargin`/`Available` 与真实结算单会有偏差，跨日场景断言不要拿保证金对账 |
+| §8.10 挂单成交价与触发条件 | tick 到达时 resting 单按 **tick 档位价**成交而非自身限价（买 3001 挂单遇 bid1=3002 成交在 3002，即「价格改善」，见 `m2_flow` flow008）；只看五档深度是否穿越，**不看 `LastPrice` 穿越**，深度为空的源上 GFD 限价单永不成交（模式 1 降级只覆盖非限价单） | 真实交易所 maker 按自身限价成交；以成交价断言滑点的下游会看到正向偏差；只有 LastPrice 的行情源上挂单策略测不到成交 |
+| §8.3 / §8.10 自成交预防 | **默认关闭**（柜台设置 `self_trade_prevention`，CLI `--self-trade-prevention true` / env `CTPBUDDY_SELF_TRADE_PREVENTION`，运行时可经 ADMIN `settings_update` 切换；引擎侧 `MatchingEngine::set_self_trade_prevention`），同账户交叉直接成交，与真实 CTP 一致；显式开启时跳过同账户挂单会**跨过该档位继续向后匹配**，破坏价格时间优先 | 开启后的成交序不是任何真实交易所的行为，仅供需要仿真「自成交被拦」的 desk 自行打开；默认配置下不影响 |
+
+**关于正文中的「落地口径（M2-x / #xx，YYYY-MM-DD）」段落**：§7.4、§7.5、§8.10~§8.14 等带日期的落地口径是当时实测的**历史变更记录**（按「重大变更走 ADR 追加、不静默改写」原则保留），其中的数字、开关默认值与待办可能已被后续改动超越；**当前实现与已知差距以本 0.6 表为准**，错误码三态统计以 [`docs/错误码全集.md`](docs/错误码全集.md)（`tools/fill_errorcode_status.py --check`）为准。
 
 ---
 
@@ -74,7 +79,7 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | 文档 / 下载站 | ctpbuddy.opentrade.one |
 | Shim DLL | `thosttraderapi.dll` / `thostmduserapi.dll`（**原名替换**，不加后缀） |
 
-**合规声明**（README 与官网固定文案）：CTPBuddy 是兼容 CTP 接口的开源测试工具，与上海期货信息技术有限公司（上期技术）无任何隶属关系；不附带任何官方 SDK 文件，头文件由使用者自备。
+**合规声明**（README 与官网固定文案）：CTPBuddy 是兼容 CTP 接口的开源测试工具，与上海期货信息技术有限公司（上期技术）无任何隶属关系；仓库不包含 `ctpsdk/*/` 下的官方二进制 SDK（`.dll`/`.lib`，由使用者自备），但 `docs/api-doc-html/files/` 附带由官方 CHM 文档转换得到的头文件、`error.xml` 与 PDF 供文档交叉引用（详见 §15）。
 
 ---
 
@@ -423,7 +428,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - 价格超涨跌停 → 拒绝（对齐交易所错误码）；
 - 可用资金/持仓不足 → 拒绝（错误码语义对齐）；**可平数量口径**：多头 `Position − ShortFrozen − CombShortFrozen`，空头 `Position − LongFrozen − CombLongFrozen`（防重复平仓）；
 - 冻结与解冻规则：买开→多头持仓 `LongFrozen += 报单量`；买平→空头持仓 `LongFrozen += 报单量`（挂单即冻，防"还有 1 手可平"误判）；报单被拒按报单量解冻、撤单按 `VolumeTotal`（未成交量）解冻；
-- 自成交预防（同账户同合约对冲单检查，可开关）；
+- 自成交预防（同账户同合约对冲单检查，可开关；**默认关闭**，与真实 CTP 一致，开启后的跳档行为见 §0.6）；
 - 报单频率限制（模拟 CTP 流控，可注入用于测试下游限流处理）：现代柜台口径为**显式拒绝**（`OnRspOrderAction`「CTP:下单频率限制」），区别于 2009 FAQ 时代「默认每会话 6 笔/秒、超限排队不报错」的历史口径——CTPBuddy 默认复刻现代口径，历史口径可经规则表注入用于测试旧下游；
 - 单笔最大手数 / 单合约持仓上限；
 - 平今/平昨费率严格区分（即使大商所也分平今/平昨两套费率，统一用平昨费率会有较大偏差）；
@@ -490,7 +495,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - **结算确认前置（对齐真实 CTP，非 LocalCTP）**：每交易日首次登录成功后，必须 `ReqQrySettlementInfoConfirm` 查确认状态 → 未确认才 `ReqQrySettlementInfo`（不填日期取上一交易日）→ 展示确认 → `ReqSettlementInfoConfirm`，**完成后才能报单**（当天已确认的会话再次登录可直接交易）。LocalCTP「不校验结算单确认」是参考实现的简化，不作为 CTPBuddy 口径；
 - 日结当前为显式 `ADMIN settle_day`：用户供给结算价与下一期货交易日，并在 playback 暂停且无活动订单时执行；今仓转昨、按结算价重算持仓盈亏。不会按默认 17:00 自动触发。显式 `ADMIN settlement_report` 可在查询前供给真实/外部结算正文并持久化，字段以原始 GBK 字节保存。未供给正文时，`settle_day` 生成明确标注 `modeled_ledger_minimal` 的当前账本最小可审计文本，不伪造未建模字段。
 - `ReqQrySettlementInfo/OnRspQrySettlementInfo` 按 `Content` 每段最多 500 字节返回，`SequenceNo` 从 1 递增；每段携带 `TradingDay/SettlementID/BrokerID/InvestorID`（以及已建模的 AccountID/CurrencyID），随后发送空 `QRY_LAST`，由 Shim 映射为 `pSettlementInfo=null,bIsLast=true`。未命中查询只返回该终止回调。
-- 已实现结算字段重置：`PreBalance=最终动态权益`、`PreSettlementPrice=供给结算价`、`YdPosition=剩余持仓`、`TodayPosition=0`，当日盈亏/手续费/冻结清零，存续持仓保证金保留，TradingDay 推进；到期合约自动强平尚未实现。
+- 已实现结算字段重置：`PreBalance=最终动态权益`、`PreSettlementPrice=供给结算价`、`YdPosition=剩余持仓`、`TodayPosition=0`，当日盈亏/手续费/冻结清零，TradingDay 推进；**存续持仓的保证金原样保留、不按结算价重估**（真实柜台日结按当日结算价重算持仓保证金，这是已知差距，见 §0.6；§8.6 「昨仓恒用昨结算价」因此只对成交时刻的保证金快照成立，跨日不滚动）；到期合约自动强平尚未实现。
 - 当前完成后写入 `settlement` journal 事件；PUB `sys` 广播属于规划，不按已实现描述。
 - 长假/节假日不由核心按固定时刻自动推断；CTPBuddy 仅使用用户提供并校验的离线 `TradingCalendar` 快照，运行时不联网。
 
@@ -625,7 +630,7 @@ DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨�
 - **成交价**：簿内成交价 = maker 限价；tick 深度成交价 = 档位价。报单到达时同时考察「簿内最优对手」与「当前 tick 五档」，取更优价，**平手 tick 深度优先**（快照量先于刚挂入簿的订单进入队列，时间优先）；消费跟踪见下条。
 - **五档消耗跟踪**：tick 深度是不可变快照，单次撮合过程用 `used: [i32; DEPTH]` 记录各档消耗，每个新 tick 重置；无深度数据时降级为模式 1（最新价、不限量，仅非限价单）；
 - **FAK/FOK 精确语义**（官方编码 `ThostFtdcUserApiDataType.h`：TC_IOC='1'、TC_GFD='3'、VC_AV='1'、VC_MV='2'、VC_CV='3'）：FOK=IOC+CV，lookahead 可成交量 < 报单量则整笔撤；FAK=IOC+AV 部分成交剩余撤，或 IOC+MV 可成交量 < MinVolume 整笔撤；GFD 余量挂簿；AnyPrice 市价单按定义走 IOC（服务端归一化，引擎内双保险）；
-- **自成交预防**：同 (broker, investor) 的 resting 单在 `best_counterpart` / `available_depth` 一律跳过（可开关）；
+- **自成交预防**：同 (broker, investor) 的 resting 单在 `best_counterpart` / `available_depth` 一律跳过（可开关；**现默认关闭**，`MatchingEngine::set_self_trade_prevention` 显式打开，开启时会跳档、破坏价格时间优先，见 §0.6）；
 - **成交双份语义**：一笔簿内成交产生 maker + taker 两份 Trade 回报，**共用同一 TradeID**（各自 order_key / 方向 / 开平不同）——与真实 CTP「一笔成交双方同 TradeID」一致；tick 深度成交只有 taker 一份、自带 TradeID；
 - **冻结释放闭环**：`freeze` 记**原始估算额**；每次成交按「原始估算额 × 本次量/原申报量」释放并累计 `released_*`；终态 '5'（客户撤单或 IOC/FOK/FAK 自动撤）由 `dispatch_event` 统一 `unfreeze_order` 释放未释放余量（幂等）——全成订单没有 '5'，pro-rata 也必须精确归零（M2-1 修复了按剩余额释放导致多段成交残留 2/9 冻结的缺陷）；
 - **成交开平归一化**：`TradeField.OffsetFlag` 仅 SHFE/INE 保留平今/平昨，其余交易所平仓一律回 Close('1')；`Order.CombOffsetFlag` 保留请求值；`Fill.offset` 保留真值供 ledger 先开先平；
@@ -650,18 +655,18 @@ DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨�
 
 | 层 | 拒绝内容 | 回调序列 | 线上帧 |
 |---|---|---|---|
-| 报盘机（CTP 层） | 会话(-3)、字段(15/23)、BrokerID(3/63)、未知合约(16)、不可交易(17)、重复报单(22)、ExchangeID(148)、流控(116)、资金(31)、持仓(30/50/51) | `OnRspOrderInsert(NULL, pRspInfo)` **仅此一个**，不跟 `OnRtnOrder` | `RSP_ERROR` only（shim 呈现 `pInputOrder == nullptr`） |
+| 报盘机（CTP 层） | 会话(-3)、字段(15/23)、BrokerID/InvestorID 与会话不符(3)、未知合约(16)、不可交易(17)、重复报单(22)、不支持的 TC/VC/条件单(27)、ExchangeID(148)、结算未确认(42)、流控(116)、资金(31)、持仓(30/50/51) | `OnRspOrderInsert(NULL, pRspInfo)` **仅此一个**，不跟 `OnRtnOrder` | `RSP_ERROR` only（shim 呈现 `pInputOrder == nullptr`） |
 | 交易所（撮合层） | 涨跌停(163)、数量规范(164)、最小变动价位(165) | `OnRspOrderInsert(pInputOrder, {0})` → `OnErrRtnOrderInsert(pInputOrder, pRspInfo)` | `RSP_ORDER_INSERT`（成功）紧接 `ERR_RTN_ORDER_INSERT` |
 | 撤单拒绝 | 找不到(25)、状态不当(26)、流控(116)、字段错(23) | **双面**：`OnRspOrderAction` → `OnErrRtnOrderAction`（官方场景 6/7） | `RSP_ERROR` 紧接 `ERR_RTN_ORDER_ACTION` |
 
-- **分流实现**（`handlers.rs::reject_insert`）：`15/16/17/22` 走 CTP 层 `send_error`；其余引擎检查码（163/164/165）先发成功响应帧再发 `ERR_RTN_ORDER_INSERT`。撤单的所有拒绝点（`on_order_action` 内流控闸门 + 引擎 `cancel` 失败）统一双面。
+- **分流实现**（`handlers.rs::reject_insert`）：`3/15/16/17/22/27/42/148` 及资金/持仓/流控码（30/31/50/51/116）走 CTP 层 `send_error`；其余引擎检查码（163/164/165）先发成功响应帧再发 `ERR_RTN_ORDER_INSERT`。撤单的所有拒绝点（`on_order_action` 内流控闸门 + 引擎 `cancel` 失败）统一双面。
 - **composite 载荷**：`ERR_RTN_*` 的 payload = **客户端自己的 input struct ++ RspInfoField**（input 在前、RspInfo 在尾）。Rust 侧 `send_err_rtn` 负责拼接；shim codegen 以 `{"payload_input": True}` / `{"payload_input": True, "synth_action": True}` 标注，errrtn body 按 `SIZES[input]` 切分；py SDK `rsp_info_of()` 读尾部 n 字节（裸包则读整体），两种兼容。**顺序不可颠倒**——颠倒会让 ErrorID 读到垃圾值。
 - **py SDK late-frame 面**：`wait_late(msg_type)` / `clear_late()` 消费错单回报半面；`_request` 改为「`REJECTION_FRAMES` 内才算同步拒单，其余等 late」，`replay.py` 对 insert 拒绝改为 `clear_late()` + `wait_late()` 消费。
 - **一请求多帧的路由（`client.py::_Pending`）**：错单回报半面与响应半面**共用请求 req_id**。读循环不能无条件按 req_id 塞进 pending 队列——若两帧都在请求线程 `pop(_pending)` 前到达，第二帧会被静默丢弃（`m2_journal` 的 163 用例 4 次里 2 次间歇失败）。`_Pending` 记录 `multi`（streaming 查询）与 `answered`：unary 请求首帧应答、后续 rejection 帧转 late；`multi=True` 的 `ReqQry*` 保持收行到 `QRY_LAST`。
 - **为什么必须忠实复刻**（对齐项目最高原则）：只挂 `OnRspOrderInsert` 的客户端在真实 CTP 上会漏掉全部 163/164/165——交易所层拒单的 `OnRspOrderInsert` 带的是 `{0}`（成功），错误只在随后的 `OnErrRtnOrderInsert`。若 CTPBuddy 把 163 也做成 `RSP_ERROR`，这个静默漏单 bug 会被仿真掩盖、测试通过而生产炸。**推错推送面比推错错误码更隐蔽**。e2e A 段因此是**反向断言**（CTP 层拒绝必须**没有** late 面），B 段是正向断言（交易所层拒绝**必须有**）。
 - **新增错误码常量**：17 `INSTRUMENT_NOT_TRADING`（原名 `ERR_ORDER_STATUS` 系误名）、51 `OVER_CLOSEYESTERDAY_POSITION`（CloseYesterday 原本恒成功）、catalog 三码校正为 50/51/30。
 - **e2e 驱动注意**：`--order-freq 2`（默认 20/s 打不爆），段间需 `sleep(1.05)` 让墙钟 1s 窗口翻转——`order_gate` 是墙钟窗口不是计数桶（§8.11）。
-- **对账结果**：299 条中 **19 已实现**（推送面全部对齐）、**51 可落地**（语义在范围内但无代码路径发出，已登记为缺口）、**229 暂不可达**（银期转账 109 / 认证授权 31 / 期权执行 21 / 短信监控 10 / 条件单预埋 9 / 套利套保 9 / 报价询价 8 / 组合 8 / 其他 26）。**遗留**：`91 EXCHANGE_RTNERROR` 常量已留但交易所侧拒单转发未接线。（`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁后已由 `settlement_required` 实现，见 §8.7。）
+- **对账结果**：299 条中 **23 已实现**（推送面全部对齐；登录面 `3` UserID 为空 / `63` BrokerID 与核心不一致 / `64` 未认证 / `60` 会话上限）、**47 可落地**（语义在范围内但无代码路径发出，已登记为缺口）、**229 暂不可达**（银期转账 109 / 认证授权 31 / 期权执行 21 / 短信监控 10 / 条件单预埋 9 / 套利套保 9 / 报价询价 8 / 组合 8 / 其他 24）。统计由 `tools/fill_errorcode_status.py` 全量重算，`--check` 可校验。**遗留**：`91 EXCHANGE_RTNERROR` 常量已留但交易所侧拒单转发未接线。（`42 SETTLEMENT_INFO_NOT_CONFIRMED` 报单前置门禁后已由 `settlement_required` 实现，见 §8.7。）
 
 ### 8.13 FAK 回报按交易所分流（#43 落地口径，2026-10-03）
 
@@ -1046,7 +1051,8 @@ CREATE TABLE audit_log (
 ## 15. 法律与合规
 
 - README / 官网固定 not-affiliated 声明（见 §2）；
-- **不分发**上期技术任何原始文件（头文件、DLL、文档）；头文件可由用户自备，构建脚本提供放置指引；
+- **不分发**上期技术的二进制 SDK（`ctpsdk/*/` 下的 `.dll`/`.lib`，`.gitignore` 禁止入库；Docker 镜像与发布包不复制）；构建 Shim 所需头文件由用户自备，构建脚本提供放置指引；
+- **如实说明随仓附带的官方文档派生件**：`docs/api-doc-html/files/` 中的头文件、`error.xml` 与 PDF 是由官方 CHM《6.7.13_API接口说明》转换得到的附件，随 HTML 可读版一并保留以供文档交叉引用（`docs/错误码全集.md` 的生成脚本在本地无 `ctpsdk/` 时回退读它）；它们属上期技术所有、不在本项目 MIT 范围内，README「许可」段对此与交易日历快照（再分发许可未确认）一并声明；
 - DLL 名字与真 CTP 相同是"兼容"的标准做法（LocalCTP/openctp 先例），但还原命令（`restore-shim`）必须显著可用，避免用户困惑；
 - Linux 端中文合约名走 GB18030（CTP 惯例），发布与镜像内置 locale。
 
@@ -1067,7 +1073,7 @@ CREATE TABLE audit_log (
 ```
 ctpbuddy/
 ├── docs/                  # 设计文档 + CTP 语义知识库 + 官网源码（ctpbuddy.opentrade.one）
-│   ├── notes/              #   深度原始笔记 01~05、09、10（09 = 错单推送面与错误码对账；10 = FAK 回报按交易所分流）
+│   ├── notes/              #   深度原始笔记 01~05、09、10（06/07 已上移为 api-doc-html/ 与 错误码全集.md，08 未发布；09 = 错单推送面与错误码对账；10 = FAK 回报按交易所分流）
 │   ├── api-doc-html/       #   官方 API 接口说明可读版（405 页干净 HTML）
 │   └── 错误码全集.md        #   error.xml 299 条逐条状态标注（已实现/可落地/暂不可达）
 ├── shim/                  # C++ Shim（DLL/so）

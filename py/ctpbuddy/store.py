@@ -8,7 +8,14 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from .journal import JournalError, hash_stream, journal_paths, load_events
+from .journal import (
+    AUDIT_TYPES,
+    SETTLEMENT_TYPES,
+    JournalError,
+    hash_stream,
+    journal_paths,
+    load_events,
+)
 
 SCHEMA_VERSION = 2
 APPLICATION_ID = 0x43545042
@@ -140,15 +147,14 @@ def _project(conn, events):
                 s, day, b, i, d.get("settlement_id"), d.get("account_id", ""),
                 d.get("currency_id", ""), d.get("source", "user_supplied"),
                 _json(content_bytes), raw))
-        if t in {"admin", "settings_updated", "scenario_loaded", "reset_account",
-                 "deposit", "withdraw", "settle", "settlement", "settlement_report"}:
+        if t in AUDIT_TYPES:
             conn.execute("INSERT INTO audit_log VALUES (?,?,?,?,?,?,?,?)", (
                 s, day, b, i, e["ts_wall"], d.get("actor", d.get("operator")), t, raw))
         if t == "assertion" and d.get("metric") in {
             "balance", "available", "close_profit", "commission", "position_profit",
             "used_margin", "frozen_margin"}:
             conn.execute("INSERT INTO account_snapshot VALUES (?,?,?,?,?,?,?,?)", (s, 0, day, b, i, d["metric"], d.get("actual"), raw))
-        if t in {"settlement", "settle"}:
+        if t in SETTLEMENT_TYPES:
             for ordinal, a in enumerate(d.get("accounts", [])):
                 ab, ai = a.get("broker", b), a["investor"]
                 conn.execute("INSERT INTO account VALUES (?,?,?,?) ON CONFLICT(broker_id,investor_id) DO UPDATE SET last_seq=excluded.last_seq", (ab, ai, s, s))
