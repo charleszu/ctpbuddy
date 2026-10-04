@@ -25,6 +25,10 @@ class BadData(ValueError):
     pass
 
 
+class MissingPositions(ValueError):
+    pass
+
+
 def trim(value):
     return "" if value is None else str(value).strip()
 
@@ -35,7 +39,10 @@ def anon(value):
 
 def read_csv(path):
     raw = Path(path).read_bytes()
-    for encoding in ("gbk", "utf-8-sig", "utf-8"):
+    # utf-8-sig must be attempted before GBK: a BOM is evidence of UTF-8,
+    # while GBK can otherwise decode the BOM into a misleading header.
+    encodings = ("utf-8-sig", "utf-8", "gbk")
+    for encoding in encodings:
         try:
             text = raw.decode(encoding)
             break
@@ -43,7 +50,7 @@ def read_csv(path):
             continue
     else:
         raise BadData("cannot decode CSV")
-    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
+    reader = csv.DictReader(io.StringIO(text))
     def clean_key(key):
         key = trim(key).lstrip("\ufeff")
         return {"锘緼ccountID": "AccountID", "锘緽rokerID": "BrokerID"}.get(key, key)
@@ -162,6 +169,9 @@ def expected_order_rows(orders):
             "SessionID": trim(row.get("SessionID")),
             "Direction": trim(row.get("Direction")),
             "CombOffsetFlag": trim(row.get("CombOffsetFlag")),
+            "LimitPrice": number(row, "LimitPrice", required=True),
+            "TimeCondition": trim(row.get("TimeCondition")),
+            "VolumeCondition": trim(row.get("VolumeCondition")),
             "VolumeTotalOriginal": integer(row, "VolumeTotalOriginal", required=True),
             "VolumeTraded": integer(row, "VolumeTraded"),
         })
@@ -273,7 +283,9 @@ def position_side(row):
 
 
 def settlement_positions(doc, source):
-    """从结算单同时读取 detail/summary，负数与 detail-summary 不一致均为坏数据。"""
+    """从结算单同时读取 detail/summary，缺持仓表不可核，不当作零持仓。"""
+    if "positions_detail" not in doc and "positions_summary" not in doc:
+        raise MissingPositions(source + " position tables missing")
     details = doc.get("positions_detail") or []
     summaries = doc.get("positions_summary") or []
     detail_totals = defaultdict(float)
@@ -349,16 +361,15 @@ def expected_positions(prior, trades, day):
             positions[(key, side)] += qty
         else:
             close_side = "short" if side == "long" else "long"
-            if off == "close_today":
-                positions[(key, close_side)] -= qty
-            elif off == "close_yesterday":
-                positions[(key, close_side)] -= qty
-            else:
-                positions[(key, close_side)] -= qty
-                if trim(trade.get("ExchangeID")) not in ("SHFE", "INE"):
-                    ambiguities["non_shfe_ine_close_age"] += 1
-                else:
-                    ambiguities["shfe_ine_close_age_not_inferred"] += 1
+            positions[(key, close_side)] -= qty
+            # Validate after every close, not only after the final aggregate:
+            # a later open must not hide an over-close in the input sequence.
+            if positions[(key, close_side)] < -EPS:
+                raise BadData("position quantity became negative during trade sequence")
+            if off == "close" and trim(trade.get("ExchangeID")) not in ("SHFE", "INE"):
+                ambiguities["non_shfe_ine_close_age"] += 1
+            elif off == "close":
+                ambiguities["shfe_ine_close_age_not_inferred"] += 1
     for key, qty in positions.items():
         if qty < -EPS:
             raise BadData("position quantity became negative")
@@ -368,17 +379,23 @@ def expected_positions(prior, trades, day):
 
 
 def compare_position_query(actual, expected):
-    """仅比较数量、方向、合约、hedge、investunit；实际查询缺失不算通过。"""
+    """按一行一持仓方向比较数量；CTP PosiDirection 为 2=多、3=空。"""
     actual_map = defaultdict(float)
     for row in actual:
         key = position_key(row)
-        for side, field in (("long", "Position"), ("short", "Position")):
-            qty = number(row, field)
-            if qty < -EPS:
-                raise BadData("negative actual query position")
-            if side == "long" and trim(row.get("PosiDirection")) in ("1", "卖", "short"):
-                side = "short"
-            actual_map[(key, side)] += qty
+        raw_side = trim(row.get("PosiDirection"))
+        if raw_side in ("2", "50", "多", "long", "LONG"):
+            side = "long"
+        elif raw_side in ("3", "51", "空", "short", "SHORT"):
+            side = "short"
+        elif raw_side:
+            raise BadData("unknown actual query PosiDirection")
+        else:
+            raise BadData("missing actual query PosiDirection")
+        qty = number(row, "Position", required=True)
+        if qty < -EPS:
+            raise BadData("negative actual query position")
+        actual_map[(key, side)] += qty
     diffs = []
     for key in set(actual_map) | set(expected):
         if abs(actual_map[key] - expected[key]) > EPS:
@@ -445,7 +462,11 @@ def audit(export_dir, settlement_dir, date_filter="", investor_filter="", limit=
                 skips["missing_previous_settlement"] += 1
                 continue
             prior_day, prior_doc = previous
-            expected, ambiguities = expected_positions(prior_doc, trades, day)
+            try:
+                expected, ambiguities = expected_positions(prior_doc, trades, day)
+            except MissingPositions as exc:
+                skips["position_tables_not_evaluated"] += 1
+                continue
             summary["position_expectation_account_days"] += 1
             summary.update({"ambiguity_" + k: v for k, v in ambiguities.items()})
             current_totals = settlement_positions(current, "same-day settlement")
@@ -463,13 +484,16 @@ def audit(export_dir, settlement_dir, date_filter="", investor_filter="", limit=
                     diffs.extend({"day": day, "investor": anon(investor), "kind": "actual_position_query", **d} for d in pdiffs)
             else:
                 skips["actual_query_not_available"] += 1
+        except MissingPositions as exc:
+            skips["position_tables_not_evaluated"] += 1
         except (BadData, OSError, csv.Error) as exc:
             errors.append({"day": day, "investor": anon(investor), "reason": str(exc)})
     return make_report(summary, skips, errors, diffs, actual_dir)
 
 
 def make_report(summary, skips, errors, diffs, actual_dir=""):
-    status = "fail" if errors else ("not_evaluated" if skips or diffs else "pass")
+    # A comparison difference is an evaluated failure, not a missing-input skip.
+    status = "fail" if errors or diffs else ("not_evaluated" if skips else "pass")
     return {
         "status": status,
         "scope": "source_alignment_and_query_expectations_only; core_ledger_replay_not_completed",
