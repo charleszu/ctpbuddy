@@ -153,6 +153,43 @@ def cmd_web(args: argparse.Namespace) -> int:
     return serve(args.host, args.port, args.admin, args.db)
 
 
+def cmd_install_shim(args: argparse.Namespace) -> int:
+    from .shim_install import ShimInstallError, install_shim
+
+    try:
+        result = install_shim(args.target_dir, args.shim_dir, apply=args.apply)
+    except (ShimInstallError, OSError) as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 1
+    mode = "applied" if result["applied"] else "dry-run"
+    print("%s: %s" % (mode, result["action"]))
+    print("target-dir   %s" % result["target_dir"])
+    print("shim-dir     %s" % result["shim_dir"])
+    print("version      %s" % result["metadata"]["version"])
+    print("architecture %s" % result["metadata"]["architecture"])
+    for item in result["files"]:
+        print("  %s sha256=%s existed=%s" % (item["name"], item["source_sha256"], item["existed"]))
+    if not args.apply:
+        print("dry-run only; use --apply to modify target-dir")
+    else:
+        print("backup       %s" % result["backup_dir"])
+        print("restore      %s" % result["restore_script"])
+    return 0
+
+
+def cmd_restore_shim(args: argparse.Namespace) -> int:
+    from .shim_install import ShimInstallError, restore_shim
+
+    try:
+        result = restore_shim(args.target_dir)
+    except (ShimInstallError, OSError) as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 1
+    print("restored: %s" % result["target_dir"])
+    print("backup:   %s" % result["backup_dir"])
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     with Admin(args.admin) as admin:
         v = admin.status()
@@ -476,6 +513,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--admin", default="127.0.0.1:5561")
     sp.add_argument("--db", default=None, help="SQLite journal 投影路径，启用只读查询 API")
     sp.set_defaults(func=cmd_web)
+
+    sp = sub.add_parser("install-shim", help="安全安装受支持的 shim DLL（默认 dry-run）")
+    sp.add_argument("--target-dir", required=True, help="已存在的目标目录")
+    sp.add_argument("--shim-dir", required=True, help="已存在的 shim 产物目录")
+    sp.add_argument("--apply", action="store_true", help="实际修改目标目录；默认仅预览")
+    sp.set_defaults(func=cmd_install_shim)
+
+    sp = sub.add_parser("restore-shim", aliases=["uninstall-shim", "restore"], help="恢复 install-shim 创建的备份")
+    sp.add_argument("--target-dir", required=True, help="已安装 shim 的目标目录")
+    sp.set_defaults(func=cmd_restore_shim)
 
     sp = sub.add_parser("status", help="core admin status")
     sp.add_argument("--admin", default="127.0.0.1:5561")

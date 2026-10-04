@@ -745,7 +745,74 @@ def test_assertions_cli() -> None:
     print("[ok] assertions CLI: pass/fail/pending/empty/count/offline exit codes")
 
 
+def test_shim_install_security() -> None:
+    from ctpbuddy.cli import main as cli_main
+    from ctpbuddy.shim_install import ShimInstallError, install_shim, restore_shim
+
+    with tempfile.TemporaryDirectory() as root:
+        target = os.path.join(root, "target")
+        shim = os.path.join(root, "shim")
+        os.mkdir(target)
+        os.mkdir(shim)
+        for name, data in (("thosttraderapi_se.dll", b"shim-td-v1"), ("thostmduserapi_se.dll", b"shim-md-v1")):
+            with open(os.path.join(shim, name), "wb") as fh:
+                fh.write(data)
+        with open(os.path.join(shim, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": "fixture-1", "architecture": "x64", "artifacts": [
+                {"name": "thosttraderapi_se.dll"}, {"name": "thostmduserapi_se.dll"}]}, fh)
+        with open(os.path.join(target, "thosttraderapi_se.dll"), "wb") as fh:
+            fh.write(b"original-td")
+
+        assert cli_main(["install-shim", "--target-dir", target, "--shim-dir", shim]) == 0
+        assert open(os.path.join(target, "thosttraderapi_se.dll"), "rb").read() == b"original-td"
+        result = install_shim(target, shim, apply=True)
+        assert result["metadata"]["version"] == "fixture-1"
+        assert open(os.path.join(target, "thostmduserapi_se.dll"), "rb").read() == b"shim-md-v1"
+        assert os.path.isdir(result["backup_dir"])
+        assert os.path.isfile(result["restore_script"])
+        assert cli_main(["restore", "--target-dir", target]) == 0
+        assert open(os.path.join(target, "thosttraderapi_se.dll"), "rb").read() == b"original-td"
+        assert not os.path.exists(os.path.join(target, "thostmduserapi_se.dll"))
+
+        # A changed installed file must not be overwritten during restore.
+        install_shim(target, shim, apply=True)
+        with open(os.path.join(target, "thostmduserapi_se.dll"), "ab") as fh:
+            fh.write(b"changed")
+        try:
+            restore_shim(target)
+            raise AssertionError("sha 变化后恢复应被拒绝")
+        except ShimInstallError as exc:
+            assert "SHA256" in str(exc)
+
+        unknown = os.path.join(shim, "unknown.dll")
+        open(unknown, "wb").close()
+        with open(os.path.join(shim, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"artifacts": ["unknown.dll"]}, fh)
+        os.mkdir(os.path.join(root, "other-target"))
+        try:
+            install_shim(os.path.join(root, "other-target"), shim)
+            raise AssertionError("未知 DLL 应被拒绝")
+        except ShimInstallError as exc:
+            assert "不受支持" in str(exc)
+
+        # Source/target overlap and traversal-like manifest entries are rejected.
+        try:
+            install_shim(target, target)
+            raise AssertionError("重合路径应被拒绝")
+        except ShimInstallError as exc:
+            assert "重合" in str(exc)
+        with open(os.path.join(shim, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"artifacts": ["../thosttraderapi_se.dll"]}, fh)
+        try:
+            install_shim(os.path.join(root, "other-target"), shim)
+            raise AssertionError("路径穿越应被拒绝")
+        except ShimInstallError as exc:
+            assert "不受支持" in str(exc)
+    print("[ok] shim install: dry-run/apply, allowlist, backup/restore, sha guard, overlap/traversal")
+
+
 def main() -> int:
+    test_shim_install_security()
     test_assertions_cli()
     test_struct_layout()
     test_frames()

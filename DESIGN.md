@@ -974,6 +974,7 @@ CREATE TABLE audit_log (
 | M4-1 断言 DSL 与断言 CLI | 🟡 本地实现 | 场景断言规范化、服务端求值、`ctpbuddy assertions check` 退出码与 `--total` 校验已有 Python 单测；CI 目前只执行 `--help` 入口检查，尚无真实场景中的 CLI 断言 e2e |
 | M4-2 e2e CI | 🟡 部分实现 | `.github/workflows/core-tests.yml` 已加入显式 `cargo build`，并覆盖 Rust/Python 单测、M1/M2、M3 bootstrap/settlement/order_sysid/投影/结算单及 settings e2e；已核实远端 runs `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success，仍未覆盖 Shim/真实下游/fresh venv demo 策略，因此 M4 总项不标完成 |
 | M4-3 三渠道发布与文档站 | ⬜ 未开始 | 尚未见对应发布流程或文档站交付物 |
+| M4-4 Shim 安全安装基础 | 🟡 基础实现 | 标准库 CLI `install-shim --target-dir DIR --shim-dir DIR` 默认 dry-run，只有显式 `--apply` 才替换；仅接受 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 白名单，支持 shim manifest 的版本/架构元数据（未验证 PE 架构），安装前备份到 `target/.ctpbuddy-backup/<timestamp>/`，原子临时复制 + `os.replace`，生成 Python 恢复脚本；`restore-shim`/`uninstall-shim`/`restore` 校验安装后 SHA 变化。测试只使用临时 fixture，不执行真实 shim build、不触碰系统/用户目录；目标源重合、缺源、未知 DLL、重复安装和路径穿越均拒绝。 |
 
 
 ### 12.3 后续
