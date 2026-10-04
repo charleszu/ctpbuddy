@@ -82,12 +82,19 @@ ctpbuddy status                  # 另开一个终端
 
 ```
 python tools/audit_real_accounts.py    # 资金恒等式逐项核对真实账户日与结算单
+python tools/audit_query_expectations.py --limit 20 --report C:/temp/query-audit.json
 ```
 
-读取期货公司的账户导出（order/trade/account 三表）与盯市结算单，逐项核对
-`Balance` / `Available` / 结算单权益恒等式、盯市盈亏的逐笔求和、平今平昨盈亏口径。
-目录可用 `CTPBUDDY_EXPORT_DIR` / `CTPBUDDY_SETTLEMENT_DIR` 指定；未提供则跳过，
-不影响上面的回归。口径细节见 DESIGN §8.7.1。
+`audit_query_expectations.py` 从严格同交易日、同账号的 `order.csv` / `trade.csv` 与结算单构建
+`ReqQryOrder`、`ReqQryTrade`、`ReqQryInvestorPosition`、`ReqQryInvestorPositionDetail` 的可核期望。
+订单使用 `CombOffsetFlag`，成交使用 `OffsetFlag`；`OrderSysID` 只作 trim 后关联键，`OrderRef` 兜底必须包含
+`FrontID`/`SessionID`，多候选一律 ambiguity，不取 first candidate。持仓数量以**前一结算持仓 + 当日成交**为基线，
+并与同日结算单核对；非 SHFE/INE 的平仓年龄/FIFO 不完整时只记 ambiguity，不从今平量猜昨仓。期权仅做数量变化校验，
+不将权利金或期权保证金转换为期货资金。没有真实查询回报时状态为 `not_evaluated`，不是通过。
+支持 `--date`、`--investor`、`--limit`、`--report`；报告只写匿名 hash、计数、差异和 skip/fail 理由，不保存真实正文。
+坏数据返回非零；缺源显式 skip。该脚本是 source alignment / query expectations，不代表 Core 账本重演已完成。
+目录可用 `CTPBUDDY_EXPORT_DIR` / `CTPBUDDY_SETTLEMENT_DIR` 指定；未提供则跳过，不影响上面的回归。
+口径细节见 DESIGN §8.7.1。
 
 M3-6 存储投影：Rust 核心只写 `data/journal/*.jsonl`，Python 标准库 `sqlite3` 通过 `ctpbuddy journal rebuild` 原子生成 `data/ctpbuddy.db`；数据库可以直接删除后重建，重建依据 journal 顺序与 full hash，结果确定。`journal query` 和配置了 `--db` 的 Web `/api/projection?table=...` 只读查询账户、持仓/资金快照、订单、成交、审计及用户供给的结算报告；快照非实时，缺失字段不编造。SQLite 损坏时不要修复数据文件，删除后重新 rebuild。
 

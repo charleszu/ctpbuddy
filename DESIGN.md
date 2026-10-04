@@ -495,7 +495,15 @@ assertions:             # 可选：场景内断言（CI 用）
 
 **结算单目录必须递归遍历**：`ctp_settlement/` 除顶层 773 份外还有 `2024/` 子目录 **210 份**（文件名与顶层不重叠，2024-08-30…2024-12-30，其中 61 份含持仓、35 行期货持仓）。审计脚本原先用 `os.listdir` 完全没看到它们，改为 `os.walk` 后结算单恒等式覆盖从 770 → **976** 行。**教训**：审计脚本自身的取样方式也是被审计对象的一部分——"全绿"的行数必须显式打印出来，否则一次静默的取样收窄就能让断言看起来比实际更强。
 
-#### 8.7.2 保证金优惠：历史复核与当前实现（2026-10-03）
+#### 8.7.2 三类查询期望审计边界（2026-10-04）
+
+`tools/audit_query_expectations.py` / `tools/audit_three_way.py` 已提供可复跑的 source-alignment 审计：按交易日、BrokerID、InvestorID 严格配对 ctpexport 与 settlement；order 的开平字段保持 `CombOffsetFlag`，trade 保持 `OffsetFlag`；`OrderSysID` trim 后优先关联，`OrderRef` 兜底必须带 `FrontID`/`SessionID`，重复候选分类 ambiguity，禁止 first-candidate。
+
+`ReqQryOrder` / `ReqQryTrade` 期望来自当日查询快照 CSV，仅用于查询快照字段和唯一关联检查，不视为完整历史回报。`ReqQryInvestorPosition` / `ReqQryInvestorPositionDetail` 的数量期望由前一日结算 `positions_detail`/`positions_summary` 加当日成交计算，再与同日结算单核对；只核数量、方向、合约、hedge、InvestUnit。非 SHFE/INE 平仓年龄及 FIFO 信息不足时记 ambiguity，不能从今平量猜昨仓。期权只允许数量变动校验，不把权利金或期权保证金期货化。缺少 actual query 回报时必须是 `not_evaluated`，不是通过；缺源显式 skip，坏数据 fail 非零。
+
+该审计目前**不是 Core 账本重演**，报告明确保留此边界。默认报告匿名化账号/客户标识，不保存真实正文。支持 `--date`、`--investor`、`--limit`、`--report`；stdlib 合成覆盖见 `tests/test_query_expectations.py`。
+
+#### 8.7.3 保证金优惠：历史复核与当前实现（2026-10-03）
 
 **当前状态**：品种内大单边和 `ReqQryInvestorProductGroupMargin` 已接线。规则仅由用户 RefData 的 `MaxMarginSideAlgorithm == '1'` 控制，不按交易所硬编码，也不默认全品种取大。共享聚合键为 broker/investor/exchange/ProductID；未启用优惠的合约独立求和。冻结按包含全部待成交开仓订单后的占用增量计算，部分成交/撤单后重算；平仓切换大边后账本与查询保持一致。行情只更新持仓盈亏，不重估已入账保证金；查询遵循官方页 BrokerID/InvestorID/ProductGroupID 过滤，其他字段不作为过滤条件。四处消息常量由 `gen_shim.py` 同步生成，SDK 提供 `qry_investor_product_group_margin`。
 
