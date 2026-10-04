@@ -2,10 +2,8 @@
 //!
 //! The single writer is the world loop: events accumulate in memory and are
 //! flushed every [`FLUSH_EVENTS`] records or [`FLUSH_EVERY`] of wall time,
-//! whichever comes first. Per-event `fsync` is deliberately avoided — losing
-//! the last batch on a crash means replaying a few requests short, which the
-//! startup snapshot covers (M2). One file per trading day; rotation is by
-//! `record(day)`.
+//! whichever comes first. An unflushed tail may be lost on a crash.
+//! Each startup creates a fresh recording; previous runs are archived separately.
 
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -19,6 +17,7 @@ const FLUSH_EVENTS: usize = 1000;
 const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
 
 pub struct Journal {
+    _lock: File,
     dir: PathBuf,
     day: String,
     writer: Option<BufWriter<File>>,
@@ -30,9 +29,32 @@ pub struct Journal {
 impl Journal {
     /// `dir` is the data directory; journals land in `dir/journal/`.
     pub fn new(dir: &str) -> std::io::Result<Self> {
-        let jdir = PathBuf::from(dir).join("journal");
+        create_dir_all(dir)?;
+        let root = std::fs::canonicalize(dir)?;
+        let lock = OpenOptions::new().create(true).truncate(false).read(true).write(true)
+            .open(root.join(".journal.lock"))?;
+        lock.try_lock().map_err(std::io::Error::other)?;
+        let jdir = root.join("journal");
+        if jdir.exists() {
+            if std::fs::symlink_metadata(&jdir)?.file_type().is_symlink()
+                || std::fs::canonicalize(&jdir)? != jdir {
+                return Err(std::io::Error::other("journal directory must not be a link"));
+            }
+            let has_events = std::fs::read_dir(&jdir)?.try_fold(false, |found, entry| {
+                let entry = entry?;
+                Ok::<_, std::io::Error>(found || entry.path().extension().is_some_and(|ext| ext == "jsonl"))
+            })?;
+            if has_events {
+                let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                    .map_err(std::io::Error::other)?.as_nanos();
+                let archive = root.join(format!("journal-run-{stamp}-{}", std::process::id()));
+                std::fs::create_dir(&archive)?;
+                std::fs::rename(&jdir, archive.join("journal"))?;
+            }
+        }
         create_dir_all(&jdir)?;
         Ok(Journal {
+            _lock: lock,
             dir: jdir,
             day: String::new(),
             writer: None,
@@ -46,6 +68,7 @@ impl Journal {
         if self.writer.is_some() && self.day == day {
             return Ok(());
         }
+        self.flush()?;
         let path = self.dir.join(format!("{day}.jsonl"));
         let f = OpenOptions::new().create(true).append(true).open(&path)?;
         self.writer = Some(BufWriter::new(f));
@@ -106,7 +129,9 @@ impl Journal {
     /// Flush buffered lines when enough events or time have accumulated.
     pub fn flush_if_due(&mut self, now: Instant) {
         if self.pending >= FLUSH_EVENTS || now.duration_since(self.last_flush) >= FLUSH_EVERY {
-            let _ = self.flush();
+            if let Err(error) = self.flush() {
+                eprintln!("[ctpbuddy] journal flush failed: {error}");
+            }
         }
     }
 
@@ -114,6 +139,7 @@ impl Journal {
     pub fn flush(&mut self) -> std::io::Result<()> {
         if let Some(w) = self.writer.as_mut() {
             w.flush()?;
+            w.get_ref().sync_all()?;
         }
         self.pending = 0;
         self.last_flush = Instant::now();

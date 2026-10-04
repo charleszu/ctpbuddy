@@ -915,7 +915,56 @@ def test_shim_install_faults() -> None:
     print("[ok] shim install faults: second replace, pre-state restore, marker/script lock, links, reinstall")
 
 
+def test_sdk_lifecycle():
+    from ctpbuddy.sdk.client import Client, CTPError
+    from ctpbuddy.wire import Frame, PING, PONG
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        with Client("127.0.0.1:%d" % listener.getsockname()[1], timeout=0.1) as client:
+            peer, _ = listener.accept()
+            with peer:
+                time.sleep(0.25)
+                assert client._reader.is_alive()
+                def answer():
+                    request = Frame.decode_from(peer)
+                    assert request.msg_type == PING
+                    peer.sendall(Frame(PONG, request.req_id, b"").encode())
+                responder = threading.Thread(target=answer)
+                responder.start()
+                client.ping()
+                responder.join(timeout=1)
+                assert not responder.is_alive()
+            client._reader.join(timeout=1)
+            assert not client._reader.is_alive() and client._closed
+            for request in (client.ping, lambda: client._query_once(PING, PONG, b"")):
+                try:
+                    request()
+                    raise AssertionError("closed client accepted request")
+                except CTPError as exc:
+                    assert exc.error_id == -1
+        with Client("127.0.0.1:%d" % listener.getsockname()[1]) as client:
+            peer, _ = listener.accept()
+            outcome = []
+            def pending_request():
+                try:
+                    client.ping()
+                except CTPError as exc:
+                    outcome.append(exc.error_id)
+            requester = threading.Thread(target=pending_request)
+            requester.start()
+            with peer:
+                assert Frame.decode_from(peer).msg_type == PING
+                client.close()
+            requester.join(timeout=1)
+            client._reader.join(timeout=1)
+            assert not requester.is_alive() and outcome == [-1]
+    print("[ok] SDK: idle connection, EOF, pending close and closed requests")
+
+
 def main() -> int:
+    test_sdk_lifecycle()
     test_shim_install_security()
     test_shim_install_faults()
     test_assertions_cli()

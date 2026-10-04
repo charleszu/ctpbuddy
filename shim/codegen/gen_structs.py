@@ -182,6 +182,58 @@ def gen_rust(structs, skipped, repo_root):
         lines.append("    }")
         lines.append("}")
         lines.append("")
+        rows, _, wire_size = build_layout(members)
+        offset = 0
+        fields = []
+        for (_, field), (kind, size) in zip(members, rows):
+            alignment = 1 if kind == 's' else min(size, 8)
+            offset = (offset + alignment - 1) // alignment * alignment
+            fields.append((field, kind, size, offset))
+            offset += size
+        lines.append("impl crate::WireStruct for %s {" % name)
+        lines.append("    fn decode(buf: &[u8]) -> Option<Self> {")
+        lines.append("        if buf.len() != %d { return None; }" % wire_size)
+        lines.append("        Some(Self {")
+        for field, kind, size, offset in fields:
+            if kind == 's':
+                expr = "buf[%d..%d].try_into().ok()?" % (offset, offset + size)
+            elif kind == 'B':
+                expr = "buf[%d]" % offset
+            else:
+                numeric = {'d': 'f64', 'i': 'i32', 'h': 'i16', 'I': 'u32', 'H': 'u16', 'q': 'i64'}[kind]
+                expr = "%s::from_le_bytes(buf[%d..%d].try_into().ok()?)" % (numeric, offset, offset + size)
+            lines.append("            %s: %s," % (field, expr))
+        lines.extend(["        })", "    }", "    fn encode(&self) -> Vec<u8> {"])
+        lines.append("        let mut buf = vec![0u8; %d];" % wire_size)
+        for field, kind, size, offset in fields:
+            if kind == 'B':
+                lines.append("        buf[%d] = self.%s;" % (offset, field))
+            else:
+                expr = "self.%s" % field if kind == 's' else "self.%s.to_le_bytes()" % field
+                lines.append("        buf[%d..%d].copy_from_slice(&%s);" % (offset, offset + size, expr))
+        lines.extend(["        buf", "    }", "}"])
+        lines.append("const _: () = assert!(std::mem::size_of::<%s>() == %d);" % (name, wire_size))
+        for field, _, _, offset in fields:
+            lines.append("const _: () = assert!(std::mem::offset_of!(%s, %s) == %d);" % (name, field, offset))
+        lines.append("")
+    lines.extend(["#[cfg(test)]", "#[test]", "fn all_wire_layouts_roundtrip_with_zero_padding() {"])
+    for name in sorted(structs):
+        rows, _, wire_size = build_layout(structs[name])
+        lines.append("    {")
+        lines.append("        let input = vec![0x35u8; %d];" % wire_size)
+        lines.append("        let value = crate::struct_from_bytes::<%s>(&input).unwrap();" % name)
+        lines.append("        let encoded = crate::struct_to_bytes(&value);")
+        lines.append("        let mut expected = vec![0u8; %d];" % wire_size)
+        offset = 0
+        for kind, size in rows:
+            alignment = 1 if kind == 's' else min(size, 8)
+            offset = (offset + alignment - 1) // alignment * alignment
+            lines.append("        expected[%d..%d].fill(0x35);" % (offset, offset + size))
+            offset += size
+        lines.append('        assert_eq!(encoded, expected, "%s");' % name)
+        lines.append("        assert!(crate::struct_from_bytes::<%s>(&input[..input.len() - 1]).is_none());" % name)
+        lines.append("    }")
+    lines.append("}")
     if skipped:
         lines.append("// skipped (nested or unresolved members), see registry.json:")
         for name in skipped:

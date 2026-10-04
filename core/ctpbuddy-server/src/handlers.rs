@@ -450,6 +450,9 @@ impl World {
             Some(d) => d,
             None => return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
         };
+        if !input.LimitPrice.is_finite() || !input.StopPrice.is_finite() {
+            return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误");
+        }
         let offset = match OffsetFlag::from_ctp(input.CombOffsetFlag[0]) {
             Some(o) => o,
             None => return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误"),
@@ -1276,7 +1279,7 @@ impl World {
     /// Common tail of the four reference-data queries: emit one frame per row,
     /// then terminate the stream. Generic because each query answers with its own
     /// CTP response struct — the shared part really is only "rows then QRY_LAST".
-    fn send_rate_rows<T: Copy>(
+    fn send_rate_rows<T: ctpbuddy_wire::WireStruct>(
         &mut self,
         conn_id: u64,
         req_id: u32,

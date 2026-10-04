@@ -6,20 +6,36 @@ pub mod msgs;
 
 pub use frame::{Frame, HEADER_LEN, MAGIC, MAX_PAYLOAD, WIRE_VERSION};
 
-/// Read a wire payload as a CTP struct mirror (repr(C), same layout as C).
-/// Uses unaligned read: wire buffers carry no alignment guarantee.
-pub fn struct_from_bytes<T: Copy>(buf: &[u8]) -> Option<T> {
-    if buf.len() != std::mem::size_of::<T>() {
-        return None;
-    }
-    // SAFETY: T is repr(C) plain data; read_unaligned avoids alignment assumptions.
-    Some(unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) })
+pub trait WireStruct: Sized {
+    fn decode(buf: &[u8]) -> Option<Self>;
+    fn encode(&self) -> Vec<u8>;
 }
 
-/// Serialize a CTP struct mirror into wire payload bytes (same layout as C).
-pub fn struct_to_bytes<T>(v: &T) -> Vec<u8> {
-    let size = std::mem::size_of::<T>();
-    // SAFETY: T is repr(C) plain data; byte view is valid for its full size.
-    let slice = unsafe { std::slice::from_raw_parts(v as *const T as *const u8, size) };
-    slice.to_vec()
+pub fn struct_from_bytes<T: WireStruct>(buf: &[u8]) -> Option<T> {
+    T::decode(buf)
+}
+
+pub fn struct_to_bytes<T: WireStruct>(value: &T) -> Vec<u8> {
+    value.encode()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use generated::CThostFtdcInputOrderField;
+
+    #[test]
+    fn order_numbers_use_little_endian_at_ctp_offsets() {
+        let mut order = CThostFtdcInputOrderField::zeroed();
+        order.LimitPrice = 3500.5;
+        order.VolumeTotalOriginal = 0x01020304;
+        let encoded = struct_to_bytes(&order);
+        let price_offset = std::mem::offset_of!(CThostFtdcInputOrderField, LimitPrice);
+        let volume_offset = std::mem::offset_of!(CThostFtdcInputOrderField, VolumeTotalOriginal);
+        assert_eq!(&encoded[price_offset..price_offset + 8], &3500.5f64.to_le_bytes());
+        assert_eq!(&encoded[volume_offset..volume_offset + 4], &[4, 3, 2, 1]);
+        let decoded: CThostFtdcInputOrderField = struct_from_bytes(&encoded).unwrap();
+        assert_eq!(decoded.LimitPrice, order.LimitPrice);
+        assert_eq!(decoded.VolumeTotalOriginal, order.VolumeTotalOriginal);
+    }
 }

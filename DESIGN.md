@@ -208,7 +208,7 @@ flowchart LR
 
 - `type`：wire type id，见 6.3；
 - `req_id`：透传 CTP `nRequestID`，响应回echo；
-- `payload`：默认 struct 裸字节（`memcpy`，零转换零丢失）；flags/版本位预留（bit0=JSON，v1 只用于 admin 通道）；
+- `payload`：默认小端 C struct 布局；Rust 按字段编解码、padding 清零，不读取对象的未初始化填充字节。flags/版本位预留（bit0=JSON，v1 只用于 admin 通道）；
 - **不用 protobuf**：几百个 CTP struct 的转换是体力活且易错，两端同为自研程序，raw struct 最快最稳。
 
 ### 6.3 Type id 分配
@@ -378,7 +378,7 @@ assertions:             # 可选：场景内断言（CI 用）
 
 ### 8.1 事件循环
 
-核心是**单线程世界循环**：MD tick、客户端请求、定时器（结算）、admin 指令全部入队串行处理。每个事件落**事件日志**，定期打**快照**；重启后快照 + 日志重放恢复。撮合写成"事件在 instrument 上的纯函数"，为将来并行只留调度切换点。
+核心是**单线程世界循环**：MD tick、客户端请求、定时器（结算）、admin 指令全部入队串行处理。当前 journal 用于独立实验录制与重放；复用数据目录重启时，旧 journal 归档到 `journal-run-<时间戳>-<进程号>/journal/`，当前 `journal/` 从序号 1 开始，不混合不同账本实例。定期快照及崩溃后自动恢复仍是目标能力，不是现有启动行为。撮合为将来并行保留调度切换点。
 
 ### 8.2 订单指令矩阵（v1）
 
@@ -755,7 +755,7 @@ report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
   - `reset_account` 等 admin 输入按 admin 命令重放；`settle_confirm` / 连接关闭不 journal、不重放。
 - **系统侧确定性前提**（M2-3 实测修复）：① 世界循环的脉冲是**真定时器**（每 PULSE 到期必触发，不被请求流量饿死——否则高频 status 轮询会拖死 tick 释放与 md_watermark 落账）；② 场景时钟启动前 vt 归零（`server_start` 等前置事件不得带墙上时钟）。
 - **`step` 不是计数器（#43 顺带修复的既有缺陷）**：`Playback::step()` 只置 `step_once` **标志**，由下一个世界循环脉冲清除——不是计数。因此两条 `step` 命令若跨过脉冲边界会释放**两个** tick。`_step_until` 原先「轮询间隔 15ms > 脉冲 10ms，多发一条也无害」的假设只在两条命令落在同一脉冲窗口内成立；跨边界时第二条会被下一脉冲消费而**越过目标**（实测：请求 idx 3 落到 4）。更糟的是随后的水位事件因 `cur != target - 1` 被误判成「后跳 seek」，回退到同一 vt 再释放一次，产生**重复的 `md_watermark`**（`m2_journal` 间歇失败，core hash 一致但事件数多 1，比例约 1/4~1/8）。修法两处：`_step_until` 用 `last_seen` 记住已为哪个 idx 发出过命令，**只在 idx 真的前进后才发下一条**；`on_watermark` 的分支条件由 `target == cur + 1` 放宽为 `target <= cur + 1`（`cur == target` 是「已就位」，再 step 会越过、误判 seek 会重复释放）。修复后 20 次重放诊断 0 失配、`m2_journal` 连跑 6 次全绿。
-- **崩溃恢复**（M2+）：定期快照 + journal 增量重放；快照前的输入零丢失，因为 journal 才是权威，SQLite 随时可重建。
+- **崩溃恢复**（规划）：定期快照 + journal 增量重放尚未实现。当前批量刷新 journal，崩溃可能丢失未刷新尾部；重启归档旧录制，不自动恢复账本。完整录制可独立重放并重建 SQLite 投影，不承诺输入零丢失。
 
 ### 11.3 表结构（v1 定稿）
 

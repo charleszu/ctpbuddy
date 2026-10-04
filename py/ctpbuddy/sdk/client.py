@@ -149,7 +149,10 @@ class Client:
     def __init__(self, addr: str = "127.0.0.1:5560", timeout: float = DEFAULT_TIMEOUT) -> None:
         host, _, port = addr.rpartition(":")
         self.sock = socket.create_connection((host, int(port)), timeout=timeout)
+        self.sock.settimeout(None)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self._timeout = timeout
+        self._send_lock = threading.Lock()
         self._req_seq = 0
         self._pending: Dict[int, _Pending] = {}
         self._pushes: "queue.Queue[Frame]" = queue.Queue()
@@ -163,13 +166,19 @@ class Client:
     # ---- connection -------------------------------------------------------
 
     def close(self) -> None:
-        if not self._closed:
+        with self._lock:
+            if self._closed:
+                return
             self._closed = True
-            try:
-                self.sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            self.sock.close()
+            pending = list(self._pending.values())
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.sock.close()
+        for request in pending:
+            request.q.put(CLOSED)
+        self._pushes.put(CLOSED)
 
     def __enter__(self) -> "Client":
         return self
@@ -247,10 +256,7 @@ class Client:
         except (OSError, ValueError):
             pass
         finally:
-            # wake up every waiter so they fail loudly instead of hanging
-            for p in list(self._pending.values()):
-                p.q.put(CLOSED)
-            self._pushes.put(CLOSED)
+            self.close()
 
     @staticmethod
     def _is_rejection(f: Frame) -> bool:
@@ -265,10 +271,17 @@ class Client:
                  timeout: Optional[float] = None) -> Frame:
         req_id = self._next_req_id()
         p = _Pending()
-        self._pending[req_id] = p
+        with self._lock:
+            if self._closed:
+                raise CTPError(-1, "connection closed")
+            self._pending[req_id] = p
         try:
-            self.sock.sendall(Frame(msg_type, req_id, payload).encode())
-            f = p.q.get(timeout=timeout or DEFAULT_TIMEOUT)
+            with self._send_lock:
+                self.sock.sendall(Frame(msg_type, req_id, payload).encode())
+            f = p.q.get(timeout=self._timeout if timeout is None else timeout)
+        except OSError as exc:
+            self.close()
+            raise CTPError(-1, "connection closed") from exc
         finally:
             self._pending.pop(req_id, None)
         if f is CLOSED or self._is_rejection(f):
@@ -305,12 +318,16 @@ class Client:
         """One query attempt: `(rows, throttled)`; throttled -> re-issue."""
         req_id = self._next_req_id()
         p = _Pending(multi=True)
-        self._pending[req_id] = p
+        with self._lock:
+            if self._closed:
+                raise CTPError(-1, "connection closed")
+            self._pending[req_id] = p
         out: List[bytes] = []
         try:
-            self.sock.sendall(Frame(req_msg, req_id, payload).encode())
+            with self._send_lock:
+                self.sock.sendall(Frame(req_msg, req_id, payload).encode())
             while True:
-                f = p.q.get(timeout=DEFAULT_TIMEOUT)
+                f = p.q.get(timeout=self._timeout)
                 if f is CLOSED:
                     raise CTPError(-1, "connection closed")
                 if f.msg_type == QRY_LAST:
@@ -322,6 +339,9 @@ class Client:
                     raise CTPError(info["ErrorID"], info["ErrorMsg"])
                 if f.msg_type == rsp_msg:
                     out.append(f.payload)
+        except OSError as exc:
+            self.close()
+            raise CTPError(-1, "connection closed") from exc
         finally:
             self._pending.pop(req_id, None)
 

@@ -119,6 +119,7 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
     settings::load(&mut cfg).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let td = TcpListener::bind(&cfg.td_endpoint)?;
     let admin = TcpListener::bind(&cfg.admin_endpoint)?;
+    let mut world = World::new(cfg.clone())?;
     let (tx, rx) = mpsc::channel::<WorldMsg>();
 
     let tx_td = tx.clone();
@@ -136,7 +137,6 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
         println!("[ctpbuddy] scenario  {dir}");
     }
 
-    let mut world = World::new(cfg);
     world.run_loop(rx);
     println!("[ctpbuddy] stopped");
     Ok(())
@@ -351,25 +351,15 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(cfg: Config) -> Self {
+    pub fn new(cfg: Config) -> std::io::Result<Self> {
         let mut journal = if cfg.data_dir.is_empty() {
             None
         } else {
-            match Journal::new(&cfg.data_dir) {
-                Ok(j) => Some(j),
-                Err(e) => {
-                    eprintln!("[ctpbuddy] journal disabled: {e}");
-                    None
-                }
-            }
+            Some(Journal::new(&cfg.data_dir)?)
         };
 
         // Ref data resolution order: explicit --refdata > a `refdata/`
         // directory inside the scenario > the bundled contract snapshot.
-        // `World::new` cannot return a Result, so a hard failure here is
-        // reported loudly and degraded to an empty catalog — an explicit
-        // --refdata that is broken must not be papered over with invented
-        // contracts, and the operator sees why on stderr.
         let mut engine_catalog = match load_refdata(
             cfg.refdata_dir.as_deref(),
             cfg.scenario_dir.as_deref(),
@@ -436,7 +426,7 @@ impl World {
                     ("scenario".into(), json::s(cfg.scenario_dir.as_deref().unwrap_or(""))),
                 ]),
             );
-            let _ = j.flush();
+            j.flush()?;
         }
 
         let mut world = World {
@@ -467,7 +457,7 @@ impl World {
         Self::bootstrap_accounts(&mut world.ledger, &world.engine.catalog(), &broker, &accounts, &day).expect("startup bootstrap must validate");
         world.ledger.refresh(&world.engine.catalog());
         world.eval_assertions();
-        world
+        Ok(world)
     }
 
     fn bootstrap_accounts(ledger: &mut Ledger, catalog: &Catalog, broker: &str, accounts: &[scenario::AccountSpec], day: &str) -> Result<(), String> {

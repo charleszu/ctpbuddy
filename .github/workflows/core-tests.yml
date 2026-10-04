@@ -34,7 +34,11 @@ jobs:
       - name: Rust 核心构建（确保 server exe 存在）
         run: cargo build --locked --bin ctpbuddy-server --manifest-path core/Cargo.toml
       - name: Python 单元测试
-        run: python tests/test_py.py
+        run: |
+          python tests/test_py.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/test_query_expectations.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   e2e:
     runs-on: windows-latest
@@ -42,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [m1_smoke, m2_scenario, m2_journal, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, m4_real_replay, settings]
+        suite: [m1_smoke, m2_book, m2_flow, m2_ioc, m2_surface, m2_scenario, m2_journal, m3_detail, m3_margin, m3_refdata, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, m4_real_replay, settings, review_regressions]
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"

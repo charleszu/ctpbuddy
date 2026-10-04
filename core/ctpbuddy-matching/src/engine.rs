@@ -319,6 +319,9 @@ impl MatchingEngine {
     /// Static validation (contract, price, volume). Fund/position sufficiency
     /// is the ledger's job and is checked by the server before `submit`.
     pub fn check(&self, intent: &OrderIntent) -> Result<(), (i32, String)> {
+        if !intent.limit_price.is_finite() || !intent.stop_price.is_finite() {
+            return Err((ERR_BAD_FIELD, "CTP:报单字段有误".into()));
+        }
         let instr = match self.catalog.get(&intent.instrument_id) {
             Some(i) => i,
             None => return Err((ERR_INSTRUMENT_NOT_FOUND, "CTP:找不到合约".into())),
@@ -334,7 +337,7 @@ impl MatchingEngine {
                 let aligned = ((intent.limit_price / instr.price_tick).round() * instr.price_tick
                     - intent.limit_price)
                     .abs();
-                if aligned > EPS {
+                if !aligned.is_finite() || aligned > EPS {
                     return Err((
                         ERR_PRICE_TICK,
                         "CTP:报单价格非最小变动价位整数倍".into(),
@@ -1309,6 +1312,23 @@ mod tests {
             front_id: 1,
             session_id: 1,
         }
+    }
+
+    #[test]
+    fn nonfinite_prices_never_change_the_book() {
+        let mut engine = MatchingEngine::new(Catalog::bundled());
+        for price in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for price_type in [b'1', b'2'] {
+                let mut intent = maker("rb2601", "SHFE", price, 1);
+                intent.price_type = price_type;
+                assert!(matches!(engine.submit(&intent, &ctx()), SubmitOutcome::Rejected { error_id: ERR_BAD_FIELD, .. }));
+                assert_eq!(engine.open_order_count(), 0);
+                intent.limit_price = 3500.0;
+                intent.stop_price = price;
+                assert!(engine.check(&intent).is_err());
+            }
+        }
+        assert!(matches!(engine.submit(&maker("rb2601", "SHFE", 3500.0, 1), &ctx()), SubmitOutcome::Accepted { .. }));
     }
 
     /// A FAK buy: IOC + any-volume, crossing the resting ask. `investor_id`
