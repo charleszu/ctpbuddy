@@ -115,14 +115,13 @@ def main():
                 assert cli.qry_investor_product_group_margin("missing") == []
                 payload = generated.pack("CThostFtdcQryInvestorProductGroupMarginField", BrokerID="8888", InvestorID="other")
                 assert cli._query_stream(REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN, RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN, payload) == []
-                # 行情变化只更新持仓盈亏；已入账保证金和大边聚合不重估。
-                before_move = check(25)
+                # MarginPriceType=2：行情驱动，今仓按最新价重估（XA2601 剩 1 手，100->200，多边 10->20）；
+                # 大边聚合随之更新为 max(多20, 空15)=20，加 XB 的 10 共 30。
+                check(25)
                 admin.step()
                 wait_idx(admin, 6)
-                after_move = check(25)
-                assert close(sum(r["UseMargin"] for r in before_move),
-                             sum(r["UseMargin"] for r in after_move))
-                print("[ok] 跨合约优惠、异品种隔离、非对称、风控/挂单/撤单、平仓切边、行情不重估、查询一致")
+                check(30)
+                print("[ok] 跨合约优惠、异品种隔离、非对称、风控/挂单/撤单、平仓切边、最新价重估今仓、查询一致")
             with Client("127.0.0.1:%d" % td) as cli:
                 cli.auth("8888", "off")
                 cli.login("8888", "off")
