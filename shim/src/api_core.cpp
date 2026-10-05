@@ -20,10 +20,15 @@
 #include <cstdio>
 #include <cstdlib>
 
+#ifndef _WIN32
+#include <iconv.h>
+#endif
+
 namespace ctpbuddy {
 
 namespace {
 
+#ifdef _WIN32
 // One WSAStartup/WSACleanup pair per DLL; both shim DLLs link this file, so a
 // process loading td+md runs two pairs. That is correct: Winsock keeps a
 // per-process reference count, every WSAStartup must be matched by exactly one
@@ -37,6 +42,36 @@ struct WinsockInit {
     ~WinsockInit() { WSACleanup(); }
 };
 WinsockInit g_winsock;
+
+int last_socket_error() { return WSAGetLastError(); }
+bool error_is_interrupt(int e) { return e == WSAEINTR; }
+#else
+int last_socket_error() { return errno; }
+bool error_is_interrupt(int e) { return e == EINTR; }
+#endif
+
+/// Wait up to `ms` for `s` to become readable: 1 readable (or hangup/error:
+/// the following recv reports it), 0 timeout, -1 failure.
+int wait_readable(SOCKET s, int ms) {
+#ifdef _WIN32
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(s, &readable);
+    timeval timeout{0, ms * 1000};
+    int ready = select(0, &readable, nullptr, nullptr, &timeout);
+    if (ready == SOCKET_ERROR) return -1;
+    return ready > 0 ? 1 : 0;
+#else
+    // poll(), not select(): select() is undefined for fds >= FD_SETSIZE, which
+    // a host process with many open files can easily hand us.
+    pollfd p{};
+    p.fd = s;
+    p.events = POLLIN;
+    int ready = poll(&p, 1, ms);
+    if (ready < 0) return error_is_interrupt(errno) ? 0 : -1;
+    return ready > 0 ? 1 : 0;
+#endif
+}
 
 // Front flow-control values reported through GetFrontInfo (CTP 6.7.13 API
 // docs, 报单流控、查询流控和会话数控制: QryFreq is configured on the front
@@ -55,6 +90,51 @@ const int kQryFreq = qry_freq_env();
 const int kFtdPkgFreq = 6;
 
 }  // namespace
+
+std::string utf8_to_gbk(const std::string& utf8, size_t max_bytes) {
+    std::string gbk;
+#ifdef _WIN32
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (wlen <= 0) return gbk;
+    std::wstring wide(static_cast<size_t>(wlen), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), &wide[0], wlen);
+    for (wchar_t ch : wide) {
+        char tmp[4];
+        int k = WideCharToMultiByte(936, 0, &ch, 1, tmp, sizeof(tmp), "?", nullptr);
+        if (k <= 0 || gbk.size() + static_cast<size_t>(k) > max_bytes) break;
+        gbk.append(tmp, static_cast<size_t>(k));
+    }
+#else
+    // glibc names the Windows code page 936 superset "GBK"; one descriptor
+    // per call keeps this safe from any thread (error paths only).
+    iconv_t cd = iconv_open("GBK", "UTF-8");
+    if (cd == reinterpret_cast<iconv_t>(-1)) return gbk;
+    size_t i = 0;
+    while (i < utf8.size()) {
+        const unsigned char lead = static_cast<unsigned char>(utf8[i]);
+        size_t clen = lead < 0x80 ? 1 : (lead >> 5) == 0x6 ? 2 : (lead >> 4) == 0xE ? 3 : (lead >> 3) == 0x1E ? 4 : 1;
+        if (i + clen > utf8.size()) clen = utf8.size() - i;
+        char in[4];
+        memcpy(in, utf8.data() + i, clen);
+        i += clen;
+        char out[8];
+        char* ip = in;
+        char* op = out;
+        size_t il = clen, ol = sizeof(out);
+        iconv(cd, nullptr, nullptr, nullptr, nullptr);  // reset shift state
+        size_t rc = iconv(cd, &ip, &il, &op, &ol);
+        size_t k = sizeof(out) - ol;
+        if (rc == static_cast<size_t>(-1) || il != 0 || k == 0) {
+            out[0] = '?';  // same fallback as WideCharToMultiByte's default char
+            k = 1;
+        }
+        if (gbk.size() + k > max_bytes) break;
+        gbk.append(out, k);
+    }
+    iconv_close(cd);
+#endif
+    return gbk;
+}
 
 ApiCore::ApiCore() = default;
 
@@ -190,20 +270,40 @@ bool ApiCore::connect_front() {
         host = front_host_;
         port = front_port_;
     }
+    // CTPBUDDY_ADDR redirects every front to a CTPBuddy core without touching
+    // the downstream's own (production) front configuration -- DESIGN §5.3.
+    if (const char* over = std::getenv("CTPBUDDY_ADDR")) {
+        if (*over) parse_address(over, host, port);
+    }
     if (host.empty() || port == 0) return false;
-    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    // getaddrinfo: accepts IPv4/IPv6 literals and host names ("localhost",
+    // a WSL/docker service name), not just dotted-quad literals.
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    addrinfo* res = nullptr;
+    std::string host_only = host;
+    if (host_only.size() > 2 && host_only.front() == '[' && host_only.back() == ']') {
+        host_only = host_only.substr(1, host_only.size() - 2);
+    }
+    if (getaddrinfo(host_only.c_str(), std::to_string(port).c_str(), &hints, &res) != 0 || !res) {
+        return false;
+    }
+    SOCKET s = INVALID_SOCKET;
+    for (addrinfo* ai = res; ai; ai = ai->ai_next) {
+        SOCKET c = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (c == INVALID_SOCKET) continue;
+        if (connect(c, ai->ai_addr, static_cast<int>(ai->ai_addrlen)) == 0) {
+            s = c;
+            break;
+        }
+        closesocket(c);
+    }
+    freeaddrinfo(res);
     if (s == INVALID_SOCKET) return false;
-    sockaddr_in sa{};
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(static_cast<u_short>(port));
-    if (inet_pton(AF_INET, host.c_str(), &sa.sin_addr) != 1) {
-        closesocket(s);
-        return false;
-    }
-    if (connect(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) != 0) {
-        closesocket(s);
-        return false;
-    }
+    const int one = 1;  // small request frames: never wait on Nagle
+    setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&one), sizeof(one));
     {
         std::lock_guard<std::mutex> g(mu_);
         if (sock_ != INVALID_SOCKET) closesocket(sock_);
@@ -222,21 +322,16 @@ bool ApiCore::read_exact(uint8_t* buf, size_t n) {
         }
         if (s == INVALID_SOCKET) return false;
         drain_auth_errors();
-        fd_set readable;
-        FD_ZERO(&readable);
-        FD_SET(s, &readable);
-        timeval timeout{0, 100000};
-        int ready = select(0, &readable, nullptr, nullptr, &timeout);
+        int ready = wait_readable(s, 100);
         if (ready == 0) continue;
-        if (ready == SOCKET_ERROR) return false;
-        int r = recv(s, reinterpret_cast<char*>(buf + got), static_cast<int>(n - got), 0);
+        if (ready < 0) return false;
+        int r = static_cast<int>(recv(s, reinterpret_cast<char*>(buf + got), static_cast<int>(n - got), 0));
         if (r > 0) {
             got += static_cast<size_t>(r);
             continue;
         }
         if (r == 0) return false;  // orderly shutdown
-        int err = WSAGetLastError();
-        if (err == WSAEINTR) continue;
+        if (error_is_interrupt(last_socket_error())) continue;
         return false;
     }
     return true;
@@ -256,14 +351,20 @@ void ApiCore::write_frame_locked(const Frame& f) {
     std::vector<uint8_t> bytes = f.encode();
     size_t sent = 0;
     while (sent < bytes.size()) {
-        int r = send(sock_, reinterpret_cast<const char*>(bytes.data() + sent),
-                     static_cast<int>(bytes.size() - sent), 0);
+#ifdef _WIN32
+        const int flags = 0;
+#else
+        // a peer that vanished must yield EPIPE, never kill the host process
+        // with SIGPIPE
+        const int flags = MSG_NOSIGNAL;
+#endif
+        int r = static_cast<int>(send(sock_, reinterpret_cast<const char*>(bytes.data() + sent),
+                                      static_cast<int>(bytes.size() - sent), flags));
         if (r > 0) {
             sent += static_cast<size_t>(r);
             continue;
         }
-        int err = WSAGetLastError();
-        if (err == WSAEINTR) continue;
+        if (error_is_interrupt(last_socket_error())) continue;
         break;  // reader thread will notice the dead socket
     }
 }
@@ -293,6 +394,11 @@ std::string json_string(const char* value, size_t size) {
 
 }  // namespace
 
+std::string ApiCore::private_resume_json() const {
+    if (private_resume_ < 0 || private_resume_ > 2) return std::string();
+    return ",\"private_resume\":" + std::to_string(private_resume_);
+}
+
 void ApiCore::send_auth_locked(const char* broker, const char* user) {
     // caller holds mu_; this is the legacy automatic handshake.
     auth_in_flight_ = true;
@@ -304,7 +410,7 @@ void ApiCore::send_auth_locked(const char* broker, const char* user) {
     auth_wire_req_id_ = f.req_id;
     std::string body = "{\"broker_id\":" + json_string(broker, 11) +
                        ",\"user_id\":" + json_string(user, 16) +
-                       ",\"app_id\":\"ctpbuddy-shim\"}";
+                       ",\"app_id\":\"ctpbuddy-shim\"" + private_resume_json() + "}";
     f.payload.assign(body.begin(), body.end());
     write_frame_locked(f);
 }
@@ -340,7 +446,8 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
                 std::string body = "{\"broker_id\":" + json_string(req->BrokerID, sizeof(req->BrokerID)) +
                                    ",\"user_id\":" + json_string(req->UserID, sizeof(req->UserID)) +
                                    ",\"auth_code\":" + json_string(req->AuthCode, sizeof(req->AuthCode)) +
-                                   ",\"app_id\":" + json_string(req->AppID, sizeof(req->AppID)) + "}";
+                                   ",\"app_id\":" + json_string(req->AppID, sizeof(req->AppID)) +
+                                   private_resume_json() + "}";
                 f.payload.assign(body.begin(), body.end());
                 Pending pd;
                 pd.req_id = f.req_id;

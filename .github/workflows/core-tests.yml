@@ -118,3 +118,34 @@ jobs:
           $env:CTPBUDDY_SHIM_MODE = "auth-check"
           python tests/e2e/m1_shim_e2e.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # Linux：核心单测 + Shim .so 构建 + 经 Shim 的端到端（头文件取自 docs/api-doc-html/files）。
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: 安装 Python 包
+        run: python -m pip install ./py
+      - name: Rust 单元测试
+        run: cargo test --locked --workspace --manifest-path core/Cargo.toml
+      - name: 构建核心
+        run: cargo build --locked --bin ctpbuddy-server --manifest-path core/Cargo.toml
+      - name: 构建 Shim .so + demo_td
+        run: python shim/build_linux.py --demo --sdk docs/api-doc-html/files
+      - name: 核心 e2e 与 Shim e2e
+        env:
+          CTPBUDDY_CORE: ${{ github.workspace }}/core/target/debug/ctpbuddy-server
+        run: |
+          for s in m1_smoke m2_book m2_flow m2_ioc m2_surface m2_scenario m2_journal m3_detail m3_margin m3_refdata m3_bootstrap m3_5_settlement_info m3_6_projection m3_settlement m3_order_sysid review_regressions; do
+            python tests/e2e/$s.py
+          done
+          python tests/e2e/m1_shim_e2e.py
+          CTPBUDDY_SHIM_MODE=auth-check python tests/e2e/m1_shim_e2e.py

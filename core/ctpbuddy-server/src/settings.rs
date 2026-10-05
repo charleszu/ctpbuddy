@@ -242,12 +242,13 @@ mod tests {
             "{\"max_user_sessions\":10001}",
             "{\"settlement_required\":1}",
             "{\"self_trade_prevention\":\"true\"}",
-            "{\"initial_funds\":1e999}",
             "{\"qry_freq\":3,\"unknown\":4}",
             "{\"qry_freq\":2,\"qry_freq\":3}",
         ] {
             assert!(patch(&cfg, &json::parse(text).unwrap()).is_err(), "{text}");
         }
+        // out-of-range numbers are rejected by the JSON parser itself
+        assert!(json::parse("{\"initial_funds\":1e999}").is_err());
         assert_eq!(cfg.qry_freq, 2);
         assert!(!cfg.self_trade_prevention);
         assert!(

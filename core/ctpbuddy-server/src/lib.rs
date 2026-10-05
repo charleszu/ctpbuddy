@@ -13,6 +13,7 @@ pub mod json;
 pub mod scenario;
 pub mod settings;
 mod settlement;
+pub mod state;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
@@ -31,9 +32,12 @@ use ctpbuddy_wire::struct_to_bytes;
 
 use journal::Journal;
 use json::Value;
+use serde_json::Value as SerdeValue;
 
 pub const SERVER_NAME: &str = "CTPBuddy";
 pub const SERVER_VERSION: &str = "0.1.0";
+/// How often a changed ledger is written to its recovery snapshot.
+const SNAPSHOT_EVERY: Duration = Duration::from_secs(5);
 /// World-loop pulse period: playback tick release + mark-to-market cadence.
 pub const PULSE: Duration = Duration::from_millis(10);
 
@@ -102,6 +106,9 @@ pub struct Config {
     pub self_trade_prevention: bool,
     /// Fields explicitly supplied by CLI/env; they override persisted settings.
     pub settings_overrides: Vec<String>,
+    /// Restore the ledger from `<data_dir>/state/ledger.json` at startup
+    /// (`--recover` / `CTPBUDDY_RECOVER=1`). Working orders are not restored.
+    pub recover: bool,
 }
 
 impl Default for Config {
@@ -121,6 +128,7 @@ impl Default for Config {
             settlement_required: true,
             self_trade_prevention: false,
             settings_overrides: Vec::new(),
+            recover: false,
         }
     }
 }
@@ -129,6 +137,10 @@ impl Default for Config {
 pub fn run(mut cfg: Config) -> std::io::Result<()> {
     settings::load(&mut cfg)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    // The ADMIN channel has no authentication: whoever can connect can reset
+    // the book or shut the core down. Refuse non-loopback binds unless the
+    // operator opts in explicitly (e.g. behind a VPN / container network).
+    ensure_admin_loopback(&cfg.admin_endpoint)?;
     let td = TcpListener::bind(&cfg.td_endpoint)?;
     let admin = TcpListener::bind(&cfg.admin_endpoint)?;
     let mut world = World::new(cfg.clone())?;
@@ -154,11 +166,81 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Env opt-out for [`ensure_admin_loopback`].
+pub const ALLOW_REMOTE_ADMIN_ENV: &str = "CTPBUDDY_ALLOW_REMOTE_ADMIN";
+
+/// Err unless every address `endpoint` resolves to is loopback (or the
+/// operator set `CTPBUDDY_ALLOW_REMOTE_ADMIN=1`).
+pub fn ensure_admin_loopback(endpoint: &str) -> std::io::Result<()> {
+    use std::net::ToSocketAddrs;
+    if std::env::var(ALLOW_REMOTE_ADMIN_ENV).is_ok_and(|v| v == "1") {
+        eprintln!(
+            "[ctpbuddy] WARNING: {ALLOW_REMOTE_ADMIN_ENV}=1 — unauthenticated ADMIN on {endpoint}"
+        );
+        return Ok(());
+    }
+    let addrs: Vec<_> = endpoint.to_socket_addrs()?.collect();
+    if addrs.is_empty() || addrs.iter().any(|a| !a.ip().is_loopback()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "refusing to bind unauthenticated ADMIN to non-loopback {endpoint}; \
+                 use 127.0.0.1 or set {ALLOW_REMOTE_ADMIN_ENV}=1"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Env var: `1` makes resting limit orders fill at their own limit price
+/// (exchange maker semantics) rather than the better tick-level price.
+pub const MAKER_AT_LIMIT_ENV: &str = "CTPBUDDY_MAKER_AT_LIMIT";
+
+fn maker_at_limit_enabled() -> bool {
+    matches!(
+        std::env::var(MAKER_AT_LIMIT_ENV)
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("1") | Some("true")
+    )
+}
+
+/// Env var overriding the concurrent-connection cap.
+pub const MAX_CONNS_ENV: &str = "CTPBUDDY_MAX_CONNS";
+const DEFAULT_MAX_CONNS: usize = 256;
+/// A peer that stops reading for this long is dropped (bounds the writer thread).
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+
+static LIVE_CONNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub(crate) fn parse_max_conns(v: Option<&str>) -> usize {
+    v.and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_MAX_CONNS)
+}
+
+/// Decrements the live-connection counter when the reader thread ends.
+struct ConnGuard;
+impl Drop for ConnGuard {
+    fn drop(&mut self) {
+        LIVE_CONNS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
+    let max_conns = parse_max_conns(std::env::var(MAX_CONNS_ENV).ok().as_deref());
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
+                if LIVE_CONNS.fetch_add(1, Ordering::SeqCst) >= max_conns {
+                    LIVE_CONNS.fetch_sub(1, Ordering::SeqCst);
+                    eprintln!("[ctpbuddy] connection limit {max_conns} reached, rejecting peer");
+                    continue; // dropping `s` closes it
+                }
+                let guard = ConnGuard;
                 let _ = s.set_nodelay(true);
+                let _ = s.set_write_timeout(Some(WRITE_TIMEOUT));
                 let id = NEXT_CONN_ID.fetch_add(1, Ordering::SeqCst);
                 let (writer_tx, writer_rx) = mpsc::channel::<Frame>();
                 let _ = tx.send(WorldMsg::Opened {
@@ -171,7 +253,10 @@ fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
                     Err(_) => continue,
                 };
                 let tx_r = tx.clone();
-                thread::spawn(move || reader_loop(id, reader, tx_r));
+                thread::spawn(move || {
+                    let _guard = guard;
+                    reader_loop(id, reader, tx_r)
+                });
                 thread::spawn(move || writer_loop(s, writer_rx));
             }
             Err(e) => {
@@ -208,6 +293,10 @@ fn writer_loop(mut stream: TcpStream, rx: Receiver<Frame>) {
     // the reader loop detects EOF on its own.
     for frame in rx {
         if frame.write_to(&mut stream).is_err() {
+            // Write timeout / broken pipe: shut the socket so the reader
+            // thread sees EOF and reports `Closed`, letting the world loop
+            // drop the connection instead of leaving it half-dead.
+            let _ = stream.shutdown(std::net::Shutdown::Both);
             break;
         }
     }
@@ -243,6 +332,9 @@ struct Conn {
     /// front-assigned OrderLocalID counter.
     order_local_seq: u32,
     md_subs: HashSet<String>,
+    /// SubscribePrivateTopic resume type announced in AUTH: 0 RESTART /
+    /// 1 RESUME / 2 QUICK (default: live events only, no replay).
+    private_resume: u8,
     /// 查询流控 window (CTP docs: per-session QryFreq per second).
     qry_window: Option<Instant>,
     qry_count: u32,
@@ -341,6 +433,12 @@ pub struct World {
     orders_today: Vec<CThostFtdcOrderField>,
     /// Today's fills (QryTrade projection).
     trades_today: Vec<CThostFtdcTradeField>,
+    /// Private flow in emission order: `(is_trade, index)` into
+    /// `trades_today` / `orders_today`. Source for RESTART/RESUME replay.
+    private_seq: Vec<(bool, usize)>,
+    /// Per (broker, investor): `private_seq` length at the last moment the
+    /// investor had a live session receiving the flow (RESUME start point).
+    private_cursor: HashMap<(String, String), usize>,
     /// Loaded scenario name ("" when none / legacy dir without scenario.json).
     scenario_name: String,
     /// Virtual ms of the scenario's first delivered tick (assertion `after`
@@ -355,6 +453,9 @@ pub struct World {
     order_freq_windows: HashMap<(String, String, GateStream), (Instant, u32)>,
     settlement_confirmed: HashMap<(String, String), String>,
     settlement_reports: Vec<settlement::Report>,
+    /// Last ledger snapshot written to `<data_dir>/state/` and when.
+    last_snapshot: Option<SerdeValue>,
+    last_snapshot_at: Instant,
     shutdown: bool,
 }
 
@@ -441,6 +542,7 @@ impl World {
 
         let mut engine = MatchingEngine::new(engine_catalog);
         engine.set_self_trade_prevention(cfg.self_trade_prevention);
+        engine.set_maker_fill_at_limit(maker_at_limit_enabled());
         let mut world = World {
             engine,
             ledger: Ledger::new(cfg.initial_funds),
@@ -451,6 +553,8 @@ impl World {
             vt_now_ms: vt_ms,
             orders_today: Vec::new(),
             trades_today: Vec::new(),
+            private_seq: Vec::new(),
+            private_cursor: HashMap::new(),
             scenario_name,
             scenario_t0_ms,
             assertions,
@@ -461,9 +565,52 @@ impl World {
                     eprintln!("[ctpbuddy] settlement reports disabled: {e}");
                     Vec::new()
                 }),
+            last_snapshot: None,
+            last_snapshot_at: Instant::now(),
             shutdown: false,
             cfg,
         };
+        if world.cfg.recover && !world.cfg.data_dir.is_empty() {
+            match state::read(&world.cfg.data_dir) {
+                Ok(Some((day, ledger))) => {
+                    println!(
+                        "[ctpbuddy] recovered ledger: {} account(s), trading day {day}",
+                        ledger.accounts().count()
+                    );
+                    if world.playback.is_none() {
+                        world.vt_trading_day = day.clone();
+                    } else if world.vt_trading_day != day {
+                        eprintln!(
+                            "[ctpbuddy] WARNING: snapshot day {day} != scenario day {}",
+                            world.vt_trading_day
+                        );
+                    }
+                    world.ledger = ledger;
+                    // accounts and initial positions are already in the snapshot
+                    startup_accounts.clear();
+                    world.journal_record_json(
+                        "ledger_recovered",
+                        "",
+                        "",
+                        json::obj_sorted(vec![
+                            ("trading_day".into(), json::s(&day)),
+                            ("working_orders_voided".into(), json::b(true)),
+                            (
+                                "reason".into(),
+                                json::s("服务重启，journal 中此前无终态的在途挂单作废，冻结已清零"),
+                            ),
+                        ]),
+                    );
+                }
+                Ok(None) => eprintln!("[ctpbuddy] --recover: no snapshot found, starting fresh"),
+                Err(e) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("ledger recovery failed: {e}"),
+                    ))
+                }
+            }
+        }
         let day = world.vt_trading_day.clone();
         let accounts = startup_accounts;
         let broker = world.cfg.broker_id.clone();
@@ -482,6 +629,7 @@ impl World {
         })?;
         world.ledger.refresh(world.engine.catalog());
         world.eval_assertions();
+        world.persist_ledger();
         Ok(world)
     }
 
@@ -553,7 +701,7 @@ impl World {
                     &p.trade_id,
                     p.open_price,
                     p.volume,
-                    margin,
+                    ctpbuddy_ledger::Money::from_f64(margin),
                     p.pre_settlement,
                     multiple,
                 );
@@ -599,8 +747,9 @@ impl World {
         self.engine = MatchingEngine::new(catalog);
         self.engine
             .set_self_trade_prevention(self.cfg.self_trade_prevention);
-        self.orders_today.clear();
-        self.trades_today.clear();
+        self.engine
+            .set_maker_fill_at_limit(maker_at_limit_enabled());
+        self.clear_day_flow();
         // explicit speed > scenario clock.time_scale > server default
         let speed = speed
             .or(spec.and_then(|s| s.time_scale))
@@ -642,13 +791,13 @@ impl World {
                 .ok_or(ASSERTION_ACCOUNT_NOT_FOUND)
         };
         Ok(match metric {
-            "balance" => acct(&|a| a.dynamic_equity())?,
-            "available" => acct(&|a| a.available())?,
-            "close_profit" => acct(&|a| a.close_profit)?,
-            "commission" => acct(&|a| a.commission)?,
-            "position_profit" => acct(&|a| a.position_profit)?,
-            "used_margin" => acct(&|a| a.used_margin)?,
-            "frozen_margin" => acct(&|a| a.frozen_margin)?,
+            "balance" => acct(&|a| a.dynamic_equity().to_f64())?,
+            "available" => acct(&|a| a.available().to_f64())?,
+            "close_profit" => acct(&|a| a.close_profit.to_f64())?,
+            "commission" => acct(&|a| a.commission.to_f64())?,
+            "position_profit" => acct(&|a| a.position_profit.to_f64())?,
+            "used_margin" => acct(&|a| a.used_margin.to_f64())?,
+            "frozen_margin" => acct(&|a| a.frozen_margin.to_f64())?,
             "orders_filled" => {
                 // distinct orders with at least one fill today
                 let mut seen = HashSet::new();
@@ -841,6 +990,22 @@ impl World {
                 break;
             }
         }
+        self.persist_ledger();
+    }
+
+    /// Write the recovery snapshot if the ledger changed since the last one.
+    pub(crate) fn persist_ledger(&mut self) {
+        if self.cfg.data_dir.is_empty() {
+            return;
+        }
+        let snap = self.ledger.to_snapshot();
+        if self.last_snapshot.as_ref() == Some(&snap) {
+            return;
+        }
+        match state::write(&self.cfg.data_dir, &self.vt_trading_day, &snap) {
+            Ok(()) => self.last_snapshot = Some(snap),
+            Err(e) => eprintln!("[ctpbuddy] ledger snapshot failed: {e}"),
+        }
     }
 
     /// Timer pulse: release due ticks, settle fills, mark to market, flush journal.
@@ -885,6 +1050,10 @@ impl World {
         if let Some(j) = self.journal.as_mut() {
             j.flush_if_due(now);
         }
+        if now.duration_since(self.last_snapshot_at) >= SNAPSHOT_EVERY {
+            self.last_snapshot_at = now;
+            self.persist_ledger();
+        }
     }
 
     fn push_market_data(&mut self, tick: &Tick) {
@@ -918,9 +1087,12 @@ impl World {
                     );
                     self.ledger.unfreeze_order(&key, self.engine.catalog());
                 }
+                self.private_seq.push((false, self.orders_today.len()));
                 self.orders_today.push(field);
                 let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
-                let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));
+                let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
+                let targets = self.investor_conns(&b, &i);
+                self.mark_delivered(&b, &i, !targets.is_empty());
                 for id in targets {
                     self.send_frame(id, frame.clone());
                 }
@@ -939,9 +1111,12 @@ impl World {
                     pre_settle,
                     &self.vt_trading_day,
                 );
+                self.private_seq.push((true, self.trades_today.len()));
                 self.trades_today.push(field);
                 let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
-                let targets = self.investor_conns(&cstr(&field.BrokerID), &cstr(&field.InvestorID));
+                let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
+                let targets = self.investor_conns(&b, &i);
+                self.mark_delivered(&b, &i, !targets.is_empty());
                 for id in targets {
                     self.send_frame(id, frame.clone());
                 }
@@ -967,10 +1142,63 @@ impl World {
                 user_id: [0u8; 16],
                 order_local_seq: 0,
                 md_subs: HashSet::new(),
+                private_resume: 2,
                 qry_window: None,
                 qry_count: 0,
             },
         );
+    }
+
+    /// Drop the trading day's order/trade history and the replay indexes
+    /// that point into it (reset and explicit settlement).
+    pub(crate) fn clear_day_flow(&mut self) {
+        self.orders_today.clear();
+        self.trades_today.clear();
+        self.private_seq.clear();
+        self.private_cursor.clear();
+    }
+
+    /// Advance the investor's RESUME cursor past the event just emitted when
+    /// a live session received it.
+    fn mark_delivered(&mut self, broker: &str, investor: &str, delivered: bool) {
+        if delivered {
+            self.private_cursor.insert(
+                (broker.to_string(), investor.to_string()),
+                self.private_seq.len(),
+            );
+        }
+    }
+
+    /// Replay the day's private flow to a freshly logged-in session
+    /// (SubscribePrivateTopic): RESTART = whole day, RESUME = what this
+    /// investor missed while no session was live, QUICK = nothing.
+    pub(crate) fn replay_private_flow(&mut self, conn_id: u64, broker: &str, investor: &str) {
+        let mode = self.conns.get(&conn_id).map_or(2, |c| c.private_resume);
+        let key = (broker.to_string(), investor.to_string());
+        let start = match mode {
+            0 => 0,
+            1 => self.private_cursor.get(&key).copied().unwrap_or(0),
+            _ => self.private_seq.len(),
+        };
+        let start = start.min(self.private_seq.len());
+        let mut frames = Vec::new();
+        for &(is_trade, idx) in &self.private_seq[start..] {
+            if is_trade {
+                let t = &self.trades_today[idx];
+                if cstr(&t.BrokerID) == broker && cstr(&t.InvestorID) == investor {
+                    frames.push(Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(t)));
+                }
+            } else {
+                let o = &self.orders_today[idx];
+                if cstr(&o.BrokerID) == broker && cstr(&o.InvestorID) == investor {
+                    frames.push(Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(o)));
+                }
+            }
+        }
+        for f in frames {
+            self.send_frame(conn_id, f);
+        }
+        self.private_cursor.insert(key, self.private_seq.len());
     }
 
     fn on_conn_closed(&mut self, id: u64) {
@@ -1099,6 +1327,114 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SubscribePrivateTopic: RESTART replays the whole day, RESUME only what
+    /// was emitted while the investor had no live session, QUICK nothing.
+    #[test]
+    fn private_flow_replay_modes() {
+        let mut world = World::new(Config::default()).expect("world");
+        let mk_order = |inv: &str, r: &str| {
+            let mut o = CThostFtdcOrderField::zeroed();
+            set_cstr(&mut o.BrokerID, "9999");
+            set_cstr(&mut o.InvestorID, inv);
+            set_cstr(&mut o.OrderRef, r);
+            o
+        };
+        let (tx1, rx1) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, tx1, false);
+        {
+            let c = world.conns.get_mut(&1).unwrap();
+            c.broker_id = Some("9999".into());
+            c.investor_id = Some("u".into());
+        }
+        world.dispatch_event(EngineEvent::Order(mk_order("u", "1")));
+        world.dispatch_event(EngineEvent::Order(mk_order("other", "9")));
+        assert_eq!(rx1.try_iter().count(), 1);
+        // session 1 drops; two events happen while nobody is connected
+        world.on_conn_closed(1);
+        world.dispatch_event(EngineEvent::Order(mk_order("u", "2")));
+        world.dispatch_event(EngineEvent::Order(mk_order("u", "3")));
+        let replay = |world: &mut World, id: u64, mode: u8| -> Vec<String> {
+            let (tx, rx) = mpsc::channel::<Frame>();
+            world.on_conn_opened(id, tx, false);
+            let c = world.conns.get_mut(&id).unwrap();
+            c.broker_id = Some("9999".into());
+            c.investor_id = Some("u".into());
+            c.private_resume = mode;
+            world.replay_private_flow(id, "9999", "u");
+            world.on_conn_closed(id);
+            rx.try_iter()
+                .map(|f| {
+                    let o: CThostFtdcOrderField =
+                        ctpbuddy_wire::struct_from_bytes(&f.payload).unwrap();
+                    cstr(&o.OrderRef)
+                })
+                .collect()
+        };
+        assert!(replay(&mut world, 2, 2).is_empty());
+        // QUICK still moved the cursor to the end: nothing left to resume
+        assert!(replay(&mut world, 3, 1).is_empty());
+        assert_eq!(replay(&mut world, 4, 0), vec!["1", "2", "3"]);
+        // RESUME from a fresh cursor
+        world.private_cursor.clear();
+        assert_eq!(replay(&mut world, 5, 1), vec!["1", "2", "3"]);
+    }
+
+    /// Fuzz: hostile frames on a TD and an ADMIN connection must never panic
+    /// the world loop (a panic would kill every client).
+    #[test]
+    fn world_survives_hostile_frames() {
+        let mut s: u64 = 0x1234_5678_9ABC_DEF1;
+        let mut next = move || {
+            s ^= s >> 12;
+            s ^= s << 25;
+            s ^= s >> 27;
+            s.wrapping_mul(0x2545F4914F6CDD1D)
+        };
+        let mut world = World::new(Config::default()).expect("world");
+        let (td_tx, td_rx) = mpsc::channel::<Frame>();
+        let (ad_tx, ad_rx) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, td_tx, false);
+        world.on_conn_opened(2, ad_tx, true);
+        let seeds: [&[u8]; 6] = [
+            b"{\"broker_id\":\"9999\",\"user_id\":\"u\",\"app_id\":\"a\",\"auth_code\":\"x\"}",
+            b"{\"cmd\":\"status\"}",
+            b"{\"cmd\":null}",
+            b"[1,2,3]",
+            b"{\"user_id\":\"\\ud800\",\"n\":1e999}",
+            b"",
+        ];
+        for i in 0..4000u32 {
+            let conn = 1 + (next() % 2);
+            // concentrate on defined id ranges, with some wild values
+            let msg_type = match next() % 4 {
+                0 => (next() % 0x300) as u16,
+                1 => 0x1000 + (next() % 0x100) as u16,
+                2 => 0x2000 + (next() % 0x100) as u16,
+                _ => next() as u16,
+            };
+            let mut payload = if next() % 2 == 0 {
+                seeds[(next() % seeds.len() as u64) as usize].to_vec()
+            } else {
+                (0..(next() % 300)).map(|_| next() as u8).collect()
+            };
+            if !payload.is_empty() && next() % 2 == 0 {
+                let k = (next() % payload.len() as u64) as usize;
+                payload[k] ^= 1 << (next() % 8);
+            }
+            world.on_frame(conn, Frame::new(msg_type, i, payload));
+            while td_rx.try_recv().is_ok() {}
+            while ad_rx.try_recv().is_ok() {}
+        }
+    }
+
+    #[test]
+    fn max_conns_parsing() {
+        assert_eq!(parse_max_conns(None), DEFAULT_MAX_CONNS);
+        assert_eq!(parse_max_conns(Some("8")), 8);
+        assert_eq!(parse_max_conns(Some("0")), DEFAULT_MAX_CONNS);
+        assert_eq!(parse_max_conns(Some("abc")), DEFAULT_MAX_CONNS);
+    }
 
     #[test]
     fn assertion_journal_line_is_valid_json_when_actual_is_nan() {

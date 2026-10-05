@@ -177,7 +177,7 @@ impl World {
                 .then(a.investor_id.cmp(&b.investor_id))
         });
         accounts.into_iter().map(|a| {
-            let content = format!("CTPBuddy simulated ledger minimal settlement report\nSource=modeled_ledger_only; not an official broker statement\nTradingDay={day}\nBrokerID={}\nInvestorID={}\nCurrencyID={}\nSettledEquity={}\nCarriedMargin={}\nUnmodeled fields omitted; amounts from explicit settle_day\n", a.broker_id, a.investor_id, a.currency_id, a.pre_balance, a.used_margin).into_bytes();
+            let content = format!("CTPBuddy simulated ledger minimal settlement report\nSource=modeled_ledger_only; not an official broker statement\nTradingDay={day}\nBrokerID={}\nInvestorID={}\nCurrencyID={}\nSettledEquity={}\nCarriedMargin={}\nUnmodeled fields omitted; amounts from explicit settle_day\n", a.broker_id, a.investor_id, a.currency_id, a.pre_balance.to_f64(), a.used_margin.to_f64()).into_bytes();
             Report { broker: a.broker_id.clone(), investor: a.investor_id.clone(), day: day.into(), settlement_id: 1, account: a.investor_id.clone(), currency: a.currency_id.clone(), content, source: "modeled_ledger_minimal".into() }
         }).collect()
     }

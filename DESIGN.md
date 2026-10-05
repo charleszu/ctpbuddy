@@ -25,12 +25,12 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | §6 ZeroMQ DEALER/ROUTER + PUB/SUB | plain TCP，一连接一客户端，帧格式一致 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道 |
 | §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | Shim 只解析 `tcp://<IPv4>:<port>` 字面地址 | 下游需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」暂不成立 |
 | §6.4 / §10 单进程托管多 Broker | 每个核心实例只服务一个 `--broker-id`；费率表只按合约索引 | 多 Broker 需多实例部署 |
-| §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 特例、SHFE/INE 今昨、成交开平归一化）在代码中按交易所分支 | 换规则需改代码 |
-| §6.4 登录后核心补发快照；TERT_RESTART/RESUME 私有流重传 | 未实现；`SubscribePrivateTopic` 被忽略 | 依赖重启后回放当日回报恢复状态的下游需改为登录后主动查询 |
-| §5 Shim DLL/so | 仅 Windows（winsock）DLL | Linux 下游暂无法替换 `.so` |
+| §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
+| §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：Shim 的 `SubscribePrivateTopic(nResumeType)` 经 AUTH 的 `private_resume` 上报；登录响应后 RESTART(0) 重放当日全部 RtnOrder/RtnTrade，RESUME(1) 只重放该投资者无在线会话期间产生的回报（服务端按投资者游标，非 API 本地流文件序号，nSeqNo 忽略），QUICK(2) 或未调用则不重放；日结/重置清空 | 游标不随进程重启保存（`--recover` 后当日回报为空）；多会话同账号共享一个游标；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；未调用 SubscribePrivateTopic 时保持旧行为（只推实时） |
+| §5 Shim DLL/so | Windows DLL（`shim/build_msvc.py`）与 Linux `.so`（`shim/build_linux.py`，g++/WSL 已通过 `m1_shim_e2e`）；`CTPBUDDY_ADDR` 环境变量可整体重定向前置，前置地址支持主机名 | 前置别名表 `ctpbuddy.ini` 仍未实现；ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | — |
 | §8.6 / §8.7 昨仓保证金按昨结算价计 | `settle_trading_day` 推进 `last_settlement_price` 但**不重估存续持仓的保证金**（`PositionDetail.margin` 仍为成交时刻按 `MarginPrice::{PreSettlement,Last,Average,Open}` 算出的快照）；`Last`/`Average` 也只在成交时刻取值，不随行情/结算滚动 | 真实柜台日结按当日结算价重算全部持仓保证金；跨日持仓的 `CurrMargin`/`Available` 与真实结算单会有偏差，跨日场景断言不要拿保证金对账 |
-| §8.10 挂单成交价与触发条件 | tick 到达时 resting 单按 **tick 档位价**成交而非自身限价（买 3001 挂单遇 bid1=3002 成交在 3002，即「价格改善」，见 `m2_flow` flow008）；只看五档深度是否穿越，**不看 `LastPrice` 穿越**，深度为空的源上 GFD 限价单永不成交（模式 1 降级只覆盖非限价单） | 真实交易所 maker 按自身限价成交；以成交价断言滑点的下游会看到正向偏差；只有 LastPrice 的行情源上挂单策略测不到成交 |
+| §8.10 挂单成交价与触发条件 | tick 到达时 resting 单按 **tick 档位价**成交而非自身限价（买 3001 挂单遇 bid1=3002 成交在 3002，即「价格改善」，见 `m2_flow` flow008）；只看五档深度是否穿越，**不看 `LastPrice` 穿越**，深度为空的源（仅 LastPrice）退化为按最新价成交：限价单仅在最新价穿越其限价时成交，成交价取最新价；设 `CTPBUDDY_MAKER_AT_LIMIT=1` 后 resting 限价单按自身限价成交（maker 语义） | 真实交易所 maker 按自身限价成交；以成交价断言滑点的下游会看到正向偏差；默认仍有价格改善偏差（可用 `CTPBUDDY_MAKER_AT_LIMIT=1` 消除）；LastPrice 穿越即成交不模拟队列位置，偏乐观 |
 | §8.3 / §8.10 自成交预防 | **默认关闭**（柜台设置 `self_trade_prevention`，CLI `--self-trade-prevention true` / env `CTPBUDDY_SELF_TRADE_PREVENTION`，运行时可经 ADMIN `settings_update` 切换；引擎侧 `MatchingEngine::set_self_trade_prevention`），同账户交叉直接成交，与真实 CTP 一致；显式开启时跳过同账户挂单会**跨过该档位继续向后匹配**，破坏价格时间优先 | 开启后的成交序不是任何真实交易所的行为，仅供需要仿真「自成交被拦」的 desk 自行打开；默认配置下不影响 |
 
 **关于正文中的「落地口径（M2-x / #xx，YYYY-MM-DD）」段落**：§7.4、§7.5、§8.10~§8.14 等带日期的落地口径是当时实测的**历史变更记录**（按「重大变更走 ADR 追加、不静默改写」原则保留），其中的数字、开关默认值与待办可能已被后续改动超越；**当前实现与已知差距以本 0.6 表为准**，错误码三态统计以 [`docs/错误码全集.md`](docs/错误码全集.md)（`tools/fill_errorcode_status.py --check`）为准。

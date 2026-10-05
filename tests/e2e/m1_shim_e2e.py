@@ -42,7 +42,11 @@ from m1_smoke import BROKER, INITIAL_FUNDS, INSTRUMENT, INVESTOR, find_core, fre
 from ctpbuddy.sdk import Admin  # noqa: E402
 
 SHIM_BIN = os.environ.get("CTPBUDDY_SHIM", os.path.join(REPO, "shim", "bin"))
-DEMO_EXE = os.path.join(SHIM_BIN, "demo_td.exe")
+IS_WINDOWS = os.name == "nt"
+DEMO_EXE = os.path.join(SHIM_BIN, "demo_td.exe" if IS_WINDOWS else "demo_td")
+SHIM_LIBS = ("thosttraderapi_se.dll", "thostmduserapi_se.dll") if IS_WINDOWS else (
+    "thosttraderapi_se.so", "thostmduserapi_se.so")
+BUILD_HINT = "python shim/build_msvc.py --demo" if IS_WINDOWS else "python3 shim/build_linux.py --demo"
 DEMO_TIMEOUT_SEC = 90
 DEMO_MODE = os.environ.get("CTPBUDDY_SHIM_MODE", "")
 
@@ -50,12 +54,12 @@ DEMO_MODE = os.environ.get("CTPBUDDY_SHIM_MODE", "")
 def find_demo() -> str:
     if not os.path.exists(DEMO_EXE):
         raise SystemExit(
-            "%s not found; build it first: python shim/build_msvc.py --demo" % DEMO_EXE
+            "%s not found; build it first: %s" % (DEMO_EXE, BUILD_HINT)
         )
-    for dll in ("thosttraderapi_se.dll", "thostmduserapi_se.dll"):
+    for dll in SHIM_LIBS:
         if not os.path.exists(os.path.join(SHIM_BIN, dll)):
-            raise SystemExit("%s missing next to the demo; run shim/build_msvc.py" %
-                             os.path.join(SHIM_BIN, dll))
+            raise SystemExit("%s missing next to the demo; run %s" %
+                             (os.path.join(SHIM_BIN, dll), BUILD_HINT))
     return DEMO_EXE
 
 

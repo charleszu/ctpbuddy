@@ -118,11 +118,14 @@ impl World {
             .map(|a| {
                 json::obj_sorted(vec![
                     ("investor".into(), json::s(&a.investor_id)),
-                    ("balance".into(), json::n(a.dynamic_equity())),
-                    ("available".into(), json::n(a.available())),
-                    ("used_margin".into(), json::n(a.used_margin)),
-                    ("position_profit".into(), json::n(a.position_profit)),
-                    ("commission".into(), json::n(a.commission)),
+                    ("balance".into(), json::n(a.dynamic_equity().to_f64())),
+                    ("available".into(), json::n(a.available().to_f64())),
+                    ("used_margin".into(), json::n(a.used_margin.to_f64())),
+                    (
+                        "position_profit".into(),
+                        json::n(a.position_profit.to_f64()),
+                    ),
+                    ("commission".into(), json::n(a.commission.to_f64())),
                     ("risk".into(), json::n(a.risk())),
                 ])
             })
@@ -435,8 +438,8 @@ impl World {
                     json::obj_sorted(vec![
                         ("broker".into(), json::s(&a.broker_id)),
                         ("investor".into(), json::s(&a.investor_id)),
-                        ("pre_balance".into(), json::n(a.pre_balance)),
-                        ("used_margin".into(), json::n(a.used_margin)),
+                        ("pre_balance".into(), json::n(a.pre_balance.to_f64())),
+                        ("used_margin".into(), json::n(a.used_margin.to_f64())),
                         (
                             "positions".into(),
                             Value::Arr(
@@ -510,10 +513,10 @@ impl World {
         self.engine = staged_engine;
         self.playback = staged_playback;
         self.journal_record_json("settlement", &self.cfg.broker_id.clone(), "", event);
-        self.orders_today.clear();
-        self.trades_today.clear();
+        self.clear_day_flow();
         self.settlement_confirmed.clear();
         self.vt_trading_day = next_day.clone();
+        self.persist_ledger();
         self.admin_reply(
             conn_id,
             req_id,

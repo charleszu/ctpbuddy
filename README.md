@@ -12,6 +12,8 @@
 
 SimNow / openctp 都是远程 CS 模式：网络绑死、无法注入极端行情、不可复现、无管理面。CTPBuddy 把柜台搬到本地：替换同名 DLL 即可接入，行情可回放、场景可注入、账户可管理、团队可共用。
 
+> **当前边界（请先读）**：传输为明文 TCP，ADMIN 与交易端口**无认证**（TD 登录不校验密码）；核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒） 重定向。ZeroMQ、多 Broker、登录后快照补发/私有流重传尚未实现，详见 DESIGN §0.6。「团队共用」目前仅适用于受信内网并自行做网络隔离。
+
 ## 架构速览
 
 ```
@@ -32,21 +34,10 @@ Python 层 (pip install ctpbuddy): CLI / SDK 断言 / 本机 Web 后台 / 行情
 
 Wire v1 保持现有小端 C 布局和字段偏移，Rust 编解码按字段处理并将 padding 清零。报单价格中的 NaN 和无穷值在进入冻结及撮合前拒绝。
 
-M1（核心闭环 + Shim 全链路）已完成：
+当前里程碑摘要（完整清单与 CI 记录见 [CHANGELOG.md](CHANGELOG.md)）：
 
-- [x] 仓库骨架、设计文档（含存储分层与表结构定稿）
-- [x] 头文件 codegen（ctpsdk 6.7.13 → Rust/Python/C++ 三端结构体镜像）
-- [x] Rust 核心：wire 帧 / market（CSV 源 + 虚拟时钟）/ matching（即时成交 + 限价簿）/ ledger / server（TCP 传输占位 + JSONL journal）
-- [x] Python 包：wire / SDK / CLI / 场景源（SDK 对查询流控 90 透明重试）
-- [x] e2e 冒烟测试（SDK 登录 → 订阅 → 报单穿透 → 断言成交与资金扣减）
-- [x] C++ Shim：139+14 个纯虚方法全 override、519 项编译期布局校验、真实下游 demo（stock 厂商头文件 + 链接 Shim import lib）全链路通过 `tests/e2e/m1_shim_e2e.py`——含 CTP 两类查询流控真实触发（在途 -2 + 每秒 QryFreq 90 重试）
-- [ ] ZeroMQ 传输适配（当前为 TCP 占位，帧协议一致）
-- [x] 任务41最小初仓闭环：真实 core 启动导入逐笔 SHFE 昨仓、静态 `YdPosition`、平昨保持静态值、零余量 detail 过滤、无初仓流水；SHFE/INE 查询按逐笔 detail 年龄桶聚合，非 SHFE 单行
-- [x] 任务42第一阶段显式日结：ADMIN `settle_day` 接收用户供给的 `settlement_prices` 与严格递增 `next_trading_day`；要求 playback 暂停且无活动订单；账本先暂存校验再原子替换，最终按供给结算价盯市，动态权益滚存至 `PreBalance`，清零当日资金/盈亏/手续费/冻结，今仓转静态昨仓，清理当日订单成交与旧确认；不自动按固定时刻触发、不复用 `reset_account`、不伪造 SettlementInfo 查询
-- [x] 任务43 `OrderSysID`：内部订单号继续用于引擎/账本/journal关联；首条对外 OrderSysID 为空，按交易所布局在 accepted 边界后填充，交易所拒单全程为空；Trade/QryOrder/撤单使用最终非空系统号，覆盖 SHFE GFD、拒单、DCE/FAK 布局与最终关联
-- [x] M3-5（本地）：结算单原始 GBK 供给与 `ReqQrySettlementInfo` 分段查询；`tests/e2e/m3_5_settlement_info.py` 已加入 CI 矩阵，本地通过，远端 CI 已核实成功（37157525169 / 3d42505、37124374367 / 12d55e8、37124336391 / 394bff9）
-- [x] M3-6（本地 + 已验证远端）：JSONL journal 的 SQLite 投影、原子 rebuild 与只读 CLI/Web 查询；设置页已增加账户/持仓/资金快照/订单/成交/审计/结算报告只读浏览、broker/investor/day 筛选与分页；Web API 采用白名单、textContent 防注入、非实时快照边界和路径安全错误；仅开放带确认/CSRF/严格校验/审计的 `settlement_report`、`settle_day` 写入口，不暴露 reset/shutdown/任意 admin/SQL；`tests/e2e/m3_6_projection.py` 已加入 CI 矩阵，本地通过，远端 CI `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success
-- [ ] M4 交付：断言 CLI、OINK 文档站、Shim真实构建基础、真实成交受控回放、三表源对齐第一阶段已有；完整账户Core回放仍受期权/RefData/初始结算状态建模限制，三渠道发布与完整发布包仍未完成，不将 M4 总项标为完成
+- M1 核心闭环 + Shim 全链路、M2 撮合/流控、M3 参考数据/显式日结/OrderSysID/结算单/journal 投影：已完成。
+- 未完成：ZeroMQ 传输适配（当前 TCP 占位）、M4 三渠道发布与完整发布包；详见 DESIGN §0.6。
 
 ## 快速开始
 

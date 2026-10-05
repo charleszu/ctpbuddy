@@ -2,7 +2,8 @@
 //!
 //! The single writer is the world loop: events accumulate in memory and are
 //! flushed every [`FLUSH_EVENTS`] records or [`FLUSH_EVERY`] of wall time,
-//! whichever comes first. An unflushed tail may be lost on a crash.
+//! whichever comes first. An unflushed tail may be lost on a crash; the
+//! durability level is chosen with `CTPBUDDY_JOURNAL_SYNC` ([`SyncMode`]).
 //! Each startup creates a fresh recording; previous runs are archived separately.
 
 use std::fs::{create_dir_all, File, OpenOptions};
@@ -16,6 +17,34 @@ use crate::json::{self, Value};
 const FLUSH_EVENTS: usize = 1000;
 const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// Env var selecting the journal durability level.
+pub const SYNC_ENV: &str = "CTPBUDDY_JOURNAL_SYNC";
+
+/// How hard the journal tries to reach stable storage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncMode {
+    /// flush + fsync after every record: nothing acknowledged is ever lost.
+    Always,
+    /// flush + fsync every 100 ms / 1000 records (default).
+    Interval,
+    /// flush to the OS only, never fsync: survives a process crash, not power loss.
+    Off,
+}
+
+impl SyncMode {
+    pub fn parse(v: Option<&str>) -> SyncMode {
+        match v.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+            Some("always") => SyncMode::Always,
+            Some("off") | Some("none") => SyncMode::Off,
+            Some("interval") | Some("") | None => SyncMode::Interval,
+            Some(other) => {
+                eprintln!("[ctpbuddy] unknown {SYNC_ENV}={other}, using interval");
+                SyncMode::Interval
+            }
+        }
+    }
+}
+
 pub struct Journal {
     _lock: File,
     dir: PathBuf,
@@ -24,6 +53,7 @@ pub struct Journal {
     seq: u64,
     pending: usize,
     last_flush: Instant,
+    sync: SyncMode,
 }
 
 impl Journal {
@@ -72,6 +102,7 @@ impl Journal {
             seq: 0,
             pending: 0,
             last_flush: Instant::now(),
+            sync: SyncMode::parse(std::env::var(SYNC_ENV).ok().as_deref()),
         })
     }
 
@@ -82,6 +113,11 @@ impl Journal {
         self.flush()?;
         let path = self.dir.join(format!("{day}.jsonl"));
         let f = OpenOptions::new().create(true).append(true).open(&path)?;
+        // Make the new directory entry durable too (not supported on Windows).
+        #[cfg(unix)]
+        if self.sync != SyncMode::Off {
+            File::open(&self.dir)?.sync_all()?;
+        }
         self.writer = Some(BufWriter::new(f));
         self.day = day.to_string();
         Ok(())
@@ -127,6 +163,11 @@ impl Journal {
             return;
         }
         self.pending += 1;
+        if self.sync == SyncMode::Always {
+            if let Err(e) = self.flush() {
+                eprintln!("[ctpbuddy] journal sync failed: {e}");
+            }
+        }
     }
 
     pub fn seq(&self) -> u64 {
@@ -154,7 +195,9 @@ impl Journal {
     pub fn flush(&mut self) -> std::io::Result<()> {
         if let Some(w) = self.writer.as_mut() {
             w.flush()?;
-            w.get_ref().sync_all()?;
+            if self.sync != SyncMode::Off {
+                w.get_ref().sync_all()?;
+            }
         }
         self.pending = 0;
         self.last_flush = Instant::now();
@@ -165,5 +208,32 @@ impl Journal {
 impl Drop for Journal {
     fn drop(&mut self) {
         let _ = self.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_mode_parsing() {
+        assert_eq!(SyncMode::parse(None), SyncMode::Interval);
+        assert_eq!(SyncMode::parse(Some("ALWAYS")), SyncMode::Always);
+        assert_eq!(SyncMode::parse(Some("off")), SyncMode::Off);
+        assert_eq!(SyncMode::parse(Some("bogus")), SyncMode::Interval);
+    }
+
+    #[test]
+    fn always_mode_makes_every_record_durable_immediately() {
+        let dir = std::env::temp_dir().join(format!("ctpbuddy-jsync-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut j = Journal::new(dir.to_str().unwrap()).unwrap();
+        j.sync = SyncMode::Always;
+        j.record("20261005", 0.0, "x", "", "", Value::Null);
+        assert_eq!(j.pending(), 0, "flushed without waiting for the interval");
+        let file = std::fs::read_to_string(dir.join("journal").join("20261005.jsonl")).unwrap();
+        assert_eq!(file.lines().count(), 1);
+        drop(j);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

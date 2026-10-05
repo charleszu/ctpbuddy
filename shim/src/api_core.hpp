@@ -18,12 +18,29 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <errno.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 
 #include "ThostFtdcUserApiStruct.h"
 
-#pragma comment(lib, "ws2_32.lib")
+#ifndef _WIN32
+// POSIX spelling of the few Winsock names the shim core uses.
+using SOCKET = int;
+constexpr SOCKET INVALID_SOCKET = -1;
+inline int closesocket(SOCKET s) { return ::close(s); }
+#endif
 
 namespace ctpbuddy {
 
@@ -190,25 +207,16 @@ inline void set_cstr(char* buf, size_t n, const std::string& s) {
     memset(buf + k, 0, n - k);
 }
 
+/// UTF-8 -> GBK (api_core.cpp; MultiByteToWideChar on Windows, iconv on POSIX).
+/// Never returns more than `max_bytes`, cutting on a character boundary.
+std::string utf8_to_gbk(const std::string& utf8, size_t max_bytes);
+
 /// Write a message authored in this source tree (UTF-8 literal, /utf-8) into a
 /// CTP char field as GBK -- the encoding every CTP client decodes. Truncates
 /// on a character boundary and always leaves a terminating NUL.
 inline void set_text(char* buf, size_t n, const std::string& utf8) {
-    std::string gbk;
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
-    if (wlen > 0) {
-        std::wstring wide(static_cast<size_t>(wlen), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), &wide[0], wlen);
-        size_t used = 0;
-        for (wchar_t ch : wide) {
-            char tmp[4];
-            int k = WideCharToMultiByte(936, 0, &ch, 1, tmp, sizeof(tmp), "?", nullptr);
-            if (k <= 0 || used + static_cast<size_t>(k) + 1 > n) break;
-            gbk.append(tmp, static_cast<size_t>(k));
-            used += static_cast<size_t>(k);
-        }
-    }
-    set_cstr(buf, n, gbk);
+    // reserve one byte for the NUL terminator
+    set_cstr(buf, n, utf8_to_gbk(utf8, n > 0 ? n - 1 : 0));
 }
 
 /// Everything shared by the two API shims. Not copyable; lifetime is managed
@@ -236,6 +244,8 @@ class ApiCore {public:
 
     // ---- SPI ----
     void set_spi(void* spi) { spi_ = spi; }
+    // SubscribePrivateTopic(nResumeType): 0 RESTART / 1 RESUME / 2 QUICK; -1 = never called.
+    void set_private_resume(int t) { private_resume_ = t; }
     void* spi() const { return spi_; }
 
     // ---- request surface (generated Req* overrides call these) ----
@@ -285,6 +295,7 @@ private:
     void close_socket_locked();
     void write_frame_locked(const Frame& f);
     void send_auth_locked(const char* broker, const char* user);
+    std::string private_resume_json() const;
     void drain_auth_errors();
     void drain_deferred();
     void on_auth_rsp(const Frame& f);
@@ -315,6 +326,7 @@ private:
     std::string front_host_;
     int front_port_ = 0;
     bool authed_ = false;
+    int private_resume_ = -1;
     bool auth_in_flight_ = false;
     uint32_t auth_wire_req_id_ = 0;
     std::string auth_broker_;

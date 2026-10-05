@@ -40,6 +40,8 @@ options:
                           server exits; default = bundled
                           snapshot)
       --scenario <dir>   scenario dir with refdata/ + ticks.csv
+      --recover          restore the ledger from <data-dir>/state/ledger.json
+                         (also CTPBUDDY_RECOVER=1); working orders are dropped
       --speed <n>        playback speed multiplier    (0 = as fast as possible)
       --td <addr>        CTP td front endpoint        (default 127.0.0.1:5560)
   -v, --version          show version
@@ -124,6 +126,13 @@ fn apply_env(cfg: &mut Config) {
             cfg.settings_overrides.push(key.into());
         }
     }
+    if ctpbuddy_server::state::recover_requested(
+        std::env::var(ctpbuddy_server::state::RECOVER_ENV)
+            .ok()
+            .as_deref(),
+    ) {
+        cfg.recover = true;
+    }
     if let Ok(v) = std::env::var("CTPBUDDY_SCENARIO") {
         if !v.is_empty() {
             cfg.scenario_dir = Some(v);
@@ -159,6 +168,7 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 cfg.settings_overrides.push("initial_funds".into());
             }
             "--scenario" => cfg.scenario_dir = Some(take("--scenario")?),
+            "--recover" => cfg.recover = true,
             "--refdata" => cfg.refdata_dir = Some(take("--refdata")?),
             "--qry-freq" => {
                 let v = take("--qry-freq")?;

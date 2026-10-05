@@ -14,6 +14,8 @@ ctpbuddy-wire = { path = "../ctpbuddy-wire" }
 ctpbuddy-market = { path = "../ctpbuddy-market" }
 ctpbuddy-matching = { path = "../ctpbuddy-matching" }
 ctpbuddy-ledger = { path = "../ctpbuddy-ledger" }
+serde = "1"
+serde_json = "1"
 
 [lints]
 workspace = true

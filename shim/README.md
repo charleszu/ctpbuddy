@@ -60,3 +60,13 @@ set CTPBUDDY_SHIM_MODE=auth-check && python tests/e2e/m1_shim_e2e.py
 
 `demo_td.exe` 输出统一为 UTF-8（CTP `ErrorMsg` 为 GBK，demo 打印前转码），
 harness 需在 `PYTHONUTF8=1` 下运行（CI 已设置）。
+
+## Linux / WSL
+
+```n python3 shim/build_linux.py --demo        # g++ -> shim/bin/thosttraderapi_se.so, thostmduserapi_se.so, demo_td
+ CTPBUDDY_CORE=<ctpbuddy-server> PYTHONUTF8=1 python3 tests/e2e/m1_shim_e2e.py
+```n
+- 头文件取 `ctpsdk/.../td/linux64`（亦接受 win64 / 平铺目录）；产物名与厂商 .so 相同，符号 mangling 一致（已用 nm 对照）。
+- POSIX 路径：poll、MSG_NOSIGNAL（对端消失不触发 SIGPIPE）、iconv 做 UTF-8↔GBK。
+- 前置地址支持主机名；环境变量 `CTPBUDDY_ADDR=tcp://host:port` 覆盖应用注册的所有前置。
+- WSL 下 cargo 请设 `CARGO_TARGET_DIR` 到 Linux 文件系统，避免与 Windows 的 core/target 混用。

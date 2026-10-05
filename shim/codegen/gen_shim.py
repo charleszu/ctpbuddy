@@ -216,7 +216,7 @@ CORE_FORWARD = {
     "RegisterNameServer": "core_register_name_server(pszNsAddress);",
     "RegisterFensUserInfo": "core_register_fens(pFensUserInfo);",
     "RegisterSpi": "set_spi(pSpi);",
-    "SubscribePrivateTopic": "(void)nResumeType; (void)nSeqNo;",
+    "SubscribePrivateTopic": "set_private_resume((int)nResumeType); (void)nSeqNo;",
     "SubscribePublicTopic": "(void)nResumeType;",
 }
 
@@ -642,9 +642,13 @@ def main():
     gen = os.path.join(src, "generated")
     os.makedirs(gen, exist_ok=True)
 
-    td_path = os.path.join(sdk, "td", "win64", "ThostFtdcTraderApi.h")
-    md_path = os.path.join(sdk, "md", "win64", "ThostFtdcMdApi.h")
-    if not os.path.exists(td_path):
+    # vendor layouts first (win64, then linux64: same API surface), then flat
+    for plat in ("win64", "linux64"):
+        td_path = os.path.join(sdk, "td", plat, "ThostFtdcTraderApi.h")
+        md_path = os.path.join(sdk, "md", plat, "ThostFtdcMdApi.h")
+        if os.path.exists(td_path):
+            break
+    else:
         td_path = os.path.join(sdk, "ThostFtdcTraderApi.h")
         md_path = os.path.join(sdk, "ThostFtdcMdApi.h")
     td_h = read_text(td_path)

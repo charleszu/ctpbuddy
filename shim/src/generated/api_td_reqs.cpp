@@ -44,7 +44,7 @@ void TraderApi::RegisterSpi(CThostFtdcTraderSpi *pSpi) {
 }
 
 void TraderApi::SubscribePrivateTopic(THOST_TE_RESUME_TYPE nResumeType, int nSeqNo) {
-    (void)nResumeType; (void)nSeqNo;
+    set_private_resume((int)nResumeType); (void)nSeqNo;
 }
 
 void TraderApi::SubscribePublicTopic(THOST_TE_RESUME_TYPE nResumeType) {

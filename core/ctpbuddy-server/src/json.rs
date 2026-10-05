@@ -1,10 +1,11 @@
-//! Minimal JSON for admin/AUTH payloads (no external crates: the server must
-//! build with zero network access and stay dependency-free end to end).
-//! Supports the flat object shapes this project exchanges; nested values are
-//! parsed/serialized recursively for robustness.
+//! JSON for admin/AUTH payloads and the journal. Parsing and string escaping
+//! are delegated to `serde_json` (RFC 8259 compliant, recursion-limited);
+//! this module only keeps the small `Value` facade the rest of the server uses,
+//! with insertion-ordered objects and `NaN`/`Infinity` serialized as `null`.
 
+use serde::de::{Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::fmt::{self, Write as _};
 
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -120,21 +121,8 @@ impl Value {
 }
 
 fn write_json_str(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
+    // serde_json escapes quotes, backslashes and control characters.
+    out.push_str(&serde_json::to_string(s).expect("string serialization is infallible"));
 }
 
 // ---- builder helpers ----
@@ -150,166 +138,57 @@ pub fn b(x: bool) -> Value {
 
 /// Parse JSON text. Returns a human-readable error string on failure.
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut p = Parser {
-        chars: text.chars().collect(),
-        pos: 0,
-    };
-    p.skip_ws();
-    let v = p.value()?;
-    p.skip_ws();
-    if p.pos != p.chars.len() {
-        return Err(format!("trailing characters at {}", p.pos));
-    }
-    Ok(v)
+    serde_json::from_str::<Value>(text).map_err(|e| e.to_string())
 }
 
-struct Parser {
-    chars: Vec<char>,
-    pos: usize,
-}
-
-impl Parser {
-    fn peek(&self) -> Option<char> {
-        self.chars.get(self.pos).copied()
-    }
-
-    fn next(&mut self) -> Option<char> {
-        let c = self.peek();
-        if c.is_some() {
-            self.pos += 1;
-        }
-        c
-    }
-
-    fn skip_ws(&mut self) {
-        while matches!(
-            self.peek(),
-            Some(' ') | Some('\t') | Some('\n') | Some('\r')
-        ) {
-            self.pos += 1;
-        }
-    }
-
-    fn expect(&mut self, c: char) -> Result<(), String> {
-        if self.next() == Some(c) {
-            Ok(())
-        } else {
-            Err(format!("expected '{c}' at {}", self.pos))
-        }
-    }
-
-    fn value(&mut self) -> Result<Value, String> {
-        self.skip_ws();
-        match self.peek() {
-            Some('{') => self.object(),
-            Some('[') => self.array(),
-            Some('"') => Ok(Value::Str(self.string()?)),
-            Some('t') => self.literal("true", Value::Bool(true)),
-            Some('f') => self.literal("false", Value::Bool(false)),
-            Some('n') => self.literal("null", Value::Null),
-            Some(c) if c == '-' || c.is_ascii_digit() => self.number(),
-            other => Err(format!("unexpected {other:?} at {}", self.pos)),
-        }
-    }
-
-    fn literal(&mut self, word: &str, v: Value) -> Result<Value, String> {
-        for expected in word.chars() {
-            if self.next() != Some(expected) {
-                return Err(format!("invalid literal at {}", self.pos));
+impl<'de> Deserialize<'de> for Value {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Value, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = Value;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("any JSON value")
+            }
+            fn visit_unit<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+            fn visit_none<E>(self) -> Result<Value, E> {
+                Ok(Value::Null)
+            }
+            fn visit_bool<E>(self, b: bool) -> Result<Value, E> {
+                Ok(Value::Bool(b))
+            }
+            fn visit_i64<E>(self, n: i64) -> Result<Value, E> {
+                Ok(Value::Num(n as f64))
+            }
+            fn visit_u64<E>(self, n: u64) -> Result<Value, E> {
+                Ok(Value::Num(n as f64))
+            }
+            fn visit_f64<E>(self, n: f64) -> Result<Value, E> {
+                Ok(Value::Num(n))
+            }
+            fn visit_str<E>(self, s: &str) -> Result<Value, E> {
+                Ok(Value::Str(s.to_string()))
+            }
+            fn visit_string<E>(self, s: String) -> Result<Value, E> {
+                Ok(Value::Str(s))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+                let mut items = Vec::new();
+                while let Some(v) = seq.next_element()? {
+                    items.push(v);
+                }
+                Ok(Value::Arr(items))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+                let mut pairs = Vec::new();
+                while let Some((k, v)) = map.next_entry::<String, Value>()? {
+                    pairs.push((k, v));
+                }
+                Ok(Value::Obj(pairs))
             }
         }
-        Ok(v)
-    }
-
-    fn object(&mut self) -> Result<Value, String> {
-        self.expect('{')?;
-        let mut pairs = Vec::new();
-        self.skip_ws();
-        if self.peek() == Some('}') {
-            self.pos += 1;
-            return Ok(Value::Obj(pairs));
-        }
-        loop {
-            self.skip_ws();
-            let key = self.string()?;
-            self.skip_ws();
-            self.expect(':')?;
-            let value = self.value()?;
-            pairs.push((key, value));
-            self.skip_ws();
-            match self.next() {
-                Some(',') => continue,
-                Some('}') => return Ok(Value::Obj(pairs)),
-                _ => return Err(format!("expected ',' or '}}' at {}", self.pos)),
-            }
-        }
-    }
-
-    fn array(&mut self) -> Result<Value, String> {
-        self.expect('[')?;
-        let mut items = Vec::new();
-        self.skip_ws();
-        if self.peek() == Some(']') {
-            self.pos += 1;
-            return Ok(Value::Arr(items));
-        }
-        loop {
-            items.push(self.value()?);
-            self.skip_ws();
-            match self.next() {
-                Some(',') => continue,
-                Some(']') => return Ok(Value::Arr(items)),
-                _ => return Err(format!("expected ',' or ']' at {}", self.pos)),
-            }
-        }
-    }
-
-    fn string(&mut self) -> Result<String, String> {
-        self.expect('"')?;
-        let mut out = String::new();
-        loop {
-            match self.next() {
-                Some('"') => return Ok(out),
-                Some('\\') => match self.next() {
-                    Some('"') => out.push('"'),
-                    Some('\\') => out.push('\\'),
-                    Some('/') => out.push('/'),
-                    Some('n') => out.push('\n'),
-                    Some('t') => out.push('\t'),
-                    Some('r') => out.push('\r'),
-                    Some('b') => out.push('\u{0008}'),
-                    Some('f') => out.push('\u{000C}'),
-                    Some('u') => {
-                        let mut code = 0u32;
-                        for _ in 0..4 {
-                            let c = self.next().ok_or("unexpected end in \\u")?;
-                            code = code * 16
-                                + c.to_digit(16)
-                                    .ok_or_else(|| format!("bad hex digit {c:?}"))?;
-                        }
-                        out.push(char::from_u32(code).unwrap_or('\u{FFFD}'));
-                    }
-                    _ => return Err(format!("bad escape at {}", self.pos)),
-                },
-                Some(c) => out.push(c),
-                None => return Err("unterminated string".into()),
-            }
-        }
-    }
-
-    fn number(&mut self) -> Result<Value, String> {
-        let start = self.pos;
-        if self.peek() == Some('-') {
-            self.pos += 1;
-        }
-        while matches!(self.peek(), Some(c) if c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')
-        {
-            self.pos += 1;
-        }
-        let text: String = self.chars[start..self.pos].iter().collect();
-        text.parse::<f64>()
-            .map(Value::Num)
-            .map_err(|_| format!("invalid number '{text}'"))
+        d.deserialize_any(V)
     }
 }
 
@@ -341,5 +220,44 @@ mod tests {
         let back = parse(&text).unwrap();
         assert!(matches!(back.get("nan"), Some(Value::Null)));
         assert_eq!(back.get_num("one"), Some(1.0));
+    }
+
+    #[test]
+    fn parses_nested_unicode_and_escapes() {
+        let v = parse(r#"{"a":{"b":[1,2.5,"x\u00e9\n"]},"s":"\ud83d\ude00","k":1e3}"#).unwrap();
+        assert_eq!(v.get_num("k"), Some(1000.0));
+        assert_eq!(v.get_str("s").as_deref(), Some("\u{1F600}"));
+        let round = parse(&v.to_json()).unwrap();
+        assert_eq!(round.to_json(), v.to_json());
+    }
+
+    #[test]
+    fn rejects_malformed_and_deeply_nested_input() {
+        for bad in [
+            "",
+            "{",
+            "{\"a\":}",
+            "[1,]",
+            "01",
+            "{\"a\":1} x",
+            "nul",
+            "\"\\q\"",
+        ] {
+            assert!(parse(bad).is_err(), "should reject {bad:?}");
+        }
+        let deep = "[".repeat(10_000);
+        assert!(parse(&deep).is_err());
+    }
+
+    #[test]
+    fn preserves_object_key_order() {
+        let v = parse(r#"{"z":1,"a":2,"m":3}"#).unwrap();
+        let keys: Vec<&str> = v
+            .as_obj()
+            .unwrap()
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .collect();
+        assert_eq!(keys, ["z", "a", "m"]);
     }
 }

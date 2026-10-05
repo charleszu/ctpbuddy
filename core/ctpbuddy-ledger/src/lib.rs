@@ -18,14 +18,9 @@
 
 use std::collections::HashMap;
 
-use ctpbuddy_wire::generated::CThostFtdcInvestorProductGroupMarginField;
+use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcInvestorProductGroupMarginField};
 
-use ctpbuddy_wire::generated::{
-    cstr, set_cstr, CThostFtdcInvestorPositionDetailField, CThostFtdcInvestorPositionField,
-    CThostFtdcTradingAccountField,
-};
-
-use ctpbuddy_matching::{Catalog, CommissionKind, Direction, Fill, OffsetFlag};
+use ctpbuddy_matching::{Catalog, CommissionKind, Fill, OffsetFlag};
 
 pub const INITIAL_FUNDS: f64 = 2_000_000.0;
 
@@ -42,7 +37,7 @@ pub const ERR_NO_CLOSE_YD_LEDGER: i32 = 51; // OVER_CLOSEYESTERDAY_POSITION CTP:
 /// `CloseToday`（知识库 §4.3，notes/02 B10）。其他交易所不区分今昨，`Close`
 /// 按先开先平消耗；它们收到的平今/平昨在柜台侧统一转为平仓。
 pub fn close_buckets(offset: OffsetFlag, exchange_id: &str) -> (bool, bool) {
-    if !matches!(exchange_id, "SHFE" | "INE") {
+    if !ctpbuddy_matching::rules_for(exchange_id).splits_today_yesterday {
         return (false, false);
     }
     match offset {
@@ -52,635 +47,17 @@ pub fn close_buckets(offset: OffsetFlag, exchange_id: &str) -> (bool, bool) {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AccountKey {
-    pub broker_id: String,
-    pub investor_id: String,
-}
+mod account;
+mod money;
+mod position;
+mod settlement;
+mod snapshot;
+#[cfg(test)]
+mod tests;
 
-impl AccountKey {
-    pub fn new(broker_id: &str, investor_id: &str) -> Self {
-        AccountKey {
-            broker_id: broker_id.to_string(),
-            investor_id: investor_id.to_string(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Account {
-    pub broker_id: String,
-    pub investor_id: String,
-    pub pre_balance: f64,
-    pub deposit: f64,
-    pub withdraw: f64,
-    /// Realized equity (excludes unrealized position profit).
-    pub balance: f64,
-    pub position_profit: f64,
-    pub close_profit: f64,
-    pub commission: f64,
-    pub used_margin: f64,
-    pub frozen_margin: f64,
-    pub frozen_commission: f64,
-    pub currency_id: String,
-}
-
-impl Account {
-    pub fn new(broker_id: &str, investor_id: &str, initial: f64) -> Self {
-        Account {
-            broker_id: broker_id.to_string(),
-            investor_id: investor_id.to_string(),
-            pre_balance: initial,
-            deposit: 0.0,
-            withdraw: 0.0,
-            balance: initial,
-            position_profit: 0.0,
-            close_profit: 0.0,
-            commission: 0.0,
-            used_margin: 0.0,
-            frozen_margin: 0.0,
-            frozen_commission: 0.0,
-            currency_id: "CNY".to_string(),
-        }
-    }
-
-    /// Dynamic equity: static equity plus today's mark-to-market effects.
-    /// `balance` already contains realized close PnL and commission; deposits
-    /// and withdrawals remain separate account-day fields.
-    pub fn dynamic_equity(&self) -> f64 {
-        self.balance + self.deposit - self.withdraw + self.position_profit
-    }
-
-    /// `CThostFtdcTradingAccountField::Available` semantics.
-    pub fn available(&self) -> f64 {
-        self.dynamic_equity() - self.used_margin - self.frozen_margin - self.frozen_commission
-    }
-
-    /// Risk ratio `CurMargin / Balance` (0 when equity is non-positive).
-    pub fn risk(&self) -> f64 {
-        let eq = self.dynamic_equity();
-        if eq > 0.0 {
-            self.used_margin / eq
-        } else {
-            0.0
-        }
-    }
-
-    /// `CThostFtdcTradingAccountField` mirror for query responses.
-    pub fn to_field(&self, trading_day: &str) -> CThostFtdcTradingAccountField {
-        let mut f = CThostFtdcTradingAccountField::zeroed();
-        set_cstr(&mut f.BrokerID, &self.broker_id);
-        set_cstr(&mut f.AccountID, &self.investor_id);
-        set_cstr(&mut f.CurrencyID, &self.currency_id);
-        set_cstr(&mut f.TradingDay, trading_day);
-        f.PreBalance = self.pre_balance;
-        f.PreMortgage = 0.0;
-        f.PreCredit = 0.0;
-        f.PreDeposit = 0.0;
-        f.PreMargin = 0.0;
-        f.Deposit = self.deposit;
-        f.Withdraw = self.withdraw;
-        f.Balance = self.dynamic_equity();
-        f.Available = self.available();
-        f.CurrMargin = self.used_margin;
-        f.FrozenMargin = self.frozen_margin;
-        f.FrozenCommission = self.frozen_commission;
-        f.Commission = self.commission;
-        f.CloseProfit = self.close_profit;
-        f.PositionProfit = self.position_profit;
-        f.CashIn = 0.0;
-        f.WithdrawQuota = self.available();
-        f.Reserve = 0.0;
-        f.Credit = 0.0;
-        f.Mortgage = 0.0;
-        f.SettlementID = 1;
-        f
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum PositionSide {
-    Long,
-    Short,
-}
-
-impl PositionSide {
-    pub fn of(direction: Direction) -> Self {
-        match direction {
-            Direction::Buy => PositionSide::Long,
-            Direction::Sell => PositionSide::Short,
-        }
-    }
-
-    /// The side a close order reduces: a sell closes a long, a buy closes a short.
-    pub fn opposite(self) -> Self {
-        match self {
-            PositionSide::Long => PositionSide::Short,
-            PositionSide::Short => PositionSide::Long,
-        }
-    }
-
-    pub fn posi_direction(&self) -> u8 {
-        match self {
-            PositionSide::Long => b'2',
-            PositionSide::Short => b'3',
-        }
-    }
-}
-
-/// One open-lot record — the unit CTP actually settles.
-///
-/// notes/04 B2: a detail appears on every opening fill and is keyed by
-/// `(OpenDate, TradeID)`. It is not decoration: under 逐日盯市 the **close PnL
-/// of a lot is priced off its own basis**, which differs by age (E2):
-///
-/// - 昨仓 detail (`OpenDate != today`) → basis = **昨结算价**
-/// - 今仓 detail (`OpenDate == today`) → basis = **开仓价**
-///
-/// Getting the order of consumption wrong therefore changes the PnL number a
-/// client sees, which is exactly the failure mode notes/04 E2 warns about
-/// ("如果顺序错了，那么算出来的平仓盈亏也就会和实际值不相符了").
-///
-/// Verified against real broker statements (`ctp_settlement/`, 山金期货
-/// 盯市单): IH2501 买 1 手 opened 20250102, closed 20250103 at 2616.4 with
-/// 昨结算 2607.2 → (2607.2 − 2616.4) × 300 = −2760.00, matching the
-/// statement's 平仓盈亏 exactly. The open price 2626.2 would have given
-/// −2940 — the detail's age, not its entry, sets the basis.
-#[derive(Clone, Debug)]
-pub struct PositionDetail {
-    /// 开仓日期 — the trading day this lot was opened.
-    pub open_date: String,
-    /// 成交编号 — within a day, orders time in sequence; the tiebreaker that
-    /// makes 先开先平 total.
-    pub trade_id: String,
-    pub open_price: f64,
-    pub bootstrap: bool,
-    /// Remaining lots on this detail.
-    pub volume: i32,
-    /// Margin charged to this detail when it was opened.
-    pub margin: f64,
-    /// Price basis used when the opening margin was booked. Queries reuse this
-    /// settled basis; it is never refreshed from later market data.
-    pub margin_price: f64,
-    /// Lots this detail originally had. Margin release is pro-rata against
-    /// this, not against the (shrinking) remainder, so closing the last lot
-    /// releases exactly what was charged.
-    pub open_volume: i32,
-    /// 昨结算价 of the day this lot became 昨仓 (0 while it is 今仓).
-    pub last_settlement_price: f64,
-    /// Realized PnL attributed to this detail so far.
-    pub close_profit: f64,
-    pub close_profit_trade: f64,
-    pub commission: f64,
-    /// Lots of this detail already closed.
-    pub close_volume: i32,
-    /// Turnover of the closes attributed to this detail.
-    pub close_amount: f64,
-}
-
-impl PositionDetail {
-    pub fn new(
-        open_date: &str,
-        trade_id: &str,
-        open_price: f64,
-        volume: i32,
-        margin: f64,
-        margin_price: f64,
-    ) -> Self {
-        PositionDetail {
-            open_date: open_date.to_string(),
-            trade_id: trade_id.to_string(),
-            open_price,
-            bootstrap: false,
-            volume,
-            margin,
-            margin_price,
-            open_volume: volume,
-            last_settlement_price: 0.0,
-            close_profit: 0.0,
-            close_profit_trade: 0.0,
-            commission: 0.0,
-            close_volume: 0,
-            close_amount: 0.0,
-        }
-    }
-
-    pub fn is_today(&self, trading_day: &str) -> bool {
-        self.open_date == trading_day
-    }
-
-    /// 逐日盯市 basis for this detail (notes/04 E2). A lot opened today is
-    /// marked against its entry; anything older against 昨结算.
-    pub fn mark_basis(&self, trading_day: &str) -> f64 {
-        if self.is_today(trading_day) {
-            self.open_price
-        } else {
-            self.last_settlement_price
-        }
-    }
-
-    /// 浮动盈亏 of this detail at `price`, per notes/04 E1.
-    pub fn profit(&self, side: PositionSide, price: f64, multiple: i32) -> f64 {
-        let sign = match side {
-            PositionSide::Long => 1.0,
-            PositionSide::Short => -1.0,
-        };
-        (price - self.open_price) * sign * self.volume as f64 * multiple as f64
-    }
-
-    /// `CThostFtdcInvestorPositionDetailField` mirror.
-    #[allow(clippy::too_many_arguments)]
-    pub fn to_field(
-        &self,
-        broker_id: &str,
-        investor_id: &str,
-        exchange_id: &str,
-        trading_day: &str,
-        side: PositionSide,
-        instrument_id: &str,
-        settlement_price: f64,
-        last_price: f64,
-        multiple: i32,
-    ) -> CThostFtdcInvestorPositionDetailField {
-        let mut f = CThostFtdcInvestorPositionDetailField::zeroed();
-        set_cstr(&mut f.BrokerID, broker_id);
-        set_cstr(&mut f.InvestorID, investor_id);
-        set_cstr(&mut f.InstrumentID, instrument_id);
-        set_cstr(&mut f.OpenDate, &self.open_date);
-        set_cstr(&mut f.TradeID, &self.trade_id);
-        set_cstr(&mut f.TradingDay, trading_day);
-        f.ExchangeID.fill(0);
-        set_cstr(&mut f.ExchangeID, exchange_id);
-        f.HedgeFlag = b'1';
-        f.Direction = match side {
-            PositionSide::Long => b'0',
-            PositionSide::Short => b'1',
-        };
-        f.TradeType = b'0';
-        f.Volume = self.volume;
-        f.OpenPrice = self.open_price;
-        f.SettlementID = 1;
-        f.CloseVolume = self.close_volume;
-        f.CloseAmount = self.close_amount;
-        f.Margin = self.margin * self.volume as f64 / self.open_volume.max(1) as f64;
-        f.LastSettlementPrice = self.last_settlement_price;
-        f.SettlementPrice = settlement_price;
-        let basis = if self.open_date == trading_day {
-            self.open_price
-        } else {
-            self.last_settlement_price
-        };
-        f.PositionProfitByDate =
-            Position::detail_pnl(side, basis, last_price, self.volume, multiple);
-        f.PositionProfitByTrade =
-            Position::detail_pnl(side, self.open_price, last_price, self.volume, multiple);
-        f.CloseProfitByDate = self.close_profit;
-        f.CloseProfitByTrade = self.close_profit_trade;
-        // 先开先平剩余数量: the lots of this detail still open, which for a
-        // detail consumed from the front equals its own remainder.
-        f.TimeFirstVolume = self.volume;
-        f
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Position {
-    pub instrument_id: String,
-    pub side: PositionSide,
-    /// 今仓 (opened today).
-    pub today_position: i32,
-    /// 昨仓 (currently remaining carried lots).
-    pub yd_position: i32,
-    /// Static trading-day-start yesterday position (`YdPosition`).
-    pub yd_initial: i32,
-    /// Open turnover basis (sum of `price * volume * multiple`); average cost
-    /// is `open_amount / (open_volume * multiple)`.
-    pub open_amount: f64,
-    pub open_volume: i32,
-    pub position_cost: f64,
-    pub open_cost: f64,
-    pub margin: f64,
-    /// Volume reserved by outstanding close orders (today / yd split).
-    pub frozen_today: i32,
-    pub frozen_yd: i32,
-    pub commission: f64,
-    /// 逐日盯市 realized PnL (昨仓 against 昨结算, 今仓 against 开仓价).
-    pub close_profit: f64,
-    /// 逐笔对冲 realized PnL (every lot against its own 开仓价).
-    pub close_profit_trade: f64,
-    pub position_profit: f64,
-    pub pre_settlement_price: f64,
-    pub settlement_price: f64,
-    /// Per-lot records backing this aggregate, ordered oldest-first so
-    /// 先开先平 is a straight walk (notes/04 B2).
-    pub details: Vec<PositionDetail>,
-}
-
-impl Position {
-    pub fn new(instrument_id: &str, side: PositionSide) -> Self {
-        Position {
-            instrument_id: instrument_id.to_string(),
-            side,
-            today_position: 0,
-            yd_position: 0,
-            yd_initial: 0,
-            open_amount: 0.0,
-            open_volume: 0,
-            position_cost: 0.0,
-            open_cost: 0.0,
-            margin: 0.0,
-            frozen_today: 0,
-            frozen_yd: 0,
-            commission: 0.0,
-            close_profit: 0.0,
-            close_profit_trade: 0.0,
-            position_profit: 0.0,
-            pre_settlement_price: 0.0,
-            settlement_price: 0.0,
-            details: Vec::new(),
-        }
-    }
-
-    /// Record an opening fill as its own detail (notes/04 B2: a detail is
-    /// created per opening fill, keyed by `(OpenDate, TradeID)`).
-    pub fn add_detail(
-        &mut self,
-        open_date: &str,
-        trade_id: &str,
-        price: f64,
-        volume: i32,
-        margin: f64,
-        margin_price: f64,
-    ) {
-        self.details.push(PositionDetail::new(
-            open_date,
-            trade_id,
-            price,
-            volume,
-            margin,
-            margin_price,
-        ));
-    }
-
-    pub fn add_bootstrap_detail(
-        &mut self,
-        open_date: &str,
-        trade_id: &str,
-        price: f64,
-        volume: i32,
-        margin: f64,
-        pre_settlement: f64,
-        multiple: i32,
-    ) {
-        self.yd_position += volume;
-        self.yd_initial += volume;
-        self.open_cost += price * volume as f64 * multiple as f64;
-        self.position_cost += pre_settlement * volume as f64 * multiple as f64;
-        self.margin += margin;
-        self.settlement_price = pre_settlement;
-        let mut detail =
-            PositionDetail::new(open_date, trade_id, price, volume, margin, pre_settlement);
-        detail.bootstrap = true;
-        detail.last_settlement_price = pre_settlement;
-        self.details.push(detail);
-        self.details.sort_by(|a, b| {
-            a.open_date
-                .cmp(&b.open_date)
-                .then(a.trade_id.cmp(&b.trade_id))
-        });
-    }
-
-    /// 先开先平: consume `volume` lots from the **oldest** details, returning
-    /// the per-detail breakdown the caller needs to price PnL and commission.
-    ///
-    /// 先开先平 and 今/昨 are two different axes and must not be conflated:
-    /// the walk order is by opening time, full stop. `today_only` /
-    /// `yd_only` say *which age bucket* may be touched (上期所/能源中心 split
-    /// the offset flags), never that the walk may skip ahead to the newest
-    /// lot — that would realize PnL against the wrong basis and break the
-    /// 先开先平 guarantee clients rely on to reproduce a desk's positions.
-    pub fn take_details_filtered(
-        &mut self,
-        volume: i32,
-        today_only: bool,
-        yd_only: bool,
-        trading_day: &str,
-    ) -> Vec<(usize, i32)> {
-        let mut taken = Vec::new();
-        let mut left = volume;
-        for idx in 0..self.details.len() {
-            if left <= 0 {
-                break;
-            }
-            let is_today = self.details[idx].is_today(trading_day);
-            if (today_only && !is_today) || (yd_only && is_today) {
-                continue;
-            }
-            let n = left.min(self.details[idx].volume);
-            if n <= 0 {
-                continue;
-            }
-            self.details[idx].volume -= n;
-            self.details[idx].close_volume += n;
-            taken.push((idx, n));
-            left -= n;
-        }
-        taken
-    }
-
-    /// 逐日盯市 close PnL for one consumed detail (notes/04 E2).
-    ///
-    /// `basis` comes from [`PositionDetail::mark_basis`] — 昨结算 for 昨仓,
-    /// 开仓价 for 今仓. Pricing every lot off the position's average cost
-    /// (what this ledger did before details existed) is wrong whenever a
-    /// position mixes lots of different ages, which is the normal case after
-    /// the first partial close.
-    pub fn detail_pnl(side: PositionSide, basis: f64, price: f64, n: i32, multiple: i32) -> f64 {
-        let sign = match side {
-            PositionSide::Long => 1.0,
-            PositionSide::Short => -1.0,
-        };
-        (price - basis) * sign * n as f64 * multiple as f64
-    }
-
-    pub fn volume(&self) -> i32 {
-        self.today_position + self.yd_position
-    }
-
-    pub fn avg_cost(&self, volume_multiple: i32) -> f64 {
-        let denom = self.open_volume as f64 * volume_multiple as f64;
-        if denom > 0.0 {
-            self.open_amount / denom
-        } else {
-            0.0
-        }
-    }
-
-    /// Query projection for `CThostFtdcInvestorPositionField`.
-    ///
-    /// CTP exposes SHFE/INE today and yesterday buckets as separate rows. The
-    /// ledger keeps one position aggregate, so this projection splits only the
-    /// query row and allocates aggregate fields once by the live bucket volume.
-    /// It never derives the official static `YdPosition` initial value from the
-    /// current position: this minimal model has no settlement/bootstrap input,
-    /// therefore that value remains zero until such an input exists.
-    pub fn to_query_fields(
-        &self,
-        broker_id: &str,
-        investor_id: &str,
-        exchange_id: &str,
-        trading_day: &str,
-        mult: i32,
-    ) -> Vec<CThostFtdcInvestorPositionField> {
-        let base = self.to_field(broker_id, investor_id, exchange_id, trading_day, mult);
-        if !matches!(exchange_id, "SHFE" | "INE") {
-            return vec![base];
-        }
-        let yd = self.detail_bucket_field(base, trading_day, mult, false);
-        let today = self.detail_bucket_field(base, trading_day, mult, true);
-        if (self.yd_position > 0 || self.yd_initial > 0) && self.today_position > 0 {
-            vec![yd, today]
-        } else if self.yd_position > 0 {
-            vec![yd]
-        } else if self.today_position > 0 {
-            vec![today]
-        } else {
-            // CTP may retain a zero Position row with static YdPosition until
-            // settlement; preserve that row, but never expose zero-volume detail.
-            vec![yd]
-        }
-    }
-
-    fn detail_bucket_field(
-        &self,
-        mut field: CThostFtdcInvestorPositionField,
-        trading_day: &str,
-        mult: i32,
-        today: bool,
-    ) -> CThostFtdcInvestorPositionField {
-        field.PositionDate = if today { b'1' } else { b'2' };
-        field.Position = 0;
-        field.TodayPosition = 0;
-        field.YdPosition = if today { 0 } else { self.yd_initial };
-        field.OpenVolume = 0;
-        field.CloseVolume = 0;
-        field.CloseAmount = 0.0;
-        field.OpenAmount = 0.0;
-        field.OpenCost = 0.0;
-        field.PositionCost = 0.0;
-        field.UseMargin = 0.0;
-        field.ExchangeMargin = 0.0;
-        field.Commission = 0.0;
-        field.CloseProfit = 0.0;
-        field.PositionProfit = 0.0;
-        field.CloseProfitByDate = 0.0;
-        field.CloseProfitByTrade = 0.0;
-        field.PositionCostOffset = 0.0;
-        field.LongFrozen = 0;
-        field.ShortFrozen = 0;
-        field.LongFrozenAmount = 0.0;
-        field.ShortFrozenAmount = 0.0;
-        field.FrozenMargin = 0.0;
-        field.FrozenCash = 0.0;
-        field.FrozenCommission = 0.0;
-        field.CashIn = 0.0;
-        let frozen = if today {
-            self.frozen_today
-        } else {
-            self.frozen_yd
-        };
-        if self.side == PositionSide::Long {
-            field.ShortFrozen = frozen;
-        } else {
-            field.LongFrozen = frozen;
-        }
-        for detail in &self.details {
-            if detail.is_today(trading_day) != today {
-                continue;
-            }
-            let volume = detail.volume;
-            let basis = detail.mark_basis(trading_day);
-            field.CloseProfit += detail.close_profit;
-            field.CloseProfitByDate += detail.close_profit;
-            field.CloseProfitByTrade += detail.close_profit_trade;
-            field.Commission += detail.commission;
-            field.CloseVolume += detail.close_volume;
-            field.CloseAmount += detail.close_amount;
-            if today && !detail.bootstrap {
-                field.OpenVolume += detail.open_volume;
-                field.OpenAmount += detail.open_price * detail.open_volume as f64 * mult as f64;
-            }
-            if volume > 0 {
-                let share = volume as f64 / detail.open_volume.max(1) as f64;
-                field.Position += volume;
-                field.OpenCost += detail.open_price * volume as f64 * mult as f64;
-                field.PositionCost += basis * volume as f64 * mult as f64;
-                field.UseMargin += detail.margin * share;
-                field.PositionProfit +=
-                    Position::detail_pnl(self.side, basis, self.settlement_price, volume, mult);
-                if today {
-                    field.TodayPosition += volume;
-                }
-            }
-        }
-        field
-    }
-
-    /// `CThostFtdcInvestorPositionField` mirror for query responses.
-    #[allow(clippy::too_many_arguments)]
-    pub fn to_field(
-        &self,
-        broker_id: &str,
-        investor_id: &str,
-        exchange_id: &str,
-        trading_day: &str,
-        mult: i32,
-    ) -> CThostFtdcInvestorPositionField {
-        let mut f = CThostFtdcInvestorPositionField::zeroed();
-        set_cstr(&mut f.BrokerID, broker_id);
-        set_cstr(&mut f.InvestorID, investor_id);
-        set_cstr(&mut f.ExchangeID, exchange_id);
-        set_cstr(&mut f.InstrumentID, &self.instrument_id);
-        set_cstr(&mut f.TradingDay, trading_day);
-        f.PosiDirection = self.side.posi_direction();
-        f.HedgeFlag = b'1';
-        // `YdPosition` is the official static trading-day-start value. The
-        // ledger has no settlement/bootstrap source for that value, so it must
-        // not be fabricated from the current yesterday bucket.
-        f.PositionDate = if !matches!(exchange_id, "SHFE" | "INE")
-            || (self.today_position > 0 && self.yd_position == 0)
-        {
-            b'1'
-        } else {
-            b'2'
-        };
-        f.YdPosition = self.yd_initial;
-        f.Position = self.volume();
-        f.TodayPosition = self.today_position;
-        let frozen = self.frozen_today + self.frozen_yd;
-        if self.side == PositionSide::Long {
-            f.LongFrozen = frozen;
-        } else {
-            f.ShortFrozen = frozen;
-        }
-        f.OpenVolume = self.open_volume;
-        f.OpenAmount = self.open_amount;
-        f.OpenCost = self.open_cost;
-        f.PositionCost = self.position_cost;
-        f.UseMargin = self.margin;
-        f.Commission = self.commission;
-        f.CloseProfit = self.close_profit;
-        f.PositionProfit = self.position_profit;
-        f.PreSettlementPrice = self.pre_settlement_price;
-        f.SettlementPrice = self.settlement_price;
-        f.CloseProfitByDate = self.close_profit;
-        f.CloseProfitByTrade = self.close_profit_trade;
-        let cost = self.avg_cost(mult);
-        f.PositionCostOffset = cost;
-        f.SettlementID = 1;
-        f
-    }
-}
+pub use account::{Account, AccountKey};
+pub use money::Money;
+pub use position::{Position, PositionDetail, PositionSide};
 
 /// Frozen funds estimate attached to one order. `margin` / `commission` keep
 /// the **original** estimate; each fill releases `original * filled_fraction`
@@ -691,10 +68,23 @@ struct FrozenEst {
     key: AccountKey,
     instrument_id: String,
     side: PositionSide,
-    margin: f64,
-    commission: f64,
-    released_margin: f64,
-    released_commission: f64,
+    margin: Money,
+    commission: Money,
+    /// Lots of the order filled so far and the order's original size; the
+    /// released share is `original * filled / total`, computed from the
+    /// original so a fully-filled order ends at exactly zero.
+    filled: i64,
+    total: i64,
+}
+
+impl FrozenEst {
+    fn remaining_margin(&self) -> Money {
+        (self.margin - self.margin.ratio(self.filled, self.total)).floor_zero()
+    }
+
+    fn remaining_commission(&self) -> Money {
+        (self.commission - self.commission.ratio(self.filled, self.total)).floor_zero()
+    }
 }
 
 /// Position volume reserved by an outstanding close order (today/yd split),
@@ -708,6 +98,32 @@ struct FrozenPos {
     yd: i32,
 }
 
+type Grid = [[Money; 2]; 4];
+
+#[derive(Default)]
+struct GroupAgg {
+    used: Grid,
+    frozen: Grid,
+    position_profit: Money,
+    frozen_commission: Money,
+    commission: Money,
+    close_profit: Money,
+}
+
+impl GroupAgg {
+    fn use_margin(&self) -> Money {
+        let u = &self.used;
+        u[0][0] + u[0][1] + u[1][0].max(u[1][1])
+    }
+
+    fn frozen_margin(&self) -> Money {
+        let (u, f) = (&self.used, &self.frozen);
+        let current_max = u[1][0].max(u[1][1]);
+        let projected_max = (u[1][0] + f[1][0]).max(u[1][1] + f[1][1]);
+        f[0][0] + f[0][1] + (projected_max - current_max).floor_zero()
+    }
+}
+
 #[derive(Clone)]
 pub struct Ledger {
     accounts: HashMap<AccountKey, Account>,
@@ -716,8 +132,8 @@ pub struct Ledger {
     frozen: HashMap<String, FrozenEst>,
     /// order_key -> position volume reservation.
     frozen_pos: HashMap<String, FrozenPos>,
-    initial_funds: f64,
-    group_activity: HashMap<(AccountKey, String, String), (f64, f64)>,
+    initial_funds: Money,
+    group_activity: HashMap<(AccountKey, String, String), (Money, Money)>,
 }
 
 impl Ledger {
@@ -727,7 +143,7 @@ impl Ledger {
             positions: HashMap::new(),
             frozen: HashMap::new(),
             frozen_pos: HashMap::new(),
-            initial_funds,
+            initial_funds: Money::from_f64(initial_funds),
             group_activity: HashMap::new(),
         }
     }
@@ -735,7 +151,7 @@ impl Ledger {
     /// Auto-open an account on first login (SimNow-style convenience): every
     /// investor starts with `initial_funds`.
     pub fn set_initial_funds(&mut self, initial_funds: f64) {
-        self.initial_funds = initial_funds;
+        self.initial_funds = Money::from_f64(initial_funds);
     }
 
     pub fn ensure_account(&mut self, broker_id: &str, investor_id: &str) -> &mut Account {
@@ -761,7 +177,11 @@ impl Ledger {
                 Account::new(
                     broker_id,
                     investor_id,
-                    if funds > 0.0 { funds } else { initial },
+                    if funds > 0.0 {
+                        Money::from_f64(funds)
+                    } else {
+                        initial
+                    },
                 )
             })
     }
@@ -880,19 +300,94 @@ impl Ledger {
                 key: key.clone(),
                 instrument_id: instrument_id.to_string(),
                 side,
-                margin: est_margin,
-                commission: est_commission,
-                released_margin: 0.0,
-                released_commission: 0.0,
+                margin: Money::from_f64(est_margin),
+                commission: Money::from_f64(est_commission),
+                filled: 0,
+                total: 1,
             },
         );
         self.refresh_account(&key, catalog);
-        if self.accounts[&key].available() < -1e-6 {
+        if self.accounts[&key].available() < Money::from_f64(-1e-6) {
             self.frozen.remove(order_key);
             self.refresh_account(&key, catalog);
             return Err(ERR_FUNDS);
         }
         Ok(())
+    }
+
+    /// Per (exchange, product) aggregates for one account, in fixed point.
+    /// Grids are indexed `[bucket][side]`: buckets 0/1 = plain / 大单边-enabled
+    /// 占用; 2/3 = the same split at the 交易所 rate. Side 0 = long, 1 = short.
+    fn group_aggs(
+        &self,
+        key: &AccountKey,
+        catalog: &Catalog,
+    ) -> std::collections::BTreeMap<(String, String), GroupAgg> {
+        let mut groups: std::collections::BTreeMap<(String, String), GroupAgg> =
+            std::collections::BTreeMap::new();
+        for ((k, id, side), pos) in &self.positions {
+            if k != key {
+                continue;
+            }
+            let Some(i) = catalog.get(id) else {
+                continue;
+            };
+            let g = groups
+                .entry((i.exchange_id.clone(), i.product_id.clone()))
+                .or_default();
+            let s = if *side == PositionSide::Long { 0 } else { 1 };
+            let bucket = if catalog.refdata().product_margin_algorithm(id) {
+                1
+            } else {
+                0
+            };
+            g.used[bucket][s] += pos.margin;
+            let ratio = if s == 0 {
+                i.long_margin_ratio
+            } else {
+                i.short_margin_ratio
+            };
+            // ExchMargin is query-only: use each detail's booked price
+            // baseline, never a later market quote.
+            g.used[2 + bucket][s] += pos
+                .details
+                .iter()
+                .map(|d| {
+                    Money::from_f64(
+                        d.margin_price * d.volume as f64 * i.volume_multiple as f64 * ratio,
+                    )
+                })
+                .sum::<Money>();
+            g.position_profit += pos.position_profit;
+        }
+        for est in self.frozen.values().filter(|e| e.key == *key) {
+            let Some(i) = catalog.get(&est.instrument_id) else {
+                continue;
+            };
+            let g = groups
+                .entry((i.exchange_id.clone(), i.product_id.clone()))
+                .or_default();
+            let s = if est.side == PositionSide::Long { 0 } else { 1 };
+            let bucket = if catalog
+                .refdata()
+                .product_margin_algorithm(&est.instrument_id)
+            {
+                1
+            } else {
+                0
+            };
+            g.frozen[bucket][s] += est.remaining_margin();
+            g.frozen_commission += est.remaining_commission();
+        }
+        for ((k, ex, prod), (commission, profit)) in &self.group_activity {
+            if k != key {
+                continue;
+            }
+            let g = groups.entry((ex.clone(), prod.clone())).or_default();
+            g.commission = *commission;
+            g.close_profit = *profit;
+        }
+        groups
     }
 
     /// 按账户、交易所、品种聚合；目前账本仅支持投机、空投资单元。
@@ -905,97 +400,11 @@ impl Ledger {
         day: &str,
     ) -> Vec<CThostFtdcInvestorProductGroupMarginField> {
         let key = AccountKey::new(broker, investor);
-        // Per (exchange, product): the output row plus two margin grids indexed
-        // [bucket][side]. Buckets 0/1 = plain / 大单边-enabled 占用; 2/3 = the
-        // same split at the 交易所 rate. Side 0 = long, 1 = short.
-        type Grid = [[f64; 2]; 4];
-        let mut groups: std::collections::BTreeMap<
-            (String, String),
-            (CThostFtdcInvestorProductGroupMarginField, Grid, Grid),
-        > = std::collections::BTreeMap::new();
-        for ((k, id, side), pos) in &self.positions {
-            if *k != key {
-                continue;
-            }
-            let Some(i) = catalog.get(id) else {
-                continue;
-            };
-            let product_group = i.product_id.clone();
-            let (f, used, _) = groups
-                .entry((i.exchange_id.clone(), product_group))
-                .or_insert_with(|| {
-                    (
-                        CThostFtdcInvestorProductGroupMarginField::zeroed(),
-                        [[0.0; 2]; 4],
-                        [[0.0; 2]; 4],
-                    )
-                });
-            let s = if *side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog.refdata().product_margin_algorithm(id) {
-                1
-            } else {
-                0
-            };
-            used[bucket][s] += pos.margin;
-            let ratio = if s == 0 {
-                i.long_margin_ratio
-            } else {
-                i.short_margin_ratio
-            };
-            used[2 + bucket][s] += pos
-                .details
-                .iter()
-                .map(|d| {
-                    // ExchMargin is query-only: use the detail's booked price
-                    // baseline, never a later market quote.
-                    d.margin_price * d.volume as f64 * i.volume_multiple as f64 * ratio
-                })
-                .sum::<f64>();
-            f.PositionProfit += pos.position_profit;
-        }
-        for est in self.frozen.values().filter(|e| e.key == key) {
-            let Some(i) = catalog.get(&est.instrument_id) else {
-                continue;
-            };
-            let product_group = i.product_id.clone();
-            let (f, _, frozen) = groups
-                .entry((i.exchange_id.clone(), product_group))
-                .or_insert_with(|| {
-                    (
-                        CThostFtdcInvestorProductGroupMarginField::zeroed(),
-                        [[0.0; 2]; 4],
-                        [[0.0; 2]; 4],
-                    )
-                });
-            let s = if est.side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog
-                .refdata()
-                .product_margin_algorithm(&est.instrument_id)
-            {
-                1
-            } else {
-                0
-            };
-            frozen[bucket][s] += (est.margin - est.released_margin).max(0.0);
-            f.FrozenCommission += (est.commission - est.released_commission).max(0.0);
-        }
-        for ((k, ex, prod), (commission, profit)) in &self.group_activity {
-            if *k != key {
-                continue;
-            }
-            let (f, _, _) = groups.entry((ex.clone(), prod.clone())).or_insert_with(|| {
-                (
-                    CThostFtdcInvestorProductGroupMarginField::zeroed(),
-                    [[0.0; 2]; 4],
-                    [[0.0; 2]; 4],
-                )
-            });
-            f.Commission = *commission;
-            f.CloseProfit = *profit;
-        }
-        groups
+        self.group_aggs(&key, catalog)
             .into_iter()
-            .map(|((ex, prod), (mut f, used, frozen))| {
+            .map(|((ex, prod), g)| {
+                let (used, frozen) = (&g.used, &g.frozen);
+                let mut f = CThostFtdcInvestorProductGroupMarginField::zeroed();
                 set_cstr(&mut f.BrokerID, broker);
                 set_cstr(&mut f.InvestorID, investor);
                 set_cstr(&mut f.ExchangeID, &ex);
@@ -1003,24 +412,24 @@ impl Ledger {
                 set_cstr(&mut f.TradingDay, day);
                 f.SettlementID = 1;
                 f.HedgeFlag = b'1';
-                f.LongUseMargin = used[0][0] + used[1][0];
-                f.ShortUseMargin = used[0][1] + used[1][1];
-                f.UseMargin = used[0][0] + used[0][1] + used[1][0].max(used[1][1]);
-                f.LongFrozenMargin = frozen[0][0] + frozen[1][0];
-                f.ShortFrozenMargin = frozen[0][1] + frozen[1][1];
-                let current_max = used[1][0].max(used[1][1]);
-                let projected_max = (used[1][0] + frozen[1][0]).max(used[1][1] + frozen[1][1]);
-                f.FrozenMargin =
-                    frozen[0][0] + frozen[0][1] + (projected_max - current_max).max(0.0);
+                f.PositionProfit = g.position_profit.to_f64();
+                f.FrozenCommission = g.frozen_commission.to_f64();
+                f.Commission = g.commission.to_f64();
+                f.CloseProfit = g.close_profit.to_f64();
+                f.LongUseMargin = (used[0][0] + used[1][0]).to_f64();
+                f.ShortUseMargin = (used[0][1] + used[1][1]).to_f64();
+                f.UseMargin = g.use_margin().to_f64();
+                f.LongFrozenMargin = (frozen[0][0] + frozen[1][0]).to_f64();
+                f.ShortFrozenMargin = (frozen[0][1] + frozen[1][1]).to_f64();
+                f.FrozenMargin = g.frozen_margin().to_f64();
                 // 交易所费率独立展示；没有跨品种映射或仓单折抵规则，不推导折抵金额。
-                f.LongExchMargin = used[2][0] + used[3][0];
-                f.ShortExchMargin = used[2][1] + used[3][1];
-                f.ExchMargin = used[2][0] + used[2][1] + used[3][0].max(used[3][1]);
+                f.LongExchMargin = (used[2][0] + used[3][0]).to_f64();
+                f.ShortExchMargin = (used[2][1] + used[3][1]).to_f64();
+                f.ExchMargin = (used[2][0] + used[2][1] + used[3][0].max(used[3][1])).to_f64();
                 f
             })
             .collect()
     }
-
     pub fn refresh(&mut self, catalog: &Catalog) {
         self.refresh_margin(catalog);
     }
@@ -1035,11 +444,11 @@ impl Ledger {
     /// Recompute one account's margin aggregates. Freezes, fills and cancels
     /// only ever change their own account, so they refresh just that one.
     fn refresh_account(&mut self, key: &AccountKey, catalog: &Catalog) {
-        let rows = self.product_group_margin(&key.broker_id, &key.investor_id, catalog, "");
+        let groups = self.group_aggs(key, catalog);
         if let Some(a) = self.accounts.get_mut(key) {
-            a.used_margin = rows.iter().map(|f| f.UseMargin).sum();
-            a.frozen_margin = rows.iter().map(|f| f.FrozenMargin).sum();
-            a.frozen_commission = rows.iter().map(|f| f.FrozenCommission).sum();
+            a.used_margin = groups.values().map(GroupAgg::use_margin).sum();
+            a.frozen_margin = groups.values().map(GroupAgg::frozen_margin).sum();
+            a.frozen_commission = groups.values().map(|g| g.frozen_commission).sum();
         }
     }
 
@@ -1179,10 +588,8 @@ impl Ledger {
         // The account's frozen totals are recomputed from these entries by
         // `refresh_account` at the end of the fill.
         if let Some(est) = self.frozen.get_mut(&fill.order_key) {
-            let total = fill.volume_total_original.max(1) as f64;
-            let frac = (fill.volume as f64 / total).clamp(0.0, 1.0);
-            est.released_margin += est.margin * frac;
-            est.released_commission += est.commission * frac;
+            est.total = fill.volume_total_original.max(1) as i64;
+            est.filled = (est.filled + fill.volume as i64).clamp(0, est.total);
         }
 
         let key = AccountKey::new(&cstr(&fill.broker_id), &cstr(&fill.investor_id));
@@ -1203,7 +610,7 @@ impl Ledger {
             .entry((key.clone(), fill.instrument_id.clone(), side))
             .or_insert_with(|| Position::new(&fill.instrument_id, side));
 
-        let turnover = fill.price * fill.volume as f64 * mult as f64;
+        let turnover = Money::from_f64(fill.price * fill.volume as f64 * mult as f64);
         if fill.offset == OffsetFlag::Open {
             // 昨结算价 comes from the tick stream, not from the position: on
             // the very first fill of a session the position has none yet, and
@@ -1214,14 +621,18 @@ impl Ledger {
             // 今仓保证金 follows `MarginPriceType`; the fill price is the
             // 开仓价 leg of that choice (notes/04 C2).
             let price = catalog.margin_price_for(true, pos.pre_settlement_price, fill.price);
-            let margin_actual =
-                catalog.margin(&fill.instrument_id, fill.direction, price, fill.volume);
-            let commission = catalog.commission(
+            let margin_actual = Money::from_f64(catalog.margin(
+                &fill.instrument_id,
+                fill.direction,
+                price,
+                fill.volume,
+            ));
+            let commission = Money::from_f64(catalog.commission(
                 &fill.instrument_id,
                 CommissionKind::Open,
                 fill.price,
                 fill.volume,
-            );
+            ));
             pos.commission += commission;
             pos.today_position += fill.volume;
             pos.open_amount += turnover;
@@ -1260,10 +671,10 @@ impl Ledger {
             // one fill can span two bases, and pricing every lot off the
             // aggregate average cost (what this ledger did before details
             // existed) is wrong by exactly the age mix.
-            let mut pnl = 0.0;
-            let mut trade_pnl = 0.0;
-            let mut closed_amount = 0.0;
-            let mut margin_released = 0.0;
+            let mut pnl = Money::ZERO;
+            let mut trade_pnl = Money::ZERO;
+            let mut closed_amount = Money::ZERO;
+            let mut margin_released = Money::ZERO;
             let mut today_take = 0;
             let mut yd_take = 0;
             for (idx, n) in
@@ -1281,11 +692,11 @@ impl Ledger {
                 let leg_trade_pnl = Position::detail_pnl(side, d.open_price, fill.price, n, mult);
                 pnl += leg_pnl;
                 trade_pnl += leg_trade_pnl;
-                closed_amount += d.open_price * n as f64 * mult as f64;
-                d.close_amount += fill.price * n as f64 * mult as f64;
+                closed_amount += Money::from_f64(d.open_price * n as f64 * mult as f64);
+                d.close_amount += Money::from_f64(fill.price * n as f64 * mult as f64);
                 // Margin travels with the lot: release the pro-rata share of
                 // what this detail was charged, not a recomputed figure.
-                margin_released += d.margin * n as f64 / d.open_volume.max(1) as f64;
+                margin_released += d.margin.ratio(n as i64, d.open_volume.max(1) as i64);
                 d.close_profit += leg_pnl;
                 d.close_profit_trade += leg_trade_pnl;
                 let kind = if is_today {
@@ -1293,7 +704,8 @@ impl Ledger {
                 } else {
                     CommissionKind::CloseYesterday
                 };
-                d.commission += catalog.commission(&fill.instrument_id, kind, fill.price, n);
+                d.commission +=
+                    Money::from_f64(catalog.commission(&fill.instrument_id, kind, fill.price, n));
             }
             let closed = today_take + yd_take;
             pos.today_position = (pos.today_position - today_take).max(0);
@@ -1326,7 +738,7 @@ impl Ledger {
             // reserved the volume at insert time (single-writer ledger).
             debug_assert_eq!(closed, fill.volume);
 
-            pos.open_amount = (pos.open_amount - closed_amount).max(0.0);
+            pos.open_amount = (pos.open_amount - closed_amount).floor_zero();
             pos.open_volume = (pos.open_volume - closed).max(0);
             // 持仓成本 follows the **持仓价** basis (notes/04 B1), not the open
             // price: a 昨仓 lot is carried at 昨结算 until it is closed. Sum it
@@ -1335,34 +747,34 @@ impl Ledger {
             pos.position_cost = pos
                 .details
                 .iter()
-                .map(|d| d.mark_basis(trading_day) * d.volume as f64 * mult as f64)
+                .map(|d| Money::from_f64(d.mark_basis(trading_day) * d.volume as f64 * mult as f64))
                 .sum();
             // 开仓成本 stays on the 开仓价 basis of the surviving lots.
             pos.open_cost = pos
                 .details
                 .iter()
-                .map(|d| d.open_price * d.volume as f64 * mult as f64)
+                .map(|d| Money::from_f64(d.open_price * d.volume as f64 * mult as f64))
                 .sum();
 
             // Commission is charged per leg: the 平今 portion at today's rate,
             // the 平昨 portion at yesterday's. Summing two legs is the whole
             // point — a blended single rate is what notes/04 B3 warns about.
-            let comm_today = catalog.commission(
+            let comm_today = Money::from_f64(catalog.commission(
                 &fill.instrument_id,
                 CommissionKind::CloseToday,
                 fill.price,
                 today_take,
-            );
-            let comm_yd = catalog.commission(
+            ));
+            let comm_yd = Money::from_f64(catalog.commission(
                 &fill.instrument_id,
                 CommissionKind::CloseYesterday,
                 fill.price,
                 yd_take,
-            );
+            ));
             let commission = comm_today + comm_yd;
             pos.commission += commission;
 
-            pos.margin = (pos.margin - margin_released).max(0.0);
+            pos.margin = (pos.margin - margin_released).floor_zero();
             pos.close_profit += pnl;
             pos.close_profit_trade += trade_pnl;
 
@@ -1398,914 +810,5 @@ impl Ledger {
             activity.1 += a.close_profit - before_profit;
         }
         self.refresh_account(&key, catalog);
-    }
-
-    /// 使用调用方供给的结算价原子结算全部账户。
-    /// 调用方负责暂停播放及检查活动订单；所有价格和日期校验通过后才暂存滚存。
-    pub fn settle_trading_day(
-        &mut self,
-        catalog: &Catalog,
-        prices: &HashMap<String, f64>,
-        trading_day: &str,
-        next_trading_day: &str,
-    ) -> Result<(), String> {
-        fn valid_day(s: &str) -> bool {
-            if s.len() != 8 || !s.bytes().all(|b| b.is_ascii_digit()) {
-                return false;
-            }
-            let y: u32 = s[..4].parse().unwrap();
-            let m: u32 = s[4..6].parse().unwrap();
-            let d: u32 = s[6..].parse().unwrap();
-            let leap = y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
-            let max = match m {
-                2 if leap => 29,
-                2 => 28,
-                4 | 6 | 9 | 11 => 30,
-                1..=12 => 31,
-                _ => 0,
-            };
-            y >= 1900 && d > 0 && d <= max
-        }
-        if !valid_day(trading_day)
-            || !valid_day(next_trading_day)
-            || next_trading_day <= trading_day
-        {
-            return Err("next_trading_day 必须为严格递增的合法 YYYYMMDD".into());
-        }
-        for (instrument, price) in prices {
-            if catalog.get(instrument).is_none() || !price.is_finite() || *price <= 0.0 {
-                return Err(format!("未知合约或非法结算价: {instrument}"));
-            }
-        }
-        if self.frozen.values().any(|e| {
-            e.margin - e.released_margin > 1e-9 || e.commission - e.released_commission > 1e-9
-        }) || self
-            .positions
-            .values()
-            .any(|p| p.frozen_today > 0 || p.frozen_yd > 0)
-        {
-            return Err("存在未释放的订单冻结".into());
-        }
-        for ((_, instrument, _), position) in &self.positions {
-            if position.volume() <= 0 {
-                continue;
-            }
-            let price = prices
-                .get(instrument)
-                .copied()
-                .ok_or_else(|| format!("缺少持仓合约 {instrument} 的结算价"))?;
-            if !price.is_finite() || price <= 0.0 {
-                return Err(format!("合约 {instrument} 的结算价必须为正有限数"));
-            }
-        }
-        let mut staged = self.clone();
-        staged.mark_to_market(catalog, prices, &HashMap::new(), trading_day);
-        let final_equity: HashMap<AccountKey, f64> = staged
-            .accounts
-            .values()
-            .map(|a| {
-                (
-                    AccountKey::new(&a.broker_id, &a.investor_id),
-                    a.dynamic_equity(),
-                )
-            })
-            .collect();
-        if final_equity.values().any(|v| !v.is_finite()) {
-            return Err("结算权益计算结果非有限数".into());
-        }
-        for position in staged.positions.values_mut() {
-            let volume = position.volume();
-            let price = prices
-                .get(&position.instrument_id)
-                .copied()
-                .unwrap_or(position.settlement_price);
-            position.yd_position = volume;
-            position.yd_initial = volume;
-            position.today_position = 0;
-            position.frozen_today = 0;
-            position.frozen_yd = 0;
-            position.pre_settlement_price = price;
-            position.settlement_price = price;
-            position.position_cost = price
-                * volume as f64
-                * catalog
-                    .get(&position.instrument_id)
-                    .map(|i| i.volume_multiple)
-                    .unwrap_or(1) as f64;
-            position.position_profit = 0.0;
-            position.close_profit = 0.0;
-            position.close_profit_trade = 0.0;
-            position.commission = 0.0;
-            position.details.retain(|d| d.volume > 0);
-            position.open_volume = position.details.iter().map(|d| d.volume).sum();
-            position.open_amount = position
-                .details
-                .iter()
-                .map(|d| {
-                    d.open_price
-                        * d.volume as f64
-                        * catalog
-                            .get(&position.instrument_id)
-                            .map(|i| i.volume_multiple)
-                            .unwrap_or(1) as f64
-                })
-                .sum();
-            position.open_cost = position.open_amount;
-            for detail in &mut position.details {
-                if detail.volume > 0 {
-                    detail.last_settlement_price = price;
-                }
-                detail.close_profit = 0.0;
-                detail.close_profit_trade = 0.0;
-                detail.commission = 0.0;
-                detail.close_volume = 0;
-                detail.close_amount = 0.0;
-            }
-        }
-        for account in staged.accounts.values_mut() {
-            let final_equity = *final_equity
-                .get(&AccountKey::new(&account.broker_id, &account.investor_id))
-                .expect("account equity precomputed");
-            account.pre_balance = final_equity;
-            account.balance = final_equity;
-            account.deposit = 0.0;
-            account.withdraw = 0.0;
-            account.close_profit = 0.0;
-            account.position_profit = 0.0;
-            account.commission = 0.0;
-            account.frozen_margin = 0.0;
-            account.frozen_commission = 0.0;
-        }
-        staged.frozen.clear();
-        staged.frozen_pos.clear();
-        staged.group_activity.clear();
-        staged.refresh_margin(catalog);
-        if staged
-            .accounts
-            .values()
-            .any(|a| a.frozen_margin.abs() > 1e-9 || a.frozen_commission.abs() > 1e-9)
-        {
-            return Err("日结后仍存在冻结资金".into());
-        }
-        *self = staged;
-        Ok(())
-    }
-
-    pub fn mark_to_market(
-        &mut self,
-        catalog: &Catalog,
-        prices: &HashMap<String, f64>,
-        pre_settlements: &HashMap<String, f64>,
-        trading_day: &str,
-    ) {
-        for pos in self.positions.values_mut() {
-            let mult = catalog
-                .get(&pos.instrument_id)
-                .map(|i| i.volume_multiple)
-                .unwrap_or(1);
-            let p = prices
-                .get(&pos.instrument_id)
-                .copied()
-                .unwrap_or(pos.settlement_price);
-            if let Some(ps) = pre_settlements.get(&pos.instrument_id) {
-                if *ps > 0.0 && pos.yd_initial == 0 {
-                    pos.pre_settlement_price = *ps;
-                    for d in pos.details.iter_mut().filter(|d| !d.bootstrap) {
-                        d.last_settlement_price = *ps;
-                    }
-                }
-            }
-            pos.position_profit = pos
-                .details
-                .iter()
-                .map(|d| {
-                    let basis = d.mark_basis(trading_day);
-                    Position::detail_pnl(pos.side, basis, p, d.volume, mult)
-                })
-                .sum();
-            pos.settlement_price = p;
-        }
-        let mut sums: HashMap<AccountKey, f64> = HashMap::new();
-        for ((key, _, _), pos) in &self.positions {
-            *sums.entry(key.clone()).or_insert(0.0) += pos.position_profit;
-        }
-        for a in self.accounts.values_mut() {
-            let key = AccountKey::new(&a.broker_id, &a.investor_id);
-            a.position_profit = sums.get(&key).copied().unwrap_or(0.0);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ctpbuddy_matching::{to_fixed, CommissionRate, Instrument, MarginRate, TradingParams};
-
-    fn fixture(enabled: bool) -> Catalog {
-        // 明确虚构的测试合约和费率，不代表生产默认值。
-        let mut catalog = Catalog::new();
-        for (id, product) in [
-            ("TESTA01", "TESTA"),
-            ("TESTA02", "TESTA"),
-            ("TESTB01", "TESTB"),
-        ] {
-            let mut i = Instrument::new(id, "TEST");
-            i.product_id = product.into();
-            i.max_margin_side_algorithm = if enabled { b'1' } else { b'0' };
-            catalog.insert(i);
-            catalog.insert_margin_rate(MarginRate {
-                instrument_id: id.into(),
-                long_margin_ratio_by_volume: 100.0,
-                short_margin_ratio_by_volume: 150.0,
-                ..Default::default()
-            });
-        }
-        let mut params = TradingParams::default();
-        params.margin_price_type = b'4';
-        catalog.set_trading_params(params);
-        catalog
-    }
-
-    fn fill(id: &str, direction: Direction, offset: OffsetFlag, volume: i32) -> Fill {
-        Fill {
-            broker_id: to_fixed("TEST"),
-            investor_id: to_fixed("alice"),
-            user_id: to_fixed("alice"),
-            instrument_id: id.into(),
-            exchange_id: "TEST".into(),
-            direction,
-            offset,
-            hedge_flag: b'1',
-            price: 10.0,
-            volume,
-            volume_total_original: volume,
-            order_sys_id: to_fixed("1"),
-            order_ref: to_fixed("1"),
-            trade_id: to_fixed("1"),
-            order_key: "1".into(),
-        }
-    }
-
-    #[test]
-    fn explicit_settlement_carries_today_to_yesterday_and_rolls_account() {
-        let catalog = fixture(true);
-        let mut ledger = Ledger::new(10_000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.mark_to_market(
-            &catalog,
-            &HashMap::from([("TESTA01".into(), 12.0)]),
-            &HashMap::new(),
-            "20261003",
-        );
-        ledger.account_mut("TEST", "alice").unwrap().deposit = 3.0;
-        assert!(ledger
-            .settle_trading_day(
-                &catalog,
-                &HashMap::from([("TESTA01".into(), 12.0)]),
-                "20261003",
-                "20261004"
-            )
-            .is_ok());
-        let p = ledger
-            .position("TEST", "alice", "TESTA01", PositionSide::Long)
-            .unwrap();
-        assert_eq!(p.today_position, 0);
-        assert_eq!(p.yd_position, 1);
-        assert_eq!(p.yd_initial, 1);
-        assert_eq!(p.details[0].open_date, "20261003");
-        let a = ledger.account("TEST", "alice").unwrap();
-        assert_eq!(a.pre_balance, a.balance);
-        assert_eq!(a.deposit, 0.0);
-        assert_eq!(a.withdraw, 0.0);
-        assert_eq!(a.close_profit, 0.0);
-        assert_eq!(a.position_profit, 0.0);
-        assert_eq!(a.commission, 0.0);
-        assert_eq!(a.frozen_margin, 0.0);
-        assert_eq!(a.frozen_commission, 0.0);
-    }
-
-    #[test]
-    fn settlement_is_atomic_across_accounts_and_uses_supplied_final_price() {
-        let catalog = fixture(true);
-        let mut ledger = Ledger::new(10_000.0);
-        for name in ["alice", "bob"] {
-            ledger.ensure_account("TEST", name);
-        }
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 2),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let mut other = fill("TESTB01", Direction::Sell, OffsetFlag::Open, 1);
-        other.investor_id = to_fixed("bob");
-        ledger.on_fill(&other, &catalog, 10.0, "20261003");
-        let before = ledger.account("TEST", "alice").unwrap().balance;
-        assert!(ledger
-            .settle_trading_day(
-                &catalog,
-                &HashMap::from([("TESTA01".into(), 12.0)]),
-                "20261003",
-                "20261004"
-            )
-            .is_err());
-        assert_eq!(ledger.account("TEST", "alice").unwrap().balance, before);
-        assert_eq!(
-            ledger
-                .position("TEST", "alice", "TESTA01", PositionSide::Long)
-                .unwrap()
-                .today_position,
-            2
-        );
-        let prices = HashMap::from([("TESTA01".into(), 12.0), ("TESTB01".into(), 11.0)]);
-        ledger
-            .settle_trading_day(&catalog, &prices, "20261003", "20261004")
-            .unwrap();
-        let mult = catalog.get("TESTA01").unwrap().volume_multiple as f64;
-        assert_eq!(
-            ledger.account("TEST", "alice").unwrap().pre_balance,
-            before + 4.0 * mult
-        );
-        for day in ["20261004", "20260230", "2026-10-05", "20261003"] {
-            assert!(ledger
-                .settle_trading_day(&catalog, &prices, "20261004", day)
-                .is_err());
-        }
-        for price in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            assert!(ledger
-                .settle_trading_day(
-                    &catalog,
-                    &HashMap::from([("TESTA01".into(), price)]),
-                    "20261004",
-                    "20261005"
-                )
-                .is_err());
-        }
-    }
-
-    #[test]
-    fn invalid_settlement_is_atomic_and_requires_all_prices() {
-        let catalog = fixture(true);
-        let mut ledger = Ledger::new(10_000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let before = ledger.account("TEST", "alice").unwrap().clone();
-        assert!(ledger
-            .settle_trading_day(&catalog, &HashMap::new(), "20261003", "20261004")
-            .is_err());
-        assert_eq!(
-            ledger.account("TEST", "alice").unwrap().pre_balance,
-            before.pre_balance
-        );
-        assert_eq!(
-            ledger
-                .position("TEST", "alice", "TESTA01", PositionSide::Long)
-                .unwrap()
-                .today_position,
-            1
-        );
-        assert!(ledger
-            .settle_trading_day(
-                &catalog,
-                &HashMap::from([("TESTA01".into(), 10.0)]),
-                "20261004",
-                "20261004"
-            )
-            .is_err());
-    }
-
-    #[test]
-    fn shfe_query_projection_splits_age_buckets_without_double_counting() {
-        let mut p = Position::new("rb", PositionSide::Long);
-        p.add_bootstrap_detail("20261002", "YD1", 10.0, 2, 40.0, 9.0, 1);
-        p.details
-            .push(PositionDetail::new("20261003", "TD1", 11.0, 3, 60.0, 10.0));
-        p.today_position = 3;
-        p.open_volume = 5;
-        p.open_amount = 53.0;
-        p.position_cost = 49.0;
-        p.margin = 100.0;
-        p.commission = 10.0;
-        p.frozen_today = 1;
-        let rows = p.to_query_fields("B", "I", "SHFE", "20261003", 1);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].PositionDate, b'2');
-        assert_eq!(rows[0].Position, 2);
-        assert_eq!(rows[1].PositionDate, b'1');
-        assert_eq!(rows[1].Position, 3);
-        assert_eq!(rows.iter().map(|r| r.Position).sum::<i32>(), p.volume());
-        assert_eq!(rows.iter().map(|r| r.OpenVolume).sum::<i32>(), 3);
-        assert!((rows.iter().map(|r| r.OpenAmount).sum::<f64>() - 33.0).abs() < 1e-9);
-        assert!((rows.iter().map(|r| r.UseMargin).sum::<f64>() - p.margin).abs() < 1e-9);
-        assert_eq!(
-            rows.iter().map(|r| r.ShortFrozen).sum::<i32>(),
-            p.frozen_today
-        );
-        assert_eq!(rows[0].YdPosition, 2);
-        assert_eq!(rows[1].YdPosition, 0);
-    }
-
-    #[test]
-    fn non_shfe_query_projection_keeps_one_row() {
-        let mut p = Position::new("a", PositionSide::Short);
-        p.yd_position = 2;
-        p.today_position = 3;
-        let rows = p.to_query_fields("B", "I", "DCE", "20261003", 1);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].Position, 5);
-        assert_eq!(rows[0].TodayPosition, 3);
-        assert_eq!(rows[0].YdPosition, 0);
-    }
-
-    #[test]
-    fn same_product_cross_contract_and_different_product_isolation() {
-        let catalog = fixture(true);
-        let mut ledger = Ledger::new(10000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.on_fill(
-            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 300.0);
-        ledger.on_fill(
-            &fill("TESTB01", Direction::Sell, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 450.0);
-        let rows = ledger.product_group_margin("TEST", "alice", &catalog, "20261003");
-        assert_eq!(rows.iter().map(|r| r.UseMargin).sum::<f64>(), 450.0);
-    }
-
-    #[test]
-    fn closing_larger_side_switches_margin_side() {
-        let catalog = fixture(true);
-        let mut ledger = Ledger::new(10000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.on_fill(
-            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 2),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 150.0);
-    }
-
-    #[test]
-    fn pending_orders_partial_fill_and_cancel_share_incremental_risk() {
-        let catalog = fixture(true);
-        let mut ledger = Ledger::new(350.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger
-            .freeze(
-                "pending",
-                "TEST",
-                "alice",
-                "TESTA02",
-                PositionSide::Short,
-                300.0,
-                0.0,
-                &catalog,
-            )
-            .unwrap();
-        assert_eq!(ledger.account("TEST", "alice").unwrap().frozen_margin, 0.0);
-        assert_eq!(
-            ledger.freeze(
-                "extra",
-                "TEST",
-                "alice",
-                "TESTA02",
-                PositionSide::Short,
-                150.0,
-                0.0,
-                &catalog
-            ),
-            Err(ERR_FUNDS)
-        );
-        let mut f = fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1);
-        f.order_key = "pending".into();
-        f.volume_total_original = 2;
-        ledger.on_fill(&f, &catalog, 10.0, "20261003");
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 300.0);
-        assert_eq!(ledger.account("TEST", "alice").unwrap().frozen_margin, 0.0);
-        ledger.unfreeze_order("pending", &catalog);
-        assert_eq!(ledger.account("TEST", "alice").unwrap().frozen_margin, 0.0);
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 2),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 150.0);
-    }
-
-    #[test]
-    fn broker_investor_exchange_and_mixed_rules_do_not_offset() {
-        let mut catalog = fixture(true);
-        let mut mixed = catalog.get("TESTA02").unwrap().clone();
-        mixed.max_margin_side_algorithm = b'0';
-        catalog.insert(mixed);
-        let mut other = catalog.get("TESTA01").unwrap().clone();
-        other.instrument_id = "OTHER".into();
-        other.exchange_id = "OTHER".into();
-        catalog.insert(other);
-        catalog.insert_margin_rate(MarginRate {
-            instrument_id: "OTHER".into(),
-            short_margin_ratio_by_volume: 150.0,
-            ..Default::default()
-        });
-        let mut ledger = Ledger::new(10000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.ensure_account("OTHER", "alice");
-        ledger.ensure_account("TEST", "bob");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.on_fill(
-            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.on_fill(
-            &fill("OTHER", Direction::Sell, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let mut f = fill("TESTA01", Direction::Sell, OffsetFlag::Open, 1);
-        f.broker_id = to_fixed("OTHER");
-        ledger.on_fill(&f, &catalog, 10.0, "20261003");
-        f.broker_id = to_fixed("TEST");
-        f.investor_id = to_fixed("bob");
-        ledger.on_fill(&f, &catalog, 10.0, "20261003");
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 600.0);
-        assert_eq!(ledger.account("OTHER", "alice").unwrap().used_margin, 150.0);
-        assert_eq!(ledger.account("TEST", "bob").unwrap().used_margin, 150.0);
-    }
-
-    #[test]
-    fn mark_to_market_does_not_reprice_booked_margin_after_market_move() {
-        let mut catalog = fixture(true);
-        catalog.insert_margin_rate(MarginRate {
-            instrument_id: "TESTA01".into(),
-            long_margin_ratio_by_money: 0.1,
-            ..Default::default()
-        });
-        let mut ledger = Ledger::new(10000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let before = ledger.account("TEST", "alice").unwrap().used_margin;
-        let prices = HashMap::from([("TESTA01".into(), 20.0)]);
-        let previous = HashMap::from([("TESTA01".into(), 10.0)]);
-        ledger.mark_to_market(&catalog, &prices, &previous, "20261003");
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, before);
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let after_partial_close = ledger.account("TEST", "alice").unwrap().used_margin;
-        assert!((after_partial_close - before * 2.0 / 3.0).abs() < 1e-9);
-        ledger.mark_to_market(
-            &catalog,
-            &HashMap::from([("TESTA01".into(), 30.0)]),
-            &previous,
-            "20261003",
-        );
-        assert_eq!(
-            ledger.account("TEST", "alice").unwrap().used_margin,
-            after_partial_close
-        );
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let rows = ledger.product_group_margin("TEST", "alice", &catalog, "20261003");
-        assert_eq!(rows.iter().map(|r| r.UseMargin).sum::<f64>(), before / 3.0);
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let rows = ledger.product_group_margin("TEST", "alice", &catalog, "20261003");
-        assert_eq!(rows.iter().map(|r| r.UseMargin).sum::<f64>(), 0.0);
-    }
-
-    #[test]
-    fn disabled_algorithm_keeps_sum() {
-        let catalog = fixture(false);
-        let mut ledger = Ledger::new(10000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger.on_fill(
-            &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 3),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.on_fill(
-            &fill("TESTA02", Direction::Sell, OffsetFlag::Open, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        assert_eq!(ledger.account("TEST", "alice").unwrap().used_margin, 450.0);
-    }
-
-    /// 1 手昨仓（启动初仓）+ 2 手今仓的上期所多头持仓。
-    fn shfe_long(exchange: &str) -> (Catalog, Ledger) {
-        let mut catalog = fixture(false);
-        let mut inst = Instrument::new("rb2601", exchange);
-        inst.product_id = "rb".into();
-        catalog.insert(inst);
-        let mut ledger = Ledger::new(1_000_000.0);
-        ledger.ensure_account("TEST", "alice");
-        ledger
-            .position_mut_or_create("TEST", "alice", "rb2601", PositionSide::Long)
-            .add_bootstrap_detail("20261002", "YD1", 10.0, 1, 0.0, 10.0, 1);
-        let mut open = fill("rb2601", Direction::Buy, OffsetFlag::Open, 2);
-        open.exchange_id = exchange.into();
-        ledger.on_fill(&open, &catalog, 10.0, "20261003");
-        (catalog, ledger)
-    }
-
-    fn close_fill(
-        exchange: &str,
-        key: &str,
-        offset: OffsetFlag,
-        volume: i32,
-        original: i32,
-    ) -> Fill {
-        let mut f = fill("rb2601", Direction::Sell, offset, volume);
-        f.exchange_id = exchange.into();
-        f.order_key = key.into();
-        f.volume_total_original = original;
-        f
-    }
-
-    #[test]
-    fn shfe_close_means_close_yesterday() {
-        let (_, mut ledger) = shfe_long("SHFE");
-        // 上期所「平仓」= 平昨：只有 1 手昨仓可平，今仓不能被 Close 动用
-        assert_eq!(
-            ledger.freeze_close_position(
-                "c2",
-                "TEST",
-                "alice",
-                "rb2601",
-                "SHFE",
-                PositionSide::Long,
-                OffsetFlag::Close,
-                2
-            ),
-            Err(ERR_NO_CLOSE_YD_LEDGER)
-        );
-        assert!(ledger
-            .freeze_close_position(
-                "c1",
-                "TEST",
-                "alice",
-                "rb2601",
-                "SHFE",
-                PositionSide::Long,
-                OffsetFlag::Close,
-                1
-            )
-            .is_ok());
-        assert_eq!(
-            ledger.freeze_close_position(
-                "c3",
-                "TEST",
-                "alice",
-                "rb2601",
-                "SHFE",
-                PositionSide::Long,
-                OffsetFlag::Close,
-                1
-            ),
-            Err(ERR_NO_CLOSE_YD_LEDGER)
-        );
-        // 其他交易所的 Close 仍按先开先平跨越今昨
-        let (_, mut dce) = shfe_long("DCE");
-        assert!(dce
-            .freeze_close_position(
-                "c2",
-                "TEST",
-                "alice",
-                "rb2601",
-                "DCE",
-                PositionSide::Long,
-                OffsetFlag::Close,
-                3
-            )
-            .is_ok());
-    }
-
-    #[test]
-    fn partial_fill_then_cancel_keeps_other_reservations() {
-        let (catalog, mut ledger) = shfe_long("SHFE");
-        // A、B 各预留 1 手今仓（今仓共 2 手，已全部占满）
-        for key in ["A", "B"] {
-            ledger
-                .freeze_close_position(
-                    key,
-                    "TEST",
-                    "alice",
-                    "rb2601",
-                    "SHFE",
-                    PositionSide::Long,
-                    OffsetFlag::CloseToday,
-                    1,
-                )
-                .unwrap();
-        }
-        // A 成交后再收到 '5'（普通 GFD 撤单路径）
-        ledger.on_fill(
-            &close_fill("SHFE", "A", OffsetFlag::CloseToday, 1, 1),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        ledger.unfreeze_order("A", &catalog);
-        let p = ledger
-            .position("TEST", "alice", "rb2601", PositionSide::Long)
-            .unwrap();
-        assert_eq!(p.today_position, 1);
-        assert_eq!(p.frozen_today, 1, "B 的预留不能被 A 的撤单冲掉");
-        assert_eq!(
-            ledger.freeze_close_position(
-                "C",
-                "TEST",
-                "alice",
-                "rb2601",
-                "SHFE",
-                PositionSide::Long,
-                OffsetFlag::CloseToday,
-                1
-            ),
-            Err(ERR_NO_CLOSE_TODAY_LEDGER),
-            "仍在途的 B 已占住最后 1 手今仓"
-        );
-    }
-
-    #[test]
-    fn cancel_first_fak_does_not_release_twice() {
-        let (catalog, mut ledger) = shfe_long("SHFE");
-        ledger
-            .freeze_close_position(
-                "FAK",
-                "TEST",
-                "alice",
-                "rb2601",
-                "SHFE",
-                PositionSide::Long,
-                OffsetFlag::CloseToday,
-                2,
-            )
-            .unwrap();
-        // 场景 8：'5' 先到（全额释放剩余预留），随后才是 1 手成交
-        ledger.unfreeze_order("FAK", &catalog);
-        ledger
-            .freeze_close_position(
-                "OTHER",
-                "TEST",
-                "alice",
-                "rb2601",
-                "SHFE",
-                PositionSide::Long,
-                OffsetFlag::CloseToday,
-                1,
-            )
-            .unwrap();
-        ledger.on_fill(
-            &close_fill("SHFE", "FAK", OffsetFlag::CloseToday, 1, 2),
-            &catalog,
-            10.0,
-            "20261003",
-        );
-        let p = ledger
-            .position("TEST", "alice", "rb2601", PositionSide::Long)
-            .unwrap();
-        assert_eq!(p.today_position, 1);
-        assert_eq!(p.frozen_today, 1, "OTHER 的预留不能被迟到的成交再扣一次");
-    }
-
-    #[test]
-    fn open_cost_excludes_commission_and_close_profit_by_trade_is_per_lot() {
-        let mut catalog = fixture(false);
-        let mut inst = Instrument::new("rb2601", "DCE");
-        inst.product_id = "rb".into();
-        inst.volume_multiple = 10;
-        catalog.insert(inst);
-        catalog.insert_commission_rate(CommissionRate {
-            instrument_id: "rb2601".into(),
-            open_ratio_by_volume: 2.0,
-            close_ratio_by_volume: 3.0,
-            close_today_ratio_by_volume: 3.0,
-            ..Default::default()
-        });
-        let mut ledger = Ledger::new(1_000_000.0);
-        ledger.ensure_account("TEST", "alice");
-        // 1 手昨仓：开仓价 8，昨结算 10
-        ledger
-            .position_mut_or_create("TEST", "alice", "rb2601", PositionSide::Long)
-            .add_bootstrap_detail("20261002", "YD1", 8.0, 1, 0.0, 10.0, 10);
-        let mut open = fill("rb2601", Direction::Buy, OffsetFlag::Open, 2);
-        open.exchange_id = "DCE".into();
-        open.price = 12.0;
-        ledger.on_fill(&open, &catalog, 10.0, "20261003");
-        let p = ledger
-            .position("TEST", "alice", "rb2601", PositionSide::Long)
-            .unwrap();
-        assert_eq!(p.commission, 4.0);
-        // 开仓成本 = Σ开仓价×乘数×手数，不含手续费
-        assert_eq!(p.open_cost, 8.0 * 10.0 + 12.0 * 2.0 * 10.0);
-        assert_eq!(p.position_cost, 10.0 * 10.0 + 12.0 * 2.0 * 10.0);
-        let f = p.to_field("TEST", "alice", "DCE", "20261003", 10);
-        assert_eq!(f.OpenCost, 320.0);
-        assert_eq!(f.PositionCost, 340.0);
-
-        // 平 2 手（先开先平：1 手昨仓 + 1 手今仓）@ 14
-        ledger
-            .freeze_close_position(
-                "c1",
-                "TEST",
-                "alice",
-                "rb2601",
-                "DCE",
-                PositionSide::Long,
-                OffsetFlag::Close,
-                2,
-            )
-            .unwrap();
-        let mut close = fill("rb2601", Direction::Sell, OffsetFlag::Close, 2);
-        close.exchange_id = "DCE".into();
-        close.order_key = "c1".into();
-        close.price = 14.0;
-        ledger.on_fill(&close, &catalog, 10.0, "20261003");
-        let p = ledger
-            .position("TEST", "alice", "rb2601", PositionSide::Long)
-            .unwrap();
-        assert_eq!(p.commission, 10.0);
-        assert_eq!(p.open_cost, 12.0 * 10.0, "剩余 1 手今仓的开仓成本");
-        // 盯市：昨仓 (14-10)*10 + 今仓 (14-12)*10 = 60；逐笔：(14-8)*10 + (14-12)*10 = 80
-        assert_eq!(p.close_profit, 60.0);
-        assert_eq!(p.close_profit_trade, 80.0);
-        let f = p.to_field("TEST", "alice", "DCE", "20261003", 10);
-        assert_eq!(f.OpenCost, 120.0);
-        assert_eq!(f.CloseProfitByDate, 60.0);
-        assert_eq!(f.CloseProfitByTrade, 80.0);
-        let detail_trade: f64 = p.details.iter().map(|d| d.close_profit_trade).sum();
-        assert_eq!(f.CloseProfitByTrade, detail_trade);
     }
 }

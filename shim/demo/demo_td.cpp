@@ -45,9 +45,13 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <iconv.h>
+#endif
 
 #include "ThostFtdcTraderApi.h"
 #include "ThostFtdcMdApi.h"
@@ -87,6 +91,20 @@ std::string cstr(const char* p) { return p ? std::string(p) : std::string(); }
 // e2e harness (PYTHONUTF8=1) can decode every line.
 std::string err_msg(const char* gbk) {
     if (!gbk || !*gbk) return std::string();
+#ifndef _WIN32
+    iconv_t cd = iconv_open("UTF-8", "GBK");
+    if (cd == reinterpret_cast<iconv_t>(-1)) return std::string(gbk);
+    std::string out(std::strlen(gbk) * 4 + 4, '\0');
+    char* ip = const_cast<char*>(gbk);
+    size_t il = std::strlen(gbk);
+    char* op = &out[0];
+    size_t ol = out.size();
+    size_t rc = iconv(cd, &ip, &il, &op, &ol);
+    iconv_close(cd);
+    if (rc == static_cast<size_t>(-1)) return std::string(gbk);
+    out.resize(out.size() - ol);
+    return out;
+#else
     int wlen = MultiByteToWideChar(936, 0, gbk, -1, nullptr, 0);
     if (wlen <= 0) return std::string(gbk);
     std::wstring wide(static_cast<size_t>(wlen), L'\0');
@@ -97,6 +115,7 @@ std::string err_msg(const char* gbk) {
     WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, &utf8[0], ulen, nullptr, nullptr);
     utf8.resize(std::strlen(utf8.c_str()));
     return utf8;
+#endif
 }
 
 void put_cstr(char* dst, size_t n, const char* src) {

@@ -7,6 +7,7 @@
 
 pub mod catalog;
 pub mod engine;
+pub mod exchange_rules;
 pub mod refdata;
 
 pub use catalog::Catalog;
@@ -17,6 +18,7 @@ pub use engine::{
     ERR_NO_POSITION, ERR_ORDER_FREQ, ERR_ORDER_NOT_FOUND, ERR_ORDER_STATUS_UNSUITABLE,
     ERR_PRICE_LIMIT, ERR_PRICE_TICK, ERR_VOLUME_RANGE,
 };
+pub use exchange_rules::{rules_for, ExchangeRules};
 pub use refdata::{
     CommissionKind, CommissionRate, Instrument, MarginPrice, MarginRate, OrderCommRate, RefData,
     TradingParams, HEDGE_FLAG_SPECULATION, MPT_AVERAGE, MPT_OPEN_PRICE, MPT_PRE_SETTLEMENT,
