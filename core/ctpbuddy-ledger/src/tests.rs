@@ -523,6 +523,96 @@ fn mark_to_market_does_not_reprice_booked_margin_after_market_move() {
     assert_eq!(rows.iter().map(|r| r.UseMargin).sum::<f64>(), 0.0);
 }
 
+// MarginPriceType == '2'：今仓保证金随最新价变化，昨仓明细不动，平仓按比例释放。
+#[test]
+fn last_price_margin_type_reprices_only_today_details() {
+    let mut catalog = fixture(false);
+    let mut params = TradingParams::default();
+    params.margin_price_type = b'2';
+    catalog.set_trading_params(params);
+    catalog.insert_margin_rate(MarginRate {
+        instrument_id: "TESTA01".into(),
+        long_margin_ratio_by_money: 0.1,
+        ..Default::default()
+    });
+    let mut ledger = Ledger::new(10_000.0);
+    ledger.ensure_account("TEST", "alice");
+    ledger
+        .position_mut_or_create("TEST", "alice", "TESTA01", PositionSide::Long)
+        .add_bootstrap_detail("20261002", "YD1", 10.0, 1, Money::from_f64(1.0), 10.0, 1);
+    ledger.refresh(&catalog);
+    ledger.on_fill(
+        &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 2),
+        &catalog,
+        10.0,
+        "20261003",
+    );
+    let used = |l: &Ledger| l.account("TEST", "alice").unwrap().used_margin.to_f64();
+    // 昨仓 1 手 1.0 + 今仓 2 手按开仓时的最新价 10 → 2.0
+    assert!((used(&ledger) - 3.0).abs() < 1e-6);
+    ledger.mark_to_market(
+        &catalog,
+        &HashMap::from([("TESTA01".into(), 20.0)]),
+        &HashMap::new(),
+        "20261003",
+    );
+    // 今仓 2 手按 20 → 4.0；昨仓仍为 1.0
+    assert!((used(&ledger) - 5.0).abs() < 1e-6);
+    // 重复盯市幂等
+    ledger.mark_to_market(
+        &catalog,
+        &HashMap::from([("TESTA01".into(), 20.0)]),
+        &HashMap::new(),
+        "20261003",
+    );
+    assert!((used(&ledger) - 5.0).abs() < 1e-6);
+    // 平 1 手今仓（成交价 10 不影响已计保证金，按比例释放 2.0）
+    let mut close = fill("TESTA01", Direction::Sell, OffsetFlag::Close, 1);
+    close.order_key = "c".into();
+    ledger.on_fill(&close, &catalog, 10.0, "20261003");
+    ledger.mark_to_market(
+        &catalog,
+        &HashMap::from([("TESTA01".into(), 20.0)]),
+        &HashMap::new(),
+        "20261003",
+    );
+    // 先开先平：平的是昨仓还是今仓取决于账本规则，总量与重估口径一致即可
+    let p = ledger
+        .position("TEST", "alice", "TESTA01", PositionSide::Long)
+        .unwrap();
+    let expect: f64 = p
+        .details
+        .iter()
+        .map(|d| {
+            if d.is_today("20261003") {
+                0.1 * 20.0 * d.volume as f64
+            } else {
+                d.margin
+                    .ratio(d.volume as i64, d.open_volume as i64)
+                    .to_f64()
+            }
+        })
+        .sum();
+    assert!((used(&ledger) - expect).abs() < 1e-6);
+    // 行情回落后再次重估
+    ledger.mark_to_market(
+        &catalog,
+        &HashMap::from([("TESTA01".into(), 5.0)]),
+        &HashMap::new(),
+        "20261003",
+    );
+    let today_vol: i32 = ledger
+        .position("TEST", "alice", "TESTA01", PositionSide::Long)
+        .unwrap()
+        .details
+        .iter()
+        .filter(|d| d.is_today("20261003"))
+        .map(|d| d.volume)
+        .sum();
+    assert!(used(&ledger) <= expect + 1e-6);
+    assert!(today_vol >= 1);
+}
+
 #[test]
 fn disabled_algorithm_keeps_sum() {
     let catalog = fixture(false);

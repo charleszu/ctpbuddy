@@ -10,6 +10,7 @@ pub mod dtime;
 pub mod handlers;
 pub mod journal;
 pub mod json;
+mod private_flow;
 pub mod scenario;
 pub mod settings;
 mod settlement;
@@ -17,8 +18,9 @@ pub mod state;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -212,7 +214,13 @@ const DEFAULT_MAX_CONNS: usize = 256;
 /// A peer that stops reading for this long is dropped (bounds the writer thread).
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
-static LIVE_CONNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Per-listener connection limits (injectable so tests don't share globals).
+#[derive(Clone)]
+struct ConnLimits {
+    max_conns: usize,
+    write_timeout: Duration,
+    live: Arc<std::sync::atomic::AtomicUsize>,
+}
 
 pub(crate) fn parse_max_conns(v: Option<&str>) -> usize {
     v.and_then(|s| s.trim().parse::<usize>().ok())
@@ -221,26 +229,41 @@ pub(crate) fn parse_max_conns(v: Option<&str>) -> usize {
 }
 
 /// Decrements the live-connection counter when the reader thread ends.
-struct ConnGuard;
+struct ConnGuard(Arc<std::sync::atomic::AtomicUsize>);
 impl Drop for ConnGuard {
     fn drop(&mut self) {
-        LIVE_CONNS.fetch_sub(1, Ordering::SeqCst);
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
 fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
-    let max_conns = parse_max_conns(std::env::var(MAX_CONNS_ENV).ok().as_deref());
+    // The counter is process-global so TD and ADMIN listeners share one cap.
+    static SHARED: std::sync::OnceLock<Arc<std::sync::atomic::AtomicUsize>> =
+        std::sync::OnceLock::new();
+    let live = SHARED
+        .get_or_init(|| Arc::new(std::sync::atomic::AtomicUsize::new(0)))
+        .clone();
+    let limits = ConnLimits {
+        max_conns: parse_max_conns(std::env::var(MAX_CONNS_ENV).ok().as_deref()),
+        write_timeout: WRITE_TIMEOUT,
+        live,
+    };
+    accept_loop_with(listener, tx, is_admin, limits);
+}
+
+fn accept_loop_with(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool, lim: ConnLimits) {
+    let max_conns = lim.max_conns;
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
-                if LIVE_CONNS.fetch_add(1, Ordering::SeqCst) >= max_conns {
-                    LIVE_CONNS.fetch_sub(1, Ordering::SeqCst);
+                if lim.live.fetch_add(1, Ordering::SeqCst) >= max_conns {
+                    lim.live.fetch_sub(1, Ordering::SeqCst);
                     eprintln!("[ctpbuddy] connection limit {max_conns} reached, rejecting peer");
                     continue; // dropping `s` closes it
                 }
-                let guard = ConnGuard;
+                let guard = ConnGuard(lim.live.clone());
                 let _ = s.set_nodelay(true);
-                let _ = s.set_write_timeout(Some(WRITE_TIMEOUT));
+                let _ = s.set_write_timeout(Some(lim.write_timeout));
                 let id = NEXT_CONN_ID.fetch_add(1, Ordering::SeqCst);
                 let (writer_tx, writer_rx) = mpsc::channel::<Frame>();
                 let _ = tx.send(WorldMsg::Opened {
@@ -250,14 +273,20 @@ fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
                 });
                 let reader = match s.try_clone() {
                     Ok(r) => r,
-                    Err(_) => continue,
+                    Err(_) => {
+                        let _ = tx.send(WorldMsg::Closed { id });
+                        continue;
+                    }
                 };
+                let dead = Arc::new(AtomicBool::new(false));
                 let tx_r = tx.clone();
+                let dead_r = dead.clone();
                 thread::spawn(move || {
                     let _guard = guard;
-                    reader_loop(id, reader, tx_r)
+                    reader_loop(id, reader, tx_r, dead_r)
                 });
-                thread::spawn(move || writer_loop(s, writer_rx));
+                let tx_w = tx.clone();
+                thread::spawn(move || writer_loop(id, s, writer_rx, tx_w, dead));
             }
             Err(e) => {
                 eprintln!("[ctpbuddy] accept error: {e}");
@@ -267,9 +296,74 @@ fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
     }
 }
 
-fn reader_loop(id: u64, mut stream: TcpStream, tx: Sender<WorldMsg>) {
+/// How often an idle reader re-checks whether its writer gave up.
+const READER_POLL: Duration = Duration::from_millis(500);
+
+/// Reader that rides out the poll timeout mid-frame (a slow sender is never
+/// cut off) but gives up once the connection has been flagged dead.
+struct PatientReader<'a> {
+    stream: &'a mut TcpStream,
+    dead: &'a AtomicBool,
+}
+
+impl std::io::Read for PatientReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            match self.stream.read(buf) {
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    if self.dead.load(Ordering::SeqCst) {
+                        return Err(e);
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+}
+
+fn reader_loop(id: u64, mut stream: TcpStream, tx: Sender<WorldMsg>, dead: Arc<AtomicBool>) {
+    // Set once per connection (not per frame).
+    let _ = stream.set_read_timeout(Some(READER_POLL));
     loop {
-        match Frame::read_from(&mut stream) {
+        // Wait for the first byte with a short timeout so a connection whose
+        // writer died is torn down even where `shutdown` does not wake a
+        // blocked `recv` (observed on Windows). Mid-frame timeouts are retried
+        // by `PatientReader`, so a slow sender is never cut off.
+        let mut probe = [0u8; 1];
+        match stream.peek(&mut probe) {
+            Ok(0) => {
+                let _ = tx.send(WorldMsg::Closed { id });
+                break;
+            }
+            Ok(_) => {}
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                if dead.load(Ordering::SeqCst) {
+                    let _ = tx.send(WorldMsg::Closed { id });
+                    break;
+                }
+                continue;
+            }
+            Err(e) => {
+                eprintln!("[ctpbuddy] conn {id} read error: {e}");
+                let _ = tx.send(WorldMsg::Closed { id });
+                break;
+            }
+        }
+        let mut patient = PatientReader {
+            stream: &mut stream,
+            dead: &dead,
+        };
+        match Frame::read_from(&mut patient) {
             Ok(Some(frame)) => {
                 if tx.send(WorldMsg::Inbound { id, frame }).is_err() {
                     break;
@@ -288,15 +382,22 @@ fn reader_loop(id: u64, mut stream: TcpStream, tx: Sender<WorldMsg>) {
     }
 }
 
-fn writer_loop(mut stream: TcpStream, rx: Receiver<Frame>) {
-    // Ends when the world drops our sender (conn removed) or the socket dies;
-    // the reader loop detects EOF on its own.
+fn writer_loop(
+    id: u64,
+    mut stream: TcpStream,
+    rx: Receiver<Frame>,
+    tx: Sender<WorldMsg>,
+    dead: Arc<AtomicBool>,
+) {
+    // Ends when the world drops our sender (conn removed) or the socket dies.
     for frame in rx {
         if frame.write_to(&mut stream).is_err() {
-            // Write timeout / broken pipe: shut the socket so the reader
-            // thread sees EOF and reports `Closed`, letting the world loop
-            // drop the connection instead of leaving it half-dead.
+            // Write timeout / broken pipe: flag the connection dead, shut the
+            // socket and tell the world loop directly (`Closed` is idempotent),
+            // so the connection is never left half-dead.
+            dead.store(true, Ordering::SeqCst);
             let _ = stream.shutdown(std::net::Shutdown::Both);
+            let _ = tx.send(WorldMsg::Closed { id });
             break;
         }
     }
@@ -1149,58 +1250,6 @@ impl World {
         );
     }
 
-    /// Drop the trading day's order/trade history and the replay indexes
-    /// that point into it (reset and explicit settlement).
-    pub(crate) fn clear_day_flow(&mut self) {
-        self.orders_today.clear();
-        self.trades_today.clear();
-        self.private_seq.clear();
-        self.private_cursor.clear();
-    }
-
-    /// Advance the investor's RESUME cursor past the event just emitted when
-    /// a live session received it.
-    fn mark_delivered(&mut self, broker: &str, investor: &str, delivered: bool) {
-        if delivered {
-            self.private_cursor.insert(
-                (broker.to_string(), investor.to_string()),
-                self.private_seq.len(),
-            );
-        }
-    }
-
-    /// Replay the day's private flow to a freshly logged-in session
-    /// (SubscribePrivateTopic): RESTART = whole day, RESUME = what this
-    /// investor missed while no session was live, QUICK = nothing.
-    pub(crate) fn replay_private_flow(&mut self, conn_id: u64, broker: &str, investor: &str) {
-        let mode = self.conns.get(&conn_id).map_or(2, |c| c.private_resume);
-        let key = (broker.to_string(), investor.to_string());
-        let start = match mode {
-            0 => 0,
-            1 => self.private_cursor.get(&key).copied().unwrap_or(0),
-            _ => self.private_seq.len(),
-        };
-        let start = start.min(self.private_seq.len());
-        let mut frames = Vec::new();
-        for &(is_trade, idx) in &self.private_seq[start..] {
-            if is_trade {
-                let t = &self.trades_today[idx];
-                if cstr(&t.BrokerID) == broker && cstr(&t.InvestorID) == investor {
-                    frames.push(Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(t)));
-                }
-            } else {
-                let o = &self.orders_today[idx];
-                if cstr(&o.BrokerID) == broker && cstr(&o.InvestorID) == investor {
-                    frames.push(Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(o)));
-                }
-            }
-        }
-        for f in frames {
-            self.send_frame(conn_id, f);
-        }
-        self.private_cursor.insert(key, self.private_seq.len());
-    }
-
     fn on_conn_closed(&mut self, id: u64) {
         self.conns.remove(&id);
     }
@@ -1328,58 +1377,6 @@ impl World {
 mod tests {
     use super::*;
 
-    /// SubscribePrivateTopic: RESTART replays the whole day, RESUME only what
-    /// was emitted while the investor had no live session, QUICK nothing.
-    #[test]
-    fn private_flow_replay_modes() {
-        let mut world = World::new(Config::default()).expect("world");
-        let mk_order = |inv: &str, r: &str| {
-            let mut o = CThostFtdcOrderField::zeroed();
-            set_cstr(&mut o.BrokerID, "9999");
-            set_cstr(&mut o.InvestorID, inv);
-            set_cstr(&mut o.OrderRef, r);
-            o
-        };
-        let (tx1, rx1) = mpsc::channel::<Frame>();
-        world.on_conn_opened(1, tx1, false);
-        {
-            let c = world.conns.get_mut(&1).unwrap();
-            c.broker_id = Some("9999".into());
-            c.investor_id = Some("u".into());
-        }
-        world.dispatch_event(EngineEvent::Order(mk_order("u", "1")));
-        world.dispatch_event(EngineEvent::Order(mk_order("other", "9")));
-        assert_eq!(rx1.try_iter().count(), 1);
-        // session 1 drops; two events happen while nobody is connected
-        world.on_conn_closed(1);
-        world.dispatch_event(EngineEvent::Order(mk_order("u", "2")));
-        world.dispatch_event(EngineEvent::Order(mk_order("u", "3")));
-        let replay = |world: &mut World, id: u64, mode: u8| -> Vec<String> {
-            let (tx, rx) = mpsc::channel::<Frame>();
-            world.on_conn_opened(id, tx, false);
-            let c = world.conns.get_mut(&id).unwrap();
-            c.broker_id = Some("9999".into());
-            c.investor_id = Some("u".into());
-            c.private_resume = mode;
-            world.replay_private_flow(id, "9999", "u");
-            world.on_conn_closed(id);
-            rx.try_iter()
-                .map(|f| {
-                    let o: CThostFtdcOrderField =
-                        ctpbuddy_wire::struct_from_bytes(&f.payload).unwrap();
-                    cstr(&o.OrderRef)
-                })
-                .collect()
-        };
-        assert!(replay(&mut world, 2, 2).is_empty());
-        // QUICK still moved the cursor to the end: nothing left to resume
-        assert!(replay(&mut world, 3, 1).is_empty());
-        assert_eq!(replay(&mut world, 4, 0), vec!["1", "2", "3"]);
-        // RESUME from a fresh cursor
-        world.private_cursor.clear();
-        assert_eq!(replay(&mut world, 5, 1), vec!["1", "2", "3"]);
-    }
-
     /// Fuzz: hostile frames on a TD and an ADMIN connection must never panic
     /// the world loop (a panic would kill every client).
     #[test]
@@ -1426,6 +1423,97 @@ mod tests {
             while td_rx.try_recv().is_ok() {}
             while ad_rx.try_recv().is_ok() {}
         }
+    }
+
+    fn test_limits(max_conns: usize, write_timeout: Duration) -> ConnLimits {
+        ConnLimits {
+            max_conns,
+            write_timeout,
+            live: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+
+    fn start_listener(lim: ConnLimits) -> (std::net::SocketAddr, Receiver<WorldMsg>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = mpsc::channel::<WorldMsg>();
+        thread::spawn(move || accept_loop_with(listener, tx, false, lim));
+        (addr, rx)
+    }
+
+    fn wait_until(what: &str, mut f: impl FnMut() -> bool) {
+        let t0 = Instant::now();
+        while !f() {
+            assert!(t0.elapsed() < Duration::from_secs(10), "timeout: {what}");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Over-limit peers are closed immediately and never reach the world loop;
+    /// a slot frees up once an accepted peer disconnects.
+    #[test]
+    fn connection_limit_rejects_excess_and_recovers() {
+        use std::io::Read;
+        let lim = test_limits(2, Duration::from_secs(5));
+        let live = lim.live.clone();
+        let (addr, rx) = start_listener(lim);
+        let c1 = TcpStream::connect(addr).unwrap();
+        let c2 = TcpStream::connect(addr).unwrap();
+        wait_until("two accepted", || live.load(Ordering::SeqCst) == 2);
+        let mut c3 = TcpStream::connect(addr).unwrap();
+        c3.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut b = [0u8; 1];
+        // rejected peer sees EOF (or a reset), not a hang
+        match c3.read(&mut b) {
+            Ok(0) | Err(_) => {}
+            Ok(n) => panic!("unexpected {n} bytes"),
+        }
+        assert_eq!(live.load(Ordering::SeqCst), 2);
+        let opened = rx
+            .try_iter()
+            .filter(|m| matches!(m, WorldMsg::Opened { .. }))
+            .count();
+        assert_eq!(opened, 2, "rejected peer must not be opened in the world");
+        // free a slot: the reader sees EOF, reports Closed and returns the slot
+        drop(c1);
+        wait_until("slot released", || live.load(Ordering::SeqCst) == 1);
+        let _c4 = TcpStream::connect(addr).unwrap();
+        wait_until("new peer accepted", || live.load(Ordering::SeqCst) == 2);
+        drop(c2);
+    }
+
+    /// A peer that never reads: the writer hits the write timeout, shuts the
+    /// socket, the reader reports `Closed` and the slot is released.
+    #[test]
+    fn write_timeout_drops_stalled_peer() {
+        let lim = test_limits(4, Duration::from_millis(300));
+        let live = lim.live.clone();
+        let (addr, rx) = start_listener(lim);
+        let _stalled = TcpStream::connect(addr).unwrap(); // never reads
+        let writer = match rx.recv_timeout(Duration::from_secs(5)).unwrap() {
+            WorldMsg::Opened { writer, .. } => writer,
+            _ => panic!("expected Opened"),
+        };
+        let payload = vec![0u8; 256 * 1024];
+        let t0 = Instant::now();
+        let mut saw_closed = false;
+        while t0.elapsed() < Duration::from_secs(20) && !saw_closed {
+            // keep the send buffer full until the writer gives up; once the
+            // writer exits, the reader must report `Closed` to the world loop
+            let _ = writer.send(Frame::new(1, 0, payload.clone()));
+            while let Ok(m) = rx.try_recv() {
+                if matches!(m, WorldMsg::Closed { .. }) {
+                    saw_closed = true;
+                }
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(saw_closed, "stalled peer was never reported Closed");
+        assert!(
+            writer.send(Frame::new(1, 0, vec![0u8; 1])).is_err(),
+            "writer thread should have exited"
+        );
+        wait_until("slot released", || live.load(Ordering::SeqCst) == 0);
     }
 
     #[test]

@@ -173,6 +173,10 @@ impl Ledger {
         pre_settlements: &HashMap<String, f64>,
         trading_day: &str,
     ) {
+        // MarginPriceType == '2'（最新价）：今仓保证金随行情变化；昨仓恒用昨结算价，
+        // 不重估（notes/04 C2）。默认 '1' 与 '3'/'4' 不随行情变化。
+        let reprice_margin = catalog.trading_params().margin_price_type == b'2';
+        let mut margin_changed = false;
         for pos in self.positions.values_mut() {
             let mult = catalog
                 .get(&pos.instrument_id)
@@ -199,6 +203,14 @@ impl Ledger {
                 })
                 .sum();
             pos.settlement_price = p;
+            if reprice_margin {
+                if let Some(last) = prices.get(&pos.instrument_id).copied().filter(|v| *v > 0.0) {
+                    margin_changed |= reprice_today_margin(pos, catalog, last, trading_day);
+                }
+            }
+        }
+        if margin_changed {
+            self.refresh_margin(catalog);
         }
         let mut sums: HashMap<AccountKey, Money> = HashMap::new();
         for ((key, _, _), pos) in &self.positions {
@@ -209,4 +221,47 @@ impl Ledger {
             a.position_profit = sums.get(&key).copied().unwrap_or(Money::ZERO);
         }
     }
+}
+
+/// 按最新价重算该持仓的今仓明细保证金，返回是否有变化。仅期货；昨仓明细不动。
+/// 明细的 `margin` 以 `open_volume` 手为基数（平仓按比例释放），所以这里按
+/// `open_volume` 重算基数，持仓保证金只加上「剩余手数份额」的差额。
+fn reprice_today_margin(
+    pos: &mut Position,
+    catalog: &Catalog,
+    last: f64,
+    trading_day: &str,
+) -> bool {
+    if catalog
+        .get(&pos.instrument_id)
+        .is_none_or(|i| i.product_class != b'1')
+    {
+        return false;
+    }
+    let direction = match pos.side {
+        PositionSide::Long => ctpbuddy_matching::Direction::Buy,
+        PositionSide::Short => ctpbuddy_matching::Direction::Sell,
+    };
+    let mut delta = Money::ZERO;
+    for d in pos
+        .details
+        .iter_mut()
+        .filter(|d| d.volume > 0 && d.open_volume > 0 && d.is_today(trading_day))
+    {
+        let full = Money::from_f64(catalog.margin(
+            &pos.instrument_id,
+            direction,
+            ctpbuddy_matching::MarginPrice::Last(last),
+            d.open_volume,
+        ));
+        let old_share = d.margin.ratio(d.volume as i64, d.open_volume as i64);
+        let new_share = full.ratio(d.volume as i64, d.open_volume as i64);
+        delta += new_share - old_share;
+        d.margin = full;
+    }
+    if delta == Money::ZERO {
+        return false;
+    }
+    pos.margin += delta;
+    true
 }
