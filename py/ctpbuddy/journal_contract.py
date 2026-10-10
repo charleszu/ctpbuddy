@@ -83,6 +83,14 @@ def validate_event_contract(event: Dict[str, Any]) -> List[str]:
         problems.append("contract_version %r does not match %d" % (event["contract_version"], CONTRACT_VERSION))
     if "data" in event and DATA_TYPE == "object_or_null" and event["data"] is not None and not isinstance(event["data"], dict):
         problems.append("data must be an object or null")
+    spec = EVENTS.get(event_type) if isinstance(event_type, str) else None
+    required_data = spec.get("data_required", []) if spec else []
+    data = event.get("data")
+    if required_data:
+        if not isinstance(data, dict):
+            problems.append("data must be an object for %s" % event_type)
+        else:
+            problems.extend("data missing field %r" % key for key in required_data if key not in data)
     for key in ("ts_wall", "trading_day", "type"):
         if key in event and not isinstance(event[key], str):
             problems.append("%s must be a string" % key)

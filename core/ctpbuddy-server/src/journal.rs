@@ -136,6 +136,7 @@ impl Journal {
         if !crate::journal_contract::knows_event(event_type)
             || !vt_ms.is_finite()
             || !matches!(&data, Value::Obj(_) | Value::Null)
+            || !crate::journal_contract::data_has_required_fields(event_type, &data)
         {
             eprintln!("[ctpbuddy] journal event rejected by contract: {event_type}");
             return;
@@ -266,6 +267,14 @@ mod tests {
         let mut j = Journal::new(dir.to_str().unwrap()).unwrap();
         j.record("20261005", f64::NAN, "server_start", "", "", Value::Null);
         j.record("20261005", 0.0, "server_start", "", "", Value::Arr(vec![]));
+        j.record(
+            "20261005",
+            0.0,
+            "fill",
+            "",
+            "",
+            Value::Obj(vec![("trade_id".into(), Value::Null)]),
+        );
         assert_eq!(j.seq(), 0);
         assert!(!dir.join("journal").join("20261005.jsonl").exists());
         drop(j);

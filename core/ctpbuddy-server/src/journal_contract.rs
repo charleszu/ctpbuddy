@@ -1,14 +1,18 @@
 //! Shared journal contract embedded from the package artifact.
 
 use serde_json::Value;
+use std::sync::OnceLock;
 
 pub const CONTRACT_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../py/ctpbuddy/contracts/journal_contract.json"
 ));
 
-pub fn document() -> Value {
-    serde_json::from_str(CONTRACT_JSON).expect("embedded journal contract must be valid JSON")
+pub fn document() -> &'static Value {
+    static DOCUMENT: OnceLock<Value> = OnceLock::new();
+    DOCUMENT.get_or_init(|| {
+        serde_json::from_str(CONTRACT_JSON).expect("embedded journal contract must be valid JSON")
+    })
 }
 
 pub fn contract_version() -> u64 {
@@ -23,6 +27,27 @@ pub fn knows_event(event_type: &str) -> bool {
         .get("events")
         .and_then(Value::as_object)
         .is_some_and(|events| events.contains_key(event_type))
+}
+
+pub fn data_has_required_fields(event_type: &str, data: &crate::json::Value) -> bool {
+    let contract = document();
+    let required = contract
+        .get("events")
+        .and_then(Value::as_object)
+        .and_then(|events| events.get(event_type))
+        .and_then(|spec| spec.get("data_required"))
+        .and_then(Value::as_array);
+    let Some(required) = required else {
+        return true;
+    };
+    let Some(object) = data.as_obj() else {
+        return false;
+    };
+    required.iter().all(|field| {
+        field
+            .as_str()
+            .is_some_and(|name| object.iter().any(|(key, _)| key == name))
+    })
 }
 
 /// Canonical JSON used by the shared vector tests (sorted keys, wall clock omitted).
@@ -78,6 +103,17 @@ mod tests {
         assert!(knows_event("server_start"));
         assert!(knows_event("session_auth"));
         assert!(!knows_event("made_up_event"));
+        assert!(data_has_required_fields(
+            "fill",
+            &crate::json::Value::Obj(vec![
+                ("trade_id".into(), crate::json::Value::Null),
+                ("instrument".into(), crate::json::Value::Null),
+                ("direction".into(), crate::json::Value::Null),
+                ("offset".into(), crate::json::Value::Null),
+                ("price".into(), crate::json::Value::Null),
+                ("volume".into(), crate::json::Value::Null),
+            ])
+        ));
     }
 
     #[test]

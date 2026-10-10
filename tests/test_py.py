@@ -580,7 +580,7 @@ def test_journal_hash() -> None:
         # the settle/settlement/report/settings vocabulary verifies clean
         admin_stream = stream + [
             ev(7, 34300000.0, "settlement", {"next_trading_day": "20261005", "accounts": []}),
-            ev(8, 34300000.0, "settlement_report", {"settlement_id": 1}, broker="8888", investor="dsl001"),
+            ev(8, 34300000.0, "settlement_report", {"settlement_id": 1, "account_id": "dsl001", "currency_id": "CNY", "content_bytes": []}, broker="8888", investor="dsl001"),
             ev(9, 34300000.0, "settings_updated", {"before": {}, "after": {}}),
             ev(10, 34300000.0, "deposit", {"amount": 1.0}, broker="8888", investor="dsl001"),
         ]
@@ -1279,6 +1279,9 @@ def test_journal_contract() -> None:
     assert any("unknown envelope field" in problem for problem in validate_event_contract(
         {"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
          "type": "server_start", "data": None, "future": True}))
+    fill = {"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
+            "type": "fill", "data": {"trade_id": "t1"}}
+    assert any("data missing field 'price'" in problem for problem in validate_event_contract(fill))
     vector_path = os.path.join(REPO, "py", "ctpbuddy", "contracts", "journal_vectors.json")
     with open(vector_path, encoding="utf-8") as fh:
         vector = json.load(fh)["canonical"][0]
