@@ -752,6 +752,7 @@ def test_web_replay() -> None:
         try:
             base = "http://127.0.0.1:%d" % server.server_address[1]
             host = "127.0.0.1:%d" % server.server_address[1]
+            direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             def request(path, data=None, method="GET", token=None, extra=None):
                 headers = {"Host": host}
                 if data is not None:
@@ -760,7 +761,7 @@ def test_web_replay() -> None:
                 else:
                     raw = None
                 headers.update(extra or {})
-                return urllib.request.urlopen(urllib.request.Request(base + path, data=raw, method=method, headers=headers), timeout=5)
+                return direct.open(urllib.request.Request(base + path, data=raw, method=method, headers=headers), timeout=5)
             csrf = json.loads(request("/api/session").read())["token"]
             status = json.loads(request("/api/replay/status").read())
             assert status["playback"]["idx"] == 0 and status["realtime"] is True
@@ -781,7 +782,7 @@ def test_web_replay() -> None:
                     assert exc.code == 400, (bad, exc.code)
             no_csrf = urllib.request.Request(base + "/api/replay", data=json.dumps({"cmd": "pause"}).encode(), method="POST", headers={"Host": host, "Origin": base, "Content-Type": "application/json"})
             try:
-                urllib.request.urlopen(no_csrf)
+                direct.open(no_csrf, timeout=5)
                 raise AssertionError("缺失 CSRF 被接受")
             except urllib.error.HTTPError as exc:
                 assert exc.code == 403
