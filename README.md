@@ -6,6 +6,8 @@
 
 > 通用 CTP 开发指南见 [`docs/CTP开发知识库/README.md`](docs/CTP开发知识库/README.md)；它用于分层检索和工程入门，**不是官方权威**。官方 HTML 与项目考证 notes 的优先级、适用基线及真实样本边界见该 README；项目进度仍以本文件和 [`DESIGN.md`](DESIGN.md) 为准。
 
+> 柜台运行所需的外部数据、目录格式、加载优先级和客户端挂载链路见 [`docs/CTP柜台外部数据与挂载说明.md`](docs/CTP柜台外部数据与挂载说明.md)。
+
 > 完整设计见 [DESIGN.md](DESIGN.md)。源码反向映射索引见 [`docs-site-oink/content/architecture/source-layout.md`](docs-site-oink/content/architecture/source-layout.md)，按协议、场景时间、撮合回报、账本日结、查询审计、Web 安全、Docker/Shim 发布和测试 CI 指向实际模块路径。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`（编号 01~05、09~14；06~08 跳号：06「API 文档 Markdown 转换」与 07「错误码全集」已分别上移为 `docs/api-doc-html/` 与 `docs/错误码全集.md`（提交 `17e2f8e`），08 从未发布，编号不回收）。官方资料可读版：SDK《6.7.13_API接口说明》HTML 版（405 页干净 HTML，剔除 CHM 主题框架、保留表格/代码/内嵌图片，页间链接与 `anchor-id-*` 锚点均已校验；另有 1 页目录漏收附录、8 个官方附件与 84 条官方源死链/1 条悬空锚点的公示）在 [docs/api-doc-html/](docs/api-doc-html/)，error.xml 错误码全集（299 条，逐条标注「已实现 23 / 可落地 47 / 暂不可达 229」+ 推送面，由 `tools/fill_errorcode_status.py` 全量重算、`--check` 可校验）在 [docs/错误码全集.md](docs/错误码全集.md)，双推送面口径见 [docs/notes/09](docs/notes/09-错单推送面与错误码对账.md)；FAK 部成部撤的**三所分流**回报（上期所/大商所+广期所/郑商所三种不同形状）见 [docs/notes/10](docs/notes/10-FAK回报按交易所分流.md)；程序化交易入门系列 17 份客户端实操资料（连接认证/穿透式监管、行情现手开平、报撤单成交回报、查询流控与持仓更新）的整理与实现影响清单见 [docs/notes/11](docs/notes/11-入门系列-连接认证与穿透式监管.md)~[docs/notes/14](docs/notes/14-入门系列-查询流控与持仓查询更新.md)（汇总登记在知识库 §10.4）。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；仓库**不包含** `ctpsdk/*/` 下的官方二进制 SDK（`.dll`/`.lib`，由使用者自备，`.gitignore` 禁止入库与分发），但 `docs/api-doc-html/files/` 附带了由官方 CHM 文档转换得到的头文件、`error.xml` 与 PDF，仅供文档交叉引用（许可与来源说明见下文「许可」）。
 
 ## 它解决什么问题
