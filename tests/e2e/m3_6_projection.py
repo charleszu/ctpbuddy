@@ -22,7 +22,7 @@ def main() -> int:
         os.mkdir(journal)
         events = [
             {"seq": 1, "ts_wall": "2026-10-03T09:30:00+08:00", "trading_day": "20261003", "vt_ms": 1, "type": "session_login", "broker": "8888", "investor": "m36", "data": {}},
-            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "m36", "data": {"order_ref": "M36-1", "order_sys_id": "1", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "limit_price": 3500, "volume": 1, "outcome": {"accepted": True}}},
+            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "m36", "data": {"order_ref": "M36-1", "order_sys_id": "1", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "price_type": "2", "limit_price": 3500, "volume": 1, "time_condition": "3", "volume_condition": "1", "min_volume": 1, "outcome": {"accepted": True}}},
             {"seq": 3, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "fill", "broker": "8888", "investor": "m36", "data": {"trade_id": "T1", "order_sys_id": "1", "order_ref": "M36-1", "instrument": "rb2601", "direction": 0, "offset": 0, "price": 3500, "volume": 1}},
             {"seq": 4, "ts_wall": "2026-10-03T09:30:03+08:00", "trading_day": "20261003", "vt_ms": 4, "type": "settings_updated", "data": {"after": {"qry_freq": 2}}},
         ]

@@ -496,9 +496,13 @@ def test_journal_hash() -> None:
            broker="8888", investor="dsl001"),
         ev(4, 34260000.0, "md_watermark", {"idx": 1}),
         ev(5, 34260000.0, "order_insert",
-           {"order_ref": "D1A", "instrument": "rb2601", "limit_price": 3504.0},
+           {"order_ref": "D1A", "instrument": "rb2601", "exchange": "SHFE", "direction": 48,
+            "offset": 48, "price_type": "2", "limit_price": 3504.0, "volume": 2,
+            "time_condition": "3", "volume_condition": "1", "min_volume": 1,
+            "outcome": {"accepted": True}},
            broker="8888", investor="dsl001"),
-        ev(6, 34290000.0, "assertion", {"metric": "fills", "pass": True},
+        ev(6, 34290000.0, "assertion", {"metric": "fills", "op": ">=", "value": 1,
+                                          "actual": 1, "pass": True, "status": "ok", "after_ms": 0},
            broker="8888", investor="dsl001"),
     ]
 
@@ -604,7 +608,7 @@ def test_journal_projection() -> None:
         os.mkdir(journal)
         events = [
             {"seq": 1, "ts_wall": "2026-10-03T09:30:00+08:00", "trading_day": "20261003", "vt_ms": 1, "type": "session_login", "broker": "8888", "investor": "u1", "data": {}},
-            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "u1", "data": {"order_ref": "r1", "order_sys_id": "0001", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "limit_price": 3500, "volume": 2, "outcome": {"accepted": True}}},
+            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "u1", "data": {"order_ref": "r1", "order_sys_id": "0001", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "price_type": "2", "limit_price": 3500, "volume": 2, "time_condition": "3", "volume_condition": "1", "min_volume": 1, "outcome": {"accepted": True}}},
             {"seq": 3, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "order_update", "broker": "8888", "investor": "u1", "data": {"order_ref": "r1", "order_sys_id": "0001", "status": "0", "volume_traded": 2, "volume_total": 0}},
             {"seq": 4, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "fill", "broker": "8888", "investor": "u1", "data": {"trade_id": "t1", "order_sys_id": "0001", "order_ref": "r1", "instrument": "rb2601", "direction": 0, "offset": 0, "price": 3500, "volume": 2}},
             {"seq": 5, "ts_wall": "2026-10-03T09:30:03+08:00", "trading_day": "20261003", "vt_ms": 4, "type": "settings_updated", "data": {"before": {"qry_freq": 1}, "after": {"qry_freq": 2}}},
@@ -647,7 +651,7 @@ def test_web_projection() -> None:
         os.mkdir(journal)
         events = [
             {"seq": 1, "ts_wall": "2026-10-03T09:30:00+08:00", "trading_day": "20261003", "vt_ms": 1, "type": "session_login", "broker": "8888", "investor": "web1", "data": {}},
-            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "web1", "data": {"order_ref": "w1", "order_sys_id": "1", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "limit_price": 3500, "volume": 1, "outcome": {"accepted": True}}},
+            {"seq": 2, "ts_wall": "2026-10-03T09:30:01+08:00", "trading_day": "20261003", "vt_ms": 2, "type": "order_insert", "broker": "8888", "investor": "web1", "data": {"order_ref": "w1", "order_sys_id": "1", "instrument": "rb2601", "exchange": "SHFE", "direction": 0, "offset": 0, "price_type": "2", "limit_price": 3500, "volume": 1, "time_condition": "3", "volume_condition": "1", "min_volume": 1, "outcome": {"accepted": True}}},
             {"seq": 3, "ts_wall": "2026-10-03T09:30:02+08:00", "trading_day": "20261003", "vt_ms": 3, "type": "fill", "broker": "8888", "investor": "web1", "data": {"trade_id": "t1", "order_sys_id": "1", "order_ref": "w1", "instrument": "rb2601", "direction": 0, "offset": 0, "price": 3500, "volume": 1}},
             {"seq": 4, "ts_wall": "2026-10-03T09:30:03+08:00", "trading_day": "20261003", "vt_ms": 4, "type": "settlement_report", "broker": "8888", "investor": "web1", "data": {"settlement_id": 1, "account_id": "web1", "currency_id": "CNY", "source": "user_supplied", "content_bytes": [65, 66]}},
             {"seq": 5, "ts_wall": "2026-10-03T09:30:04+08:00", "trading_day": "20261003", "vt_ms": 5, "type": "settings_updated", "data": {"after": {"qry_freq": 2}}},
