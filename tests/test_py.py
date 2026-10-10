@@ -1304,6 +1304,9 @@ def test_journal_contract() -> None:
     fill = {"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
             "type": "fill", "data": {"trade_id": "t1"}}
     assert any("data missing field 'price'" in problem for problem in validate_event_contract(fill))
+    typed = dict(fill, data={"trade_id": "t1", "instrument": "rb", "direction": 0,
+                             "offset": 0, "price": "3500", "volume": 1})
+    assert any("data field 'price' must be number" in problem for problem in validate_event_contract(typed))
     vector_path = os.path.join(REPO, "py", "ctpbuddy", "contracts", "journal_vectors.json")
     with open(vector_path, encoding="utf-8") as fh:
         vector = json.load(fh)["canonical"][0]

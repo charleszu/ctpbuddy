@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, List
 
@@ -91,6 +92,10 @@ def validate_event_contract(event: Dict[str, Any]) -> List[str]:
             problems.append("data must be an object for %s" % event_type)
         else:
             problems.extend("data missing field %r" % key for key in required_data if key not in data)
+    if isinstance(data, dict) and spec:
+        for key, kind in spec.get("data_types", {}).items():
+            if key not in data or not _matches_type(data[key], kind):
+                problems.append("data field %r must be %s" % (key, kind))
     for key in ("ts_wall", "trading_day", "type"):
         if key in event and not isinstance(event[key], str):
             problems.append("%s must be a string" % key)
@@ -102,3 +107,19 @@ def validate_event_contract(event: Dict[str, Any]) -> List[str]:
         if key in event and not isinstance(event[key], str):
             problems.append("%s must be a string" % key)
     return problems
+
+
+def _matches_type(value: Any, kind: str) -> bool:
+    if kind == "string":
+        return isinstance(value, str)
+    if kind == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if kind == "number_or_null":
+        return value is None or _matches_type(value, "number")
+    if kind == "boolean":
+        return isinstance(value, bool)
+    if kind == "object":
+        return isinstance(value, dict)
+    if kind == "array":
+        return isinstance(value, list)
+    return True

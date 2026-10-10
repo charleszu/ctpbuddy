@@ -40,11 +40,48 @@ pub fn data_has_required_fields(event_type: &str, data: &crate::json::Value) -> 
     let Some(object) = data.as_obj() else {
         return false;
     };
-    required.iter().all(|field| {
+    if !required.iter().all(|field| {
         field
             .as_str()
             .is_some_and(|name| object.iter().any(|(key, _)| key == name))
+    }) {
+        return false;
+    }
+    let Some(types) = contract
+        .get("events")
+        .and_then(Value::as_object)
+        .and_then(|events| events.get(event_type))
+        .and_then(|spec| spec.get("data_types"))
+        .and_then(Value::as_object)
+    else {
+        return true;
+    };
+    types.iter().all(|(field, kind)| {
+        let Some(value) = object
+            .iter()
+            .find(|(key, _)| key == field)
+            .map(|(_, value)| value)
+        else {
+            return false;
+        };
+        let Some(kind) = kind.as_str() else {
+            return false;
+        };
+        matches_data_type(value, kind)
     })
+}
+
+fn matches_data_type(value: &crate::json::Value, kind: &str) -> bool {
+    match (kind, value) {
+        ("string", crate::json::Value::Str(_)) => true,
+        ("number", crate::json::Value::Num(n)) => n.is_finite(),
+        ("number_or_null", crate::json::Value::Null) => true,
+        ("number_or_null", crate::json::Value::Num(n)) => n.is_finite(),
+        ("boolean", crate::json::Value::Bool(_)) => true,
+        ("object", crate::json::Value::Obj(_)) => true,
+        ("array", crate::json::Value::Arr(_)) => true,
+        _ => false,
+    }
 }
 
 /// Canonical JSON used by the shared vector tests (sorted keys, wall clock omitted).
@@ -103,12 +140,12 @@ mod tests {
         assert!(data_has_required_fields(
             "fill",
             &crate::json::Value::Obj(vec![
-                ("trade_id".into(), crate::json::Value::Null),
-                ("instrument".into(), crate::json::Value::Null),
-                ("direction".into(), crate::json::Value::Null),
-                ("offset".into(), crate::json::Value::Null),
-                ("price".into(), crate::json::Value::Null),
-                ("volume".into(), crate::json::Value::Null),
+                ("trade_id".into(), crate::json::Value::Str("t".into())),
+                ("instrument".into(), crate::json::Value::Str("rb".into())),
+                ("direction".into(), crate::json::Value::Num(48.0)),
+                ("offset".into(), crate::json::Value::Num(48.0)),
+                ("price".into(), crate::json::Value::Num(1.0)),
+                ("volume".into(), crate::json::Value::Num(1.0)),
             ])
         ));
     }
