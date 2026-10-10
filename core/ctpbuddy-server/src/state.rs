@@ -66,7 +66,10 @@ pub fn read(data_dir: &str) -> Result<Option<(String, Ledger)>, String> {
         .and_then(Value::as_str)
         .ok_or("snapshot: missing trading_day")?
         .to_string();
-    let ledger = Ledger::from_snapshot(doc.get("ledger").ok_or("snapshot: missing ledger")?)?;
+    let ledger = Ledger::from_snapshot_with_trading_day(
+        doc.get("ledger").ok_or("snapshot: missing ledger")?,
+        Some(&day),
+    )?;
     Ok(Some((day, ledger)))
 }
 
@@ -93,6 +96,45 @@ mod tests {
         // overwrite is atomic: no temp file left behind
         write(&dir, "20261006", &l.to_snapshot()).unwrap();
         assert!(!state_path(&dir).with_file_name("ledger.json.tmp").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_migrates_v1_snapshot_and_rebuilds_today_fee_pool() {
+        let dir = tmpdir("v1-migrate");
+        let mut ledger = Ledger::new(1234.5);
+        ledger.ensure_account("8888", "alice");
+        let position = ledger.position_mut_or_create(
+            "8888",
+            "alice",
+            "TEST",
+            ctpbuddy_ledger::PositionSide::Long,
+        );
+        position.today_position = 3;
+        position.open_volume = 3;
+        position.add_detail(
+            "20261005",
+            "T1",
+            10.0,
+            3,
+            ctpbuddy_ledger::Money::ZERO,
+            10.0,
+        );
+
+        let mut legacy = ledger.to_snapshot();
+        legacy["version"] = json!(1);
+        for position in legacy["positions"].as_array_mut().unwrap() {
+            position.as_object_mut().unwrap().remove("fee_open_pool");
+        }
+        write(&dir, "20261005", &legacy).unwrap();
+        let (day, back) = read(&dir).unwrap().unwrap();
+        assert_eq!(day, "20261005");
+        assert_eq!(
+            back.position("8888", "alice", "TEST", ctpbuddy_ledger::PositionSide::Long)
+                .unwrap()
+                .fee_open_pool,
+            3
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -18,6 +18,7 @@ python tests/e2e/m2_book.py
 python tests/e2e/m2_scenario.py
 python tests/e2e/m2_journal.py
 python tests/e2e/m3_settlement.py
+python tests/e2e/m3_fee_cffex.py
 python tests/e2e/m3_order_sysid.py
 python tests/e2e/m4_real_replay.py
 ```
@@ -26,7 +27,7 @@ M1 覆盖登录/订阅/报单穿透；M2 覆盖限价簿、价格时间优先、
 
 ## CI 实际矩阵
 
-`core-tests.yml` 在 Windows 上使用 Python 3.9 和 stable Rust。unit job 安装 `./py`、运行 `ctpbuddy --version` 与 assertions help、Rust workspace test/build、Python 单测。e2e matrix 当前包含 `m1_smoke`、`m2_scenario`、`m2_journal`、`m3_bootstrap`、`m3_5_settlement_info`、`m3_6_projection`、`m3_settlement`、`m3_order_sysid`、`m4_real_replay`、`settings`；每项自建本地 core，不依赖官方 SDK 或外部行情。
+`core-tests.yml` 在 Windows 上使用 Python 3.9 和 stable Rust。unit job 安装 `./py`、运行 `ctpbuddy --version` 与 assertions help、Rust workspace test/build、Python 单测。e2e matrix 当前包含 `m1_smoke`、`m2_scenario`、`m2_journal`、`m3_bootstrap`、`m3_5_settlement_info`、`m3_6_projection`、`m3_settlement`、`m3_fee_cffex`、`m3_order_sysid`、`m4_real_replay`、`settings`；每项自建本地 core，不依赖官方 SDK 或外部行情。
 
 `docs-site.yml` 使用 Hugo Extended 0.167.0，执行 `--gc --minify --printPathWarnings --panicOnWarning`，再检查 index、CSS 和未跟踪的 public/resources。CI 不是 Docker 或 Windows Shim 真实发布验收的替代物。
 

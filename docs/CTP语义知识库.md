@@ -340,6 +340,8 @@ Available    = Balance − CurrMargin − FrozenMargin − FrozenCommission − 
 
 开仓/平仓/平今各一套 RatioByMoney/RatioByVolume；平今免手续费的算例（c2101 平昨 1.2 元/手、平今 0）。**申报费**（OrderCommRate）：中金所特有，报单+撤单都计，FAK/FOK 的自动撤单也计（一个 FAK/FOK = 2 次信息量）；盘中实时资金不含申报费、只体现在结算单。期权 = 期货口径 + 执行手续费（`ReqQryOptionInstrCommRate`）。
 
+**平今手数的判定轴（中金所特有，§10.4 #10）**：持仓减扣走先开先平，手续费判定走**成交时间序开仓池**——开仓逐笔入池、平仓按 `min(手数, 池)` 取平今手数（卖平耗买开池、买平耗卖开池，即随持仓方向存放），池尽后平今仓也收平昨费。两轴互不参考：昨仓被平可收平今费、今仓被平可收平昨费（IM2410/20240924 双向实锤 81/81）。其他交易所手续费跟随被平明细年龄。注意：当日开仓全部当日平光时，两轴给出的平今总量恰好一致（这也是该偏差能长期不被发现的原因）——分叉只在「当日开仓而不平光」（留仓次日池作废）或「平历史仓」时出现。
+
 费率查询坑：`BrokerID/InvestorID/HedgeFlag` 必填；`InstrumentID` 留空 = 只返回**当前持仓合约**的费率（设计行为，不是全市场全集）；查 IF2009 可能返回品种 IF 的费率（品种级费率）；`ReqQryInstrumentOrderCommRate` 查不到具体申报费率（空指针）。
 
 ### 6.5 盈亏计算（逐日盯市）
@@ -468,6 +470,7 @@ FTD 报文流控（无错误仅延迟缓存）、前置连接数流控、交易�
 | 7 | `YdPosition` 是静态昨仓初值，不随平昨减少 | notes/14 §B2 | **✅ 任务41已落地**：逐笔初仓供给初始化静态值；当前昨仓仍由 `Position−TodayPosition` 表示；无初仓时不伪造静态值；**✅ 任务42**：显式日结后 `YdPosition=当前 volume`、`TodayPosition=0`，保留明细 key | 日结已实现；SettlementInfo 查询回报仍不伪造 |
 | 8 | `TradeType` `'0'`/`'4'`（组合单生成成交） | notes/14 §B6 | 未建模（v1 不做组合；大商所盘后自动组合会产生 `'4'`） | 低 |
 | 9 | `OrderSysID` 首条回报为空，交易所接受边界后按布局填充（不能绝对化为第 2 条） | notes/13 §E、DESIGN §8.14 | **✅ 任务43**：内部号与外部号分离；SHFE/FAK、DCE/FAK按布局；拒单全程为空 | 高 |
+| 10 | **中金所股指「持仓减扣」与「手续费」是两条轴**：指令面无平今指令，`Close`/`CloseToday` 同为普通平仓、按先开先平消耗；**手续费面**当日平仓成交按成交时间逐笔「先平当日新开仓，再平历史仓」判定平今数量（卖平耗买开池、买平耗卖开池）——池内有今仓先按平今费率收，池尽按平昨费率，**与被平明细的年龄无关**（中金所官方 FAQ 21454；快期 shinnytech 同口径） | 中金所官网 FAQ | **✅ 已修（2026-10-08）**：`ExchangeRules.fee_close_pool`（仅 CFFEX true）+ `Position.fee_open_pool` 时间序池——开仓逐笔累池、平仓取 `min(手数, 池)` 作平今手数、日结随 `today_position` 同点清零；明细分摊按实收总额逐笔比例（末笔吃定点残差）。生产判别 `tools/audit_cffex_close_fee.py`：官方时间序模型 81/81 吻合（3 笔分值舍入），年龄模型 76/81 且双向分歧皆错——IM2410/20240924：昨仓被平收平今费 211.65（年龄模型应 21.15）；同日今仓被平收平昨费 21.41（年龄模型应 213.x）。锁定：ledger 单测 `close_fee_axis_is_trade_time_pool_on_cffex_and_detail_age_elsewhere`（三段分叉 + DCE 对照）+ e2e `m3_fee_cffex.py`（bootstrap 昨仓 + 费率注入走完整 server）。当期平今 2.3‱/平昨 0.23‱ 差 10 倍，2025-03 起两率并轨 2.3‱ 后费率面不可判别 | ~~高~~ 已清 |
 
 **本批复核暴露的最大数值偏差现已修复**：保证金优惠按用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按交易所 + 品种聚合，多空取大；`ReqQryInvestorProductGroupMargin` 与账户 `CurrMargin` 共用同一聚合计算，单边仍保持求和。真实数据量尺 `tools/audit_real_accounts.py::audit_hedged_margin`（64/64）继续用于防回归。跨品种映射、套利取高、仓单折抵仍未实现，见 §10.2 第 11 条、DESIGN §8.7.2、notes/04 C4。
 

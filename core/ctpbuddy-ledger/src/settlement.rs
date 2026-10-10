@@ -88,6 +88,9 @@ impl Ledger {
             position.yd_position = volume;
             position.yd_initial = volume;
             position.today_position = 0;
+            // 平今费时间序池随交易日清零：当日新开仓隔日即出局（「当日」
+            // 按交易日界定），与 today_position 归零同点。
+            position.fee_open_pool = 0;
             position.frozen_today = 0;
             position.frozen_yd = 0;
             position.pre_settlement_price = price;

@@ -4,6 +4,7 @@
 
 ## 2026-10（本轮）
 
+- **中金所平今费时间序池落地**（知识库 §10.4 #10 修正，生产数据 81/81 判别）：`ExchangeRules.fee_close_pool`（仅 CFFEX）+ `Position.fee_open_pool`——开仓逐笔累池、平仓取 `min(手数, 池)` 作平今手数，与明细的先开先平消耗正交（昨仓被平收平今费、池尽后平今仓收平昨费）；日结随 `today_position` 同点清池；快照 v2 携带池状态，恢复兼容 v1 并按交易日重建当日开仓池。锁定：ledger 单测（三段分叉 + DCE 对照 + 日结清池）、e2e `m3_fee_cffex.py`（bootstrap 昨仓 + scenario 自带 `refdata/commission_rates.jsonl` 走完整 server）、`tools/audit_real_accounts.py` 复跑全绿（459/459、976/983、64/64）。
 - 日结后持仓保证金按结算价重估（昨仓恒用昨结算价，逐明细按剩余手数重算）；交易所差异集中到 `exchange_rules.rs` 规则表；`SubscribePrivateTopic` 的 RESTART/RESUME 经 AUTH 的 `private_resume` 生效，登录后重放私有流。
 
 - 新增 Linux Shim（`.so`）、Linux CI 作业；连接数上限（`CTPBUDDY_MAX_CONNS`）与写超时；可选 `CTPBUDDY_TD_TOKEN`。

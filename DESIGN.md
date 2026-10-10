@@ -465,7 +465,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - **先开先平与今/昨是两个正交的轴，不可混为一谈**（M3 修正）：消耗明细的顺序**只按开仓时间**（先开先平）；`平今`/`平昨` 决定的是**可以动哪个年龄桶**，不是允许跳到最新那笔。若把「平今」实现成「今仓优先取最新」，会按错的口径结盈亏并破坏先开先平的保证——客户端靠后者复现柜台持仓。实现见 `Position::take_details_filtered`；
 - **平仓盈亏按明细算**：昨仓明细持仓价 = **昨结算价**、今仓明细持仓价 = **开仓价**——顺序错了盈亏就算错（算例见 notes/04 E2）；持仓盈亏（浮动）多头 `(最新价−持仓均价)×乘数×手数`，空头反向；
 - 保证金：期货 `(MarginRatioByVolume + MarginRatioByMoney × Price × VolumeMultiple) × Volume`；**实际计算用公司保证金率**（`ReqQryInstrumentMarginRate` 口径，即最终费率）；`ReqQryInstrument` 返回的是交易所率，仅展示不用；**MarginPriceType** 四值（昨仓恒用昨结算价；今仓按公司配置：昨结'1'/最新'2'/成交均价'3'/开仓价'4'）；市价单冻结按既有冻结估算口径；期权保证金归纳式 `MAX(权利金+不变部分, 最小保证金)` 预留扩展位；**品种内大单边已实现**：由用户 RefData 的 `MaxMarginSideAlgorithm` 控制，按交易所 + `ProductID` 聚合，多空取大，未启用优惠的合约保持求和；跨品种映射、套利取高、仓单折抵仍未实现，见 §8.7.2；
-- 手续费：`成交量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`，开仓/平仓/平今各一套费率；**申报费**（OrderCommRate，中金所特有）：报单+撤单都计，FAK/FOK 的自动撤单也计（一次 FAK/FOK = 2 次信息量），盘中实时资金不含申报费、只体现在结算单；
+- 手续费：`成交量 × (成交价 × 乘数 × RatioByMoney + RatioByVolume)`，开仓/平仓/平今各一套费率；**申报费**（OrderCommRate，中金所特有）：报单+撤单都计，FAK/FOK 的自动撤单也计（一次 FAK/FOK = 2 次信息量），盘中实时资金不含申报费、只体现在结算单；**平今手数的判定轴按交易所分流（2026-10-08，§10.4 #10）**：中金所按**成交时间序开仓池**（`ExchangeRules.fee_close_pool` + `Position.fee_open_pool`）——开仓逐笔累池、平仓取 `min(手数, 池)` 作平今手数、日结随 `today_position` 同点清零，与持仓明细的先开先平消耗**互不参考**（昨仓被平收平今费、池尽后平今仓收平昨费，生产数据 81/81 判别）；其他交易所跟随被平明细年龄。明细分摊按本次实收总额逐笔比例（末笔吃定点残差，Σ明细 = 实收）；
 - 浮动盈亏、风险度（CurMargin/Balance）随行情实时更新（mark-on-read，见 §8.8）；
 - 出入金 / 账户重置经 Web 后台与 ADMIN 帧操作，全部入审计日志。
 - **显式日结（第一阶段）**：仅由 ADMIN `settle_day` 触发，不按固定时刻自动触发，也不复用 `reset_account`。请求必须提供用户/场景供给的 `settlement_prices`（instrument→price）与严格递增的 `next_trading_day`；调用前 playback 必须暂停且撮合簿无活动订单，否则拒绝且无副作用。账本先克隆并完成全部账户/持仓校验与最终结算价 mark-to-market，再一次性替换；任一账户失败则全批不变。结算后账户 `PreBalance` 滚存为最终动态权益（官方 `Balance` 口径），当日 `Deposit/Withdraw/CloseProfit/PositionProfit/Commission/Frozen*` 清零；持仓剩余今仓转昨仓，`YdPosition`/`TodayPosition`/结算价推进，明细保留原 `OpenDate` 与 key；清理 orders_today/trades_today，旧 settlement confirmation 失效。只记录完整 `settlement` journal 事件，不伪造 SettlementInfo 查询回报。
@@ -488,7 +488,7 @@ assertions:             # 可选：场景内断言（CI 用）
 
 **随包数据（`refdata/`）**：789 个真实期货合约（六所全覆盖）+ 公司费率快照，源自 LocalCTP 参考实现的 `instrument.csv`。**刻意不随包分发手续费表与申报费表**——一个看起来合理但编造的手续费比没有更糟，会让断言变得不诚实；需要手续费的 desk 自带 `commission_rates.jsonl`。查询这三张表返回空流是**正确答案**，不是「未实现」。
 
-**两个易错点已用类型固化**：① `MarginPriceType` 只影响今仓，昨仓恒用昨结算价（`MarginPrice::PreSettlement` 在昨仓分支无条件返回，账本无法悄悄改成最新价）；② 一笔 `Close` 成交若吃掉 2 手昨仓 + 1 手今仓，手续费按**两腿分别计价**（`CommissionKind::{CloseYesterday, CloseToday}`），而非按 offset flag 取单一费率。
+**两个易错点已用类型固化**：① `MarginPriceType` 只影响今仓，昨仓恒用昨结算价（`MarginPrice::PreSettlement` 在昨仓分支无条件返回，账本无法悄悄改成最新价）；② 一笔 `Close` 成交若吃掉 2 手昨仓 + 1 手今仓，手续费按**两腿分别计价**（`CommissionKind::{CloseYesterday, CloseToday}`），而非按 offset flag 取单一费率。**第三点同样固化**：③ 中金所平今手数不看明细年龄——`ExchangeRules.fee_close_pool`（仅 CFFEX true）驱动 `Position.fee_open_pool` 时间序池，账本无法对 CFFEX 悄悄退回年龄计费（§8.6）。
 
 ### 8.7 结算
 

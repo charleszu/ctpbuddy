@@ -8,7 +8,8 @@
 //!   昨结算 (carried lots) or the entry price (today's lots);
 //! - margin is the shared per-product aggregate (`product_group_margin`,
 //!   品种内大单边 when the instrument enables it), commission is priced per
-//!   leg (开仓 / 平昨 / 平今);
+//!   leg (开仓 / 平昨 / 平今) — CFFEX picks the 平今 lots off a trade-time
+//!   opening pool, others off the consumed details' age;
 //! - opening orders freeze estimated margin + commission, released pro-rata on
 //!   fills; closing orders reserve position volume per age bucket
 //!   (`close_buckets`: SHFE/INE 「平仓」= 平昨).
@@ -635,6 +636,12 @@ impl Ledger {
             ));
             pos.commission += commission;
             pos.today_position += fill.volume;
+            // 中金所平今费时间序池（知识库 §6.4/§10.4 #10）：当日开仓逐笔
+            // 入池，随本 side 的 Position 存放——买开累买池、卖开累卖池，
+            // 之后本 side 的平仓消耗的正是这个池（对手向语义的落点）。
+            if ctpbuddy_matching::rules_for(&fill.exchange_id).fee_close_pool {
+                pos.fee_open_pool += fill.volume;
+            }
             pos.open_amount += turnover;
             pos.open_volume += fill.volume;
             pos.position_cost += turnover;
@@ -677,9 +684,10 @@ impl Ledger {
             let mut margin_released = Money::ZERO;
             let mut today_take = 0;
             let mut yd_take = 0;
-            for (idx, n) in
-                pos.take_details_filtered(fill.volume, want_today_only, want_yd_only, trading_day)
-            {
+            let taken =
+                pos.take_details_filtered(fill.volume, want_today_only, want_yd_only, trading_day);
+            for (idx, n) in &taken {
+                let (idx, n) = (*idx, *n);
                 let d = &mut pos.details[idx];
                 let is_today = d.is_today(trading_day);
                 if is_today {
@@ -699,13 +707,9 @@ impl Ledger {
                 margin_released += d.margin.ratio(n as i64, d.open_volume.max(1) as i64);
                 d.close_profit += leg_pnl;
                 d.close_profit_trade += leg_trade_pnl;
-                let kind = if is_today {
-                    CommissionKind::CloseToday
-                } else {
-                    CommissionKind::CloseYesterday
-                };
-                d.commission +=
-                    Money::from_f64(catalog.commission(&fill.instrument_id, kind, fill.price, n));
+                // 手续费不在这里计：平今/平昨的判定轴由下方按交易所规则
+                // 选择（中金所=时间序池、其他=明细年龄），算出本次实收
+                // 总额后再按手数分摊回明细。
             }
             let closed = today_take + yd_take;
             pos.today_position = (pos.today_position - today_take).max(0);
@@ -759,20 +763,49 @@ impl Ledger {
             // Commission is charged per leg: the 平今 portion at today's rate,
             // the 平昨 portion at yesterday's. Summing two legs is the whole
             // point — a blended single rate is what notes/04 B3 warns about.
+            //
+            // 平今手数取哪条轴？中金所按**成交时间序开仓池**（知识库
+            // §6.4/§10.4 #10，生产数据 2026-10-08 判别 81/81）：先平当日
+            // 新开仓、再平历史仓，与上面明细的先开先平消耗互不参考——
+            // 昨仓被平可收平今费、今仓被平可收平昨费（IM2410/20240924
+            // 双向实锤）。其他交易所跟随被平明细年龄（SHFE 平今指令按
+            // 指令桶消耗，today_take 即平今手数）。
+            let (fee_today, fee_yd) =
+                if ctpbuddy_matching::rules_for(&fill.exchange_id).fee_close_pool {
+                    let t = closed.min(pos.fee_open_pool);
+                    pos.fee_open_pool -= t;
+                    (t, closed - t)
+                } else {
+                    (today_take, yd_take)
+                };
             let comm_today = Money::from_f64(catalog.commission(
                 &fill.instrument_id,
                 CommissionKind::CloseToday,
                 fill.price,
-                today_take,
+                fee_today,
             ));
             let comm_yd = Money::from_f64(catalog.commission(
                 &fill.instrument_id,
                 CommissionKind::CloseYesterday,
                 fill.price,
-                yd_take,
+                fee_yd,
             ));
             let commission = comm_today + comm_yd;
             pos.commission += commission;
+            // 明细手续费按本次实收总额逐笔分摊（最后一笔吃定点残差，明细
+            // 之和恒等于实收）。分摊跟随明细消耗序；计费轴已在上面对照
+            // 交易所规则选定，两者解耦。
+            let mut allocated = Money::ZERO;
+            let last = taken.len().saturating_sub(1);
+            for (i, (idx, n)) in taken.iter().enumerate() {
+                let share = if i == last {
+                    commission - allocated
+                } else {
+                    commission.ratio(*n as i64, closed as i64)
+                };
+                allocated += share;
+                pos.details[*idx].commission += share;
+            }
 
             pos.margin = (pos.margin - margin_released).floor_zero();
             pos.close_profit += pnl;

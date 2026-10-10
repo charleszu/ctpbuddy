@@ -1004,3 +1004,146 @@ fn settlement_reprices_margin_at_settlement_price() {
     let a = ledger.account("TEST", "alice").unwrap();
     assert!((a.used_margin.to_f64() - want).abs() < 1e-6);
 }
+
+/// 中金所平今费时间序池（知识库 §6.4/§10.4 #10；IM2410/20240924 生产实锤
+/// 81/81）：持仓消耗走明细先开先平，手续费判定走「先平当日新开仓」的开仓
+/// 池，两轴互不参考。本测试复刻实锤序列的三段分叉——昨仓被平收平今费、
+/// 池内平今仓收平今费、池尽后平今仓收平昨费——并与非池交易所（DCE，费用
+/// 跟随被平明细年龄）同序列逐段对照。当日开仓全部当日平光时两轴总量恰好
+/// 相同（4200），分叉只在逐段增量里可见，故必须按段断言。
+#[test]
+fn close_fee_axis_is_trade_time_pool_on_cffex_and_detail_age_elsewhere() {
+    let legs = [
+        ("CFFEX", [2000.0, 2000.0, 200.0]),
+        ("DCE", [200.0, 2000.0, 2000.0]),
+    ];
+    for (exchange, wants) in legs {
+        let mut catalog = fixture(false);
+        let mut inst = Instrument::new("IF2606", exchange);
+        inst.product_id = "if".into();
+        inst.volume_multiple = 200;
+        catalog.insert(inst);
+        // 明确虚构的测试费率：平今 1% / 平昨 0.1%（按金额），只为断言可读。
+        catalog.insert_commission_rate(CommissionRate {
+            exchange_id: exchange.into(),
+            instrument_id: "IF2606".into(),
+            close_ratio_by_money: 0.001,
+            close_today_ratio_by_money: 0.01,
+            ..Default::default()
+        });
+        let mut ledger = Ledger::new(1_000_000.0);
+        ledger.ensure_account("TEST", "alice");
+        ledger
+            .position_mut_or_create("TEST", "alice", "IF2606", PositionSide::Long)
+            .add_bootstrap_detail("20261008", "YD1", 1000.0, 1, Money::ZERO, 1000.0, 200);
+        let comm = |l: &Ledger| l.account("TEST", "alice").unwrap().commission.to_f64();
+        // 手数 1：turnover = 1000 × 200，平今 = ×1% = 2000，平昨 = ×0.1% = 200。
+        let (open_ref, close_ref) = (["T1", "T3"], ["T2", "T4", "T5"]);
+        let mut refs = open_ref.iter().chain(close_ref.iter());
+
+        // ① 昨仓 1 手 + 当日买开 1 手（CFFEX 池 = 1）。
+        let mut f = fill("IF2606", Direction::Buy, OffsetFlag::Open, 1);
+        f.exchange_id = exchange.into();
+        f.price = 1000.0;
+        f.trade_id = to_fixed(refs.next().unwrap());
+        f.order_key = "o1".into();
+        ledger.on_fill(&f, &catalog, 1000.0, "20261009");
+        if exchange == "CFFEX" {
+            assert_eq!(
+                ledger
+                    .position("TEST", "alice", "IF2606", PositionSide::Long)
+                    .unwrap()
+                    .fee_open_pool,
+                1
+            );
+        }
+
+        // ② 平 1 手：明细轴先开先平平掉**昨仓**；费用轴 CFFEX 池有余 →
+        //    平今费（昨仓被平收平今费，IM2410 第 3 笔实锤），DCE 跟年龄收
+        //    平昨费。
+        let c0 = comm(&ledger);
+        let mut f = fill("IF2606", Direction::Sell, OffsetFlag::Close, 1);
+        f.exchange_id = exchange.into();
+        f.price = 1000.0;
+        f.trade_id = to_fixed(refs.next().unwrap());
+        f.order_key = "o2".into();
+        ledger.on_fill(&f, &catalog, 1000.0, "20261009");
+        assert!(
+            (comm(&ledger) - c0 - wants[0]).abs() < 1e-6,
+            "{exchange} leg ②"
+        );
+
+        // ③ 再买开 1 手（CFFEX 池回到 1）。
+        let mut f = fill("IF2606", Direction::Buy, OffsetFlag::Open, 1);
+        f.exchange_id = exchange.into();
+        f.price = 1000.0;
+        f.trade_id = to_fixed(refs.next().unwrap());
+        f.order_key = "o3".into();
+        ledger.on_fill(&f, &catalog, 1000.0, "20261009");
+
+        // ④ 平 1 手：明细轴吃先开的今仓；CFFEX 池有余仍收平今费，DCE 按年龄
+        //    收平今费——此段两轴一致。
+        let c0 = comm(&ledger);
+        let mut f = fill("IF2606", Direction::Sell, OffsetFlag::Close, 1);
+        f.exchange_id = exchange.into();
+        f.price = 1000.0;
+        f.trade_id = to_fixed(refs.next().unwrap());
+        f.order_key = "o4".into();
+        ledger.on_fill(&f, &catalog, 1000.0, "20261009");
+        assert!(
+            (comm(&ledger) - c0 - wants[1]).abs() < 1e-6,
+            "{exchange} leg ④"
+        );
+
+        // ⑤ 平最后 1 手（今仓）：CFFEX 池已耗尽 → **平今仓收平昨费**
+        //    （IM2410 序号 1095839 实锤），DCE 按年龄收平今费。
+        let c0 = comm(&ledger);
+        let mut f = fill("IF2606", Direction::Sell, OffsetFlag::Close, 1);
+        f.exchange_id = exchange.into();
+        f.price = 1000.0;
+        f.trade_id = to_fixed(refs.next().unwrap());
+        f.order_key = "o5".into();
+        ledger.on_fill(&f, &catalog, 1000.0, "20261009");
+        assert!(
+            (comm(&ledger) - c0 - wants[2]).abs() < 1e-6,
+            "{exchange} leg ⑤"
+        );
+    }
+}
+
+/// 平今费时间序池随交易日清零：「当日新开仓」的当日按交易日界定，隔日
+/// 开仓池出局、与 today_position 归零同点。
+#[test]
+fn settlement_clears_the_fee_pool_with_the_trading_day() {
+    let mut catalog = fixture(false);
+    let mut inst = Instrument::new("IF2606", "CFFEX");
+    inst.product_id = "if".into();
+    inst.volume_multiple = 200;
+    catalog.insert(inst);
+    let mut ledger = Ledger::new(1_000_000.0);
+    ledger.ensure_account("TEST", "alice");
+    let mut f = fill("IF2606", Direction::Buy, OffsetFlag::Open, 2);
+    f.exchange_id = "CFFEX".into();
+    ledger.on_fill(&f, &catalog, 1000.0, "20261009");
+    assert_eq!(
+        ledger
+            .position("TEST", "alice", "IF2606", PositionSide::Long)
+            .unwrap()
+            .fee_open_pool,
+        2
+    );
+    ledger
+        .settle_trading_day(
+            &catalog,
+            &HashMap::from([("IF2606".into(), 1000.0)]),
+            "20261009",
+            "20261010",
+        )
+        .unwrap();
+    let p = ledger
+        .position("TEST", "alice", "IF2606", PositionSide::Long)
+        .unwrap();
+    assert_eq!(p.today_position, 0);
+    assert_eq!(p.yd_position, 2);
+    assert_eq!(p.fee_open_pool, 0);
+}

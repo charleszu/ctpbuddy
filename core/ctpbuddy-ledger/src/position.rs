@@ -204,6 +204,10 @@ pub struct Position {
     pub yd_position: i32,
     /// Static trading-day-start yesterday position (`YdPosition`).
     pub yd_initial: i32,
+    /// 平今手续费判定的「成交时间序开仓池」（中金所特有，知识库 §6.4）：
+    /// 当日开仓逐笔累池、平仓先耗池，与 `details` 的先开先平消耗轴正交。
+    /// 日结清零（当日新开仓隔日即出局）。
+    pub fee_open_pool: i32,
     /// Open turnover basis (sum of `price * volume * multiple`); average cost
     /// is `open_amount / (open_volume * multiple)`.
     pub open_amount: Money,
@@ -235,6 +239,7 @@ impl Position {
             today_position: 0,
             yd_position: 0,
             yd_initial: 0,
+            fee_open_pool: 0,
             open_amount: Money::ZERO,
             open_volume: 0,
             position_cost: Money::ZERO,

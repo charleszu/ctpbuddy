@@ -14,7 +14,12 @@ use serde_json::{json, Map, Value};
 
 use crate::{Account, AccountKey, Ledger, Money, Position, PositionDetail, PositionSide};
 
-pub const SNAPSHOT_VERSION: u64 = 1;
+/// v2: positions carry `fee_open_pool` (CFFEX 平今费时间序池, 知识库 §6.4) —
+/// it decides later commissions, so the roundtrip must be exact. Version 1 is
+/// still accepted by the reader; the recovery wrapper supplies the trading day
+/// so the pool can be reconstructed from today's non-bootstrap details.
+pub const SNAPSHOT_VERSION: u64 = 2;
+const LEGACY_SNAPSHOT_VERSION: u64 = 1;
 
 fn m(x: Money) -> Value {
     json!(x.units())
@@ -109,7 +114,8 @@ impl Ledger {
                     "broker_id": k.0.broker_id, "investor_id": k.0.investor_id,
                     "instrument_id": p.instrument_id, "side": side_str(p.side),
                     "today_position": p.today_position, "yd_position": p.yd_position,
-                    "yd_initial": p.yd_initial, "open_amount": m(p.open_amount),
+                    "yd_initial": p.yd_initial, "fee_open_pool": p.fee_open_pool,
+                    "open_amount": m(p.open_amount),
                     "open_volume": p.open_volume, "position_cost": m(p.position_cost),
                     "open_cost": m(p.open_cost), "margin": m(p.margin),
                     "commission": m(p.commission), "close_profit": m(p.close_profit),
@@ -154,7 +160,19 @@ impl Ledger {
     /// Rebuild a ledger from [`Ledger::to_snapshot`] output. Working-order
     /// reservations are intentionally not restored (see module docs).
     pub fn from_snapshot(v: &Value) -> Result<Ledger, String> {
-        if get(v, "version")?.as_u64() != Some(SNAPSHOT_VERSION) {
+        Self::from_snapshot_with_trading_day(v, None)
+    }
+
+    /// Rebuild a ledger while migrating a v1 snapshot when the current trading
+    /// day is known. v1 had no CFFEX fee pool; its remaining pool is exactly the
+    /// volume of non-bootstrap details opened on that trading day. v2 stores the
+    /// pool directly and does not need this reconstruction.
+    pub fn from_snapshot_with_trading_day(
+        v: &Value,
+        trading_day: Option<&str>,
+    ) -> Result<Ledger, String> {
+        let version = get(v, "version")?.as_u64().ok_or("snapshot: bad version")?;
+        if version != SNAPSHOT_VERSION && version != LEGACY_SNAPSHOT_VERSION {
             return Err("snapshot: unsupported version".into());
         }
         let mut ledger = Ledger::new(0.0);
@@ -211,6 +229,19 @@ impl Ledger {
                     close_amount: mo(d, "close_amount")?,
                 });
             }
+            let fee_open_pool = if version == SNAPSHOT_VERSION {
+                i(p, "fee_open_pool")?
+            } else if let Some(day) = trading_day {
+                details
+                    .iter()
+                    .filter(|d| !d.bootstrap && d.open_date == day)
+                    .try_fold(0i32, |pool, d| {
+                        pool.checked_add(d.volume)
+                            .ok_or_else(|| "snapshot: fee pool overflow".to_string())
+                    })?
+            } else {
+                0
+            };
             let instrument_id = s(p, "instrument_id")?;
             let pos = Position {
                 instrument_id: instrument_id.clone(),
@@ -218,6 +249,7 @@ impl Ledger {
                 today_position: i(p, "today_position")?,
                 yd_position: i(p, "yd_position")?,
                 yd_initial: i(p, "yd_initial")?,
+                fee_open_pool,
                 open_amount: mo(p, "open_amount")?,
                 open_volume: i(p, "open_volume")?,
                 position_cost: mo(p, "position_cost")?,
