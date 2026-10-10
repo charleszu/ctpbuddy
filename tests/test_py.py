@@ -1253,6 +1253,7 @@ def test_replay_admin_inputs() -> None:
 
 
 def test_journal_contract() -> None:
+    from ctpbuddy.journal import canonical
     from ctpbuddy.journal_contract import (
         CANONICAL_OMIT_FIELDS, CONTRACT_VERSION, CORE_NOISE_TYPES,
         ENVELOPE_REQUIRED, KNOWN_TYPES, SESSION_FRONT_ID_TYPES,
@@ -1278,6 +1279,10 @@ def test_journal_contract() -> None:
     assert any("unknown envelope field" in problem for problem in validate_event_contract(
         {"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
          "type": "server_start", "data": None, "future": True}))
+    vector_path = os.path.join(REPO, "py", "ctpbuddy", "contracts", "journal_vectors.json")
+    with open(vector_path, encoding="utf-8") as fh:
+        vector = json.load(fh)["canonical"][0]
+    assert canonical(vector["event"]) == vector["expected"]
     try:
         event_spec("made_up_event")
         raise AssertionError("unknown event must fail closed")

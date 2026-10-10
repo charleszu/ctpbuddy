@@ -25,6 +25,49 @@ pub fn knows_event(event_type: &str) -> bool {
         .is_some_and(|events| events.contains_key(event_type))
 }
 
+/// Canonical JSON used by the shared vector tests (sorted keys, wall clock omitted).
+pub fn canonical_event(event: &Value) -> String {
+    let mut normalized = event.clone();
+    if let Some(object) = normalized.as_object_mut() {
+        object.remove("ts_wall");
+    }
+    fn write(value: &Value, out: &mut String) {
+        match value {
+            Value::Object(object) => {
+                out.push('{');
+                for (index, (key, value)) in object
+                    .iter()
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .into_iter()
+                    .enumerate()
+                {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&serde_json::to_string(key).unwrap());
+                    out.push(':');
+                    write(value, out);
+                }
+                out.push('}');
+            }
+            Value::Array(values) => {
+                out.push('[');
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        out.push(',');
+                    }
+                    write(value, out);
+                }
+                out.push(']');
+            }
+            _ => out.push_str(&serde_json::to_string(value).unwrap()),
+        }
+    }
+    let mut output = String::new();
+    write(&normalized, &mut output);
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -35,5 +78,16 @@ mod tests {
         assert!(knows_event("server_start"));
         assert!(knows_event("session_auth"));
         assert!(!knows_event("made_up_event"));
+    }
+
+    #[test]
+    fn canonical_vector_matches_python_adapter() {
+        let vectors: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../py/ctpbuddy/contracts/journal_vectors.json"
+        )))
+        .unwrap();
+        let vector = &vectors["canonical"][0];
+        assert_eq!(canonical_event(&vector["event"]), vector["expected"]);
     }
 }

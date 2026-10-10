@@ -1,0 +1,16 @@
+{
+  "contract_version": 1,
+  "canonical": [
+    {
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "server_start",
+        "data": {"message": "ok"}
+      },
+      "expected": "{\"data\":{\"message\":\"ok\"},\"seq\":1,\"trading_day\":\"20261005\",\"type\":\"server_start\",\"vt_ms\":0}"
+    }
+  ]
+}
