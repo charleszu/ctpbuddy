@@ -3,10 +3,7 @@
 use serde_json::Value;
 use std::sync::OnceLock;
 
-pub const CONTRACT_JSON: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../py/ctpbuddy/contracts/journal_contract.json"
-));
+pub const CONTRACT_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/journal_contract.json"));
 
 pub fn document() -> &'static Value {
     static DOCUMENT: OnceLock<Value> = OnceLock::new();
@@ -119,8 +116,8 @@ mod tests {
     #[test]
     fn canonical_vector_matches_python_adapter() {
         let vectors: Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../py/ctpbuddy/contracts/journal_vectors.json"
+            env!("OUT_DIR"),
+            "/journal_vectors.json"
         )))
         .unwrap();
         let vector = &vectors["canonical"][0];
