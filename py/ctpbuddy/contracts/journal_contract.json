@@ -19,12 +19,12 @@
     "fill": {"category": "trading_output", "replay": "none", "hash": "semantic", "projection": ["trade_record", "position_change"], "data_required": ["trade_id", "instrument", "direction", "offset", "price", "volume"]},
     "md_watermark": {"category": "operational", "replay": "reissue", "hash": "noise", "projection": [], "data_required": ["idx"]},
     "assertion": {"category": "scenario_output", "replay": "none", "hash": "semantic", "projection": ["account_snapshot"], "data_required": ["metric", "op", "value", "actual", "pass", "status", "after_ms"]},
-    "reset_account": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"]},
+    "reset_account": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"], "data_required": ["all"]},
     "settlement": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["account_snapshot", "position_snapshot", "audit_log"], "data_required": ["next_trading_day", "accounts"]},
     "settlement_report": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["settlement_report", "audit_log"], "data_required": ["settlement_id", "account_id", "currency_id", "content_bytes"]},
     "settings_updated": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"], "data_required": ["after"]},
-    "deposit": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]},
-    "withdraw": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]},
+    "deposit": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"]},
+    "withdraw": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"]},
     "settle": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]},
     "admin": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]}
   }
