@@ -26,7 +26,6 @@ CONTRACT_SHA256: str = hashlib.sha256(_PATH.read_bytes()).hexdigest()
 EVENTS: Dict[str, Dict[str, Any]] = CONTRACT["events"]
 ENVELOPE_REQUIRED: tuple[str, ...] = tuple(CONTRACT["envelope"]["required"])
 ENVELOPE_OPTIONAL: tuple[str, ...] = tuple(CONTRACT["envelope"]["optional"])
-ENVELOPE_FIELDS: FrozenSet[str] = frozenset(ENVELOPE_REQUIRED) | frozenset(ENVELOPE_OPTIONAL) | {"contract_version"}
 DATA_TYPE: str = str(CONTRACT["envelope"].get("data_type", "object_or_null"))
 CANONICAL_OMIT_FIELDS: FrozenSet[str] = frozenset(CONTRACT["envelope"].get("canonical_omit", []))
 SESSION_FRONT_ID_TYPES: FrozenSet[str] = frozenset(
