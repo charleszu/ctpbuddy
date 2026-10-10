@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -634,6 +635,22 @@ def test_journal_projection() -> None:
             assert projection.query("trade_record")[0]["trade_id"] == "t1"
             assert projection.query("position_change")[0]["volume_delta"] == 2
             assert projection.query("audit_log")[0]["action"] == "settings_updated"
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("UPDATE projection_meta SET value='stale' WHERE key='contract_sha256'")
+            conn.commit()
+        finally:
+            conn.close()
+        stale = None
+        try:
+            stale = Projection(db)
+            raise AssertionError("stale contract metadata must require rebuild")
+        except Exception as exc:
+            assert "contract/version" in str(exc)
+        finally:
+            if stale is not None:
+                stale.close()
+        rebuild(journal, db)
         with open(db, "wb") as fh:
             fh.write(b"not a sqlite database")
         rebuild(journal, db)

@@ -234,6 +234,11 @@ class Projection:
             if (self.conn.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID or
                     self.conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION):
                 raise JournalError("SQLite 投影 schema/version 不匹配，请 journal rebuild")
+            metadata = {row[0]: row[1] for row in self.conn.execute(
+                "SELECT key,value FROM projection_meta")}
+            if (metadata.get("contract_version") != str(CONTRACT_VERSION) or
+                    metadata.get("contract_sha256") != CONTRACT_SHA256):
+                raise JournalError("SQLite 投影 contract/version 不匹配，请 journal rebuild")
             self.conn.row_factory = sqlite3.Row
         except Exception:
             self.conn.close()
