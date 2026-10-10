@@ -133,7 +133,10 @@ impl Journal {
         investor_id: &str,
         data: Value,
     ) {
-        if !crate::journal_contract::knows_event(event_type) {
+        if !crate::journal_contract::knows_event(event_type)
+            || !vt_ms.is_finite()
+            || !matches!(&data, Value::Obj(_) | Value::Null)
+        {
             eprintln!("[ctpbuddy] journal event rejected by contract: {event_type}");
             return;
         }
@@ -247,6 +250,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let mut j = Journal::new(dir.to_str().unwrap()).unwrap();
         j.record("20261005", 0.0, "made_up_event", "", "", Value::Null);
+        assert_eq!(j.seq(), 0);
+        assert!(!dir.join("journal").join("20261005.jsonl").exists());
+        drop(j);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn malformed_envelope_is_rejected_without_advancing_sequence() {
+        let dir = std::env::temp_dir().join(format!(
+            "ctpbuddy-jcontract-envelope-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut j = Journal::new(dir.to_str().unwrap()).unwrap();
+        j.record("20261005", f64::NAN, "server_start", "", "", Value::Null);
+        j.record("20261005", 0.0, "server_start", "", "", Value::Arr(vec![]));
         assert_eq!(j.seq(), 0);
         assert!(!dir.join("journal").join("20261005.jsonl").exists());
         drop(j);

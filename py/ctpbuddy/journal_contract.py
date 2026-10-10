@@ -26,6 +26,7 @@ CONTRACT_SHA256: str = hashlib.sha256(_PATH.read_bytes()).hexdigest()
 EVENTS: Dict[str, Dict[str, Any]] = CONTRACT["events"]
 ENVELOPE_REQUIRED: tuple[str, ...] = tuple(CONTRACT["envelope"]["required"])
 ENVELOPE_OPTIONAL: tuple[str, ...] = tuple(CONTRACT["envelope"]["optional"])
+ENVELOPE_ALLOWED: FrozenSet[str] = frozenset(ENVELOPE_REQUIRED) | frozenset(ENVELOPE_OPTIONAL) | {"contract_version"}
 DATA_TYPE: str = str(CONTRACT["envelope"].get("data_type", "object_or_null"))
 CANONICAL_OMIT_FIELDS: FrozenSet[str] = frozenset(CONTRACT["envelope"].get("canonical_omit", []))
 SESSION_FRONT_ID_TYPES: FrozenSet[str] = frozenset(
@@ -70,6 +71,8 @@ def event_spec(event_type: str) -> Dict[str, Any]:
 def validate_event_contract(event: Dict[str, Any]) -> List[str]:
     """Return contract violations for one envelope, without checking seq order."""
     problems: List[str] = []
+    extra = sorted(set(event) - ENVELOPE_ALLOWED)
+    problems.extend("unknown envelope field %r" % key for key in extra)
     missing = [key for key in ENVELOPE_REQUIRED if key not in event]
     if missing:
         problems.extend("missing field %r" % key for key in missing)
@@ -91,4 +94,3 @@ def validate_event_contract(event: Dict[str, Any]) -> List[str]:
         if key in event and not isinstance(event[key], str):
             problems.append("%s must be a string" % key)
     return problems
-

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import sqlite3
 import tempfile
@@ -92,27 +91,11 @@ def _validate(events):
     contract_problems = verify_events(events)
     if contract_problems:
         raise JournalError("journal contract validation failed: " + "; ".join(contract_problems[:8]))
-    last = 0
     for e in events:
-        seq = e.get("seq")
-        if isinstance(seq, bool) or not isinstance(seq, int) or seq != last + 1:
-            raise JournalError("journal seq 必须从 1 连续递增；预期 %d，实际 %r" % (last + 1, seq))
-        last = seq
-        for key in ("trading_day", "ts_wall", "type"):
-            if not isinstance(e.get(key), str):
-                raise JournalError("seq %d: %s 必须为字符串" % (seq, key))
-        vt = e.get("vt_ms")
-        if isinstance(vt, bool) or not isinstance(vt, (int, float)) or not math.isfinite(vt):
-            raise JournalError("seq %d: vt_ms 必须为有限数字" % seq)
-        if "data" not in e or not isinstance(e["data"], (dict, type(None))):
-            raise JournalError("seq %d: data 必须为对象或 null" % seq)
-        for key in ("broker", "investor"):
-            if key in e and not isinstance(e[key], str):
-                raise JournalError("seq %d: %s 必须为字符串" % (seq, key))
         try:
             _json(e)
         except (ValueError, TypeError) as exc:
-            raise JournalError("seq %d: %s" % (seq, exc)) from exc
+            raise JournalError("seq %d: %s" % (e.get("seq"), exc)) from exc
 
 
 def _project(conn, events):

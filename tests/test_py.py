@@ -1275,6 +1275,9 @@ def test_journal_contract() -> None:
     assert any("contract_version" in problem for problem in validate_event_contract(
         {"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
          "type": "server_start", "data": None, "contract_version": 99}))
+    assert any("unknown envelope field" in problem for problem in validate_event_contract(
+        {"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
+         "type": "server_start", "data": None, "future": True}))
     try:
         event_spec("made_up_event")
         raise AssertionError("unknown event must fail closed")

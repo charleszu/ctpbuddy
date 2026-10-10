@@ -38,7 +38,6 @@ from .journal_contract import (
     AUDIT_TYPES,
     CANONICAL_OMIT_FIELDS,
     CORE_NOISE_TYPES,
-    ENVELOPE_REQUIRED,
     KNOWN_TYPES,
     REPLAYABLE_ADMIN_TYPES,
     REPLAYABLE_TYPES,
@@ -155,12 +154,7 @@ def verify_events(events: Sequence[Dict[str, Any]]) -> List[str]:
     for i, e in enumerate(events, 1):
         for problem in validate_event_contract(e):
             problems.append("line %d: %s" % (i, problem))
-        for k in ENVELOPE_REQUIRED:
-            if k not in e:
-                problems.append("line %d: missing field %r" % (i, k))
         t = e.get("type")
-        if t not in KNOWN_TYPES:
-            problems.append("line %d: unknown event type %r" % (i, t))
         s = e.get("seq")
         if isinstance(s, int) and not isinstance(s, bool):
             if s != last + 1:
