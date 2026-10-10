@@ -29,24 +29,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
 from .journal_contract import (
     ADMIN_INPUT_TYPES,
     AUDIT_TYPES,
+    CANONICAL_OMIT_FIELDS,
     CORE_NOISE_TYPES,
     ENVELOPE_REQUIRED,
     KNOWN_TYPES,
     REPLAYABLE_ADMIN_TYPES,
     REPLAYABLE_TYPES,
     SETTLEMENT_TYPES,
+    SESSION_FRONT_ID_TYPES,
     UNREPLAYABLE_ADMIN_TYPES,
+    validate_event_contract,
 )
-
-#: Session events whose `data` carries connection-numbering fields.
-_SESSION_TYPES = frozenset({"session_auth", "session_login"})
-
 
 class JournalError(Exception):
     """A journal file could not be parsed."""
@@ -91,7 +91,7 @@ def load_events(path: str) -> List[Dict[str, Any]]:
 
 def canonical(event: Dict[str, Any]) -> str:
     """Canonical JSON for one event (ts_wall excluded)."""
-    e = {k: v for k, v in event.items() if k != "ts_wall"}
+    e = {k: v for k, v in event.items() if k not in CANONICAL_OMIT_FIELDS}
     return json.dumps(e, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -111,7 +111,7 @@ def core_normalize(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ):
         e = dict(e)
         e["seq"] = seq
-        if e.get("type") in _SESSION_TYPES:
+        if e.get("type") in SESSION_FRONT_ID_TYPES:
             data = dict(e.get("data") or {})
             if "front_id" in data:
                 v = data["front_id"]
@@ -153,6 +153,8 @@ def verify_events(events: Sequence[Dict[str, Any]]) -> List[str]:
     problems: List[str] = []
     last = 0
     for i, e in enumerate(events, 1):
+        for problem in validate_event_contract(e):
+            problems.append("line %d: %s" % (i, problem))
         for k in ENVELOPE_REQUIRED:
             if k not in e:
                 problems.append("line %d: missing field %r" % (i, k))
@@ -160,14 +162,17 @@ def verify_events(events: Sequence[Dict[str, Any]]) -> List[str]:
         if t not in KNOWN_TYPES:
             problems.append("line %d: unknown event type %r" % (i, t))
         s = e.get("seq")
-        if isinstance(s, (int, float)) and not isinstance(s, bool):
+        if isinstance(s, int) and not isinstance(s, bool):
             if s != last + 1:
                 problems.append(
                     "line %d: seq %s breaks the chain (expected %d)" % (i, s, last + 1)
                 )
             last = int(s)
         elif "seq" in e:
-            problems.append("line %d: seq is not a number (%r)" % (i, s))
+            problems.append("line %d: seq is not an integer (%r)" % (i, s))
+        vt = e.get("vt_ms")
+        if isinstance(vt, (int, float)) and not isinstance(vt, bool) and not math.isfinite(vt):
+            problems.append("line %d: vt_ms is not finite (%r)" % (i, vt))
     return problems
 
 

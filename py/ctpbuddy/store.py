@@ -15,7 +15,9 @@ from .journal import (
     hash_stream,
     journal_paths,
     load_events,
+    verify_events,
 )
+from .journal_contract import CONTRACT_SHA256, CONTRACT_VERSION
 
 SCHEMA_VERSION = 2
 APPLICATION_ID = 0x43545042
@@ -87,6 +89,9 @@ def _code(value):
 
 
 def _validate(events):
+    contract_problems = verify_events(events)
+    if contract_problems:
+        raise JournalError("journal contract validation failed: " + "; ".join(contract_problems[:8]))
     last = 0
     for e in events:
         seq = e.get("seq")
@@ -213,6 +218,8 @@ def rebuild(journal, database):
             with conn:
                 _project(conn, events)
                 conn.executemany("INSERT INTO projection_meta VALUES (?,?)", [
+                    ("contract_version", str(CONTRACT_VERSION)),
+                    ("contract_sha256", CONTRACT_SHA256),
                     ("schema_version", str(SCHEMA_VERSION)), ("journal_sha256", digest),
                     ("event_count", str(len(events))), ("last_seq", str(len(events)))])
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -227,7 +234,13 @@ def rebuild(journal, database):
         for path in (pending, pending + "-wal", pending + "-shm"):
             if os.path.exists(path):
                 os.unlink(path)
-    return {"schema_version": SCHEMA_VERSION, "events": len(events), "sha256": digest}
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "contract_version": CONTRACT_VERSION,
+        "contract_sha256": CONTRACT_SHA256,
+        "events": len(events),
+        "sha256": digest,
+    }
 
 
 class Projection:
@@ -245,6 +258,11 @@ class Projection:
 
     def close(self):
         self.conn.close()
+
+    def metadata(self):
+        """Return the immutable rebuild metadata recorded with this projection."""
+        return {row[0]: row[1] for row in self.conn.execute(
+            "SELECT key,value FROM projection_meta ORDER BY key")}
 
     def __enter__(self):
         return self

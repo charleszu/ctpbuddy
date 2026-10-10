@@ -617,7 +617,13 @@ def test_journal_projection() -> None:
         first = rebuild(journal, db)
         second = rebuild(journal, db)
         assert first == second
+        assert first["contract_version"] == 1 and len(first["contract_sha256"]) == 64
         with Projection(db) as projection:
+            metadata = projection.metadata()
+            assert metadata["contract_version"] == "1"
+            assert len(metadata["contract_sha256"]) == 64
+            assert metadata["schema_version"] == "2"
+            assert metadata["journal_sha256"] == first["sha256"]
             assert len(projection.query("account", investor="u1")) == 1
             order = projection.query("order_record", investor="u1")[0]
             assert order["status"] == "0" and order["volume_traded"] == 2
@@ -1248,18 +1254,27 @@ def test_replay_admin_inputs() -> None:
 
 def test_journal_contract() -> None:
     from ctpbuddy.journal_contract import (
-        CONTRACT_VERSION, CORE_NOISE_TYPES, ENVELOPE_REQUIRED, KNOWN_TYPES,
+        CANONICAL_OMIT_FIELDS, CONTRACT_VERSION, CORE_NOISE_TYPES,
+        ENVELOPE_REQUIRED, KNOWN_TYPES, SESSION_FRONT_ID_TYPES,
         REPLAYABLE_ADMIN_TYPES, REPLAYABLE_TYPES,
         UNREPLAYABLE_ADMIN_TYPES, event_spec,
+        validate_event_contract,
     )
     assert CONTRACT_VERSION == 1
     assert ENVELOPE_REQUIRED == ("seq", "ts_wall", "trading_day", "vt_ms", "type", "data")
+    assert CANONICAL_OMIT_FIELDS == {"ts_wall"}
+    assert SESSION_FRONT_ID_TYPES == {"session_auth", "session_login"}
     assert {"server_start", "session_auth"}.issubset(KNOWN_TYPES)
     assert "server_start" in CORE_NOISE_TYPES
     assert "session_auth" in REPLAYABLE_TYPES
     assert REPLAYABLE_ADMIN_TYPES == {"reset_account", "settlement", "settlement_report", "settings_updated"}
     assert UNREPLAYABLE_ADMIN_TYPES == {"deposit", "withdraw", "settle", "admin"}
     assert event_spec("server_start")["hash"] == "noise"
+    assert validate_event_contract({"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
+                                   "type": "server_start", "data": None}) == []
+    assert any("contract_version" in problem for problem in validate_event_contract(
+        {"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
+         "type": "server_start", "data": None, "contract_version": 99}))
     try:
         event_spec("made_up_event")
         raise AssertionError("unknown event must fail closed")

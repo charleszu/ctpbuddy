@@ -59,6 +59,7 @@ from .journal import (
     load_events,
     verify_events,
 )
+from .journal_contract import CONTRACT_SHA256, CONTRACT_VERSION
 from .sdk import Admin, Client, CTPError
 from .scenario import load_scenario_spec
 from .wire import ERR_RTN_ORDER_INSERT
@@ -605,6 +606,7 @@ def replay_journal(
             "ok": False, "problems": ["recording is structurally invalid:"] + problems,
             "notes": [], "not_replayed": [], "recorded_core": None, "replay_core": None,
             "diff": None, "counts": {}, "data_dir": None, "events": len(events),
+            "contract_version": CONTRACT_VERSION, "contract_sha256": CONTRACT_SHA256,
         }
 
     first_load = next((e for e in events if e["type"] == "scenario_loaded"), None)
@@ -656,6 +658,10 @@ def replay_journal(
         admin.close()
 
         replay_events = load_events(os.path.join(data_dir, "journal"))
+        replay_problems = verify_events(replay_events)
+        if replay_problems:
+            walker.problems.append(
+                "replay journal violates canonical contract: " + "; ".join(replay_problems[:8]))
         # admin inputs that could not be re-issued cannot appear in the
         # replay journal: drop their types on both sides so the comparison
         # only reports real differences
@@ -677,6 +683,8 @@ def replay_journal(
             "events": len(events),
             "replay_events": len(replay_events),
             "server_log": server_log,
+            "contract_version": CONTRACT_VERSION,
+            "contract_sha256": CONTRACT_SHA256,
         }
     finally:
         if walker is not None:
