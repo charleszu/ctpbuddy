@@ -305,6 +305,93 @@ pub fn knows_event(event_type: &str) -> bool {
         .is_some_and(|events| events.contains_key(event_type))
 }
 
+/// Validate a complete journal envelope before the writer advances its seq.
+/// The server constructs these envelopes itself, but keeping this check here
+/// makes the Rust adapter obey the same fail-closed contract as Python.
+pub fn validate_event(event: &crate::json::Value) -> bool {
+    let Some(object) = event.as_obj() else {
+        return false;
+    };
+    let Some(envelope) = document().get("envelope").and_then(Value::as_object) else {
+        return false;
+    };
+    let required = envelope
+        .iter()
+        .find(|(key, _)| key.as_str() == "required")
+        .and_then(|(_, value)| value.as_array());
+    let optional = envelope
+        .iter()
+        .find(|(key, _)| key.as_str() == "optional")
+        .and_then(|(_, value)| value.as_array());
+    let Some(required) = required else {
+        return false;
+    };
+    let Some(optional) = optional else {
+        return false;
+    };
+    let allowed = |key: &str| {
+        key == "contract_version"
+            || required.iter().any(|item| item.as_str() == Some(key))
+            || optional.iter().any(|item| item.as_str() == Some(key))
+    };
+    if object.iter().any(|(key, _)| !allowed(key))
+        || required.iter().any(|field| {
+            field
+                .as_str()
+                .is_none_or(|name| object.iter().all(|(key, _)| key != name))
+        })
+    {
+        return false;
+    }
+    if let Some(version) = event.get("contract_version") {
+        let Some(version) = version.as_num() else {
+            return false;
+        };
+        if !version.is_finite() || version.fract() != 0.0 || version != contract_version() as f64 {
+            return false;
+        }
+    }
+    let Some(event_type) = event.get("type").and_then(crate::json::Value::as_str) else {
+        return false;
+    };
+    if !knows_event(event_type) {
+        return false;
+    }
+    for key in ["ts_wall", "trading_day", "type"] {
+        if event
+            .get(key)
+            .and_then(crate::json::Value::as_str)
+            .is_none()
+        {
+            return false;
+        }
+    }
+    let Some(seq) = event.get("seq").and_then(crate::json::Value::as_num) else {
+        return false;
+    };
+    let Some(vt_ms) = event.get("vt_ms").and_then(crate::json::Value::as_num) else {
+        return false;
+    };
+    if !seq.is_finite() || seq.fract() != 0.0 || !vt_ms.is_finite() {
+        return false;
+    }
+    for key in optional {
+        let Some(key) = key.as_str() else {
+            return false;
+        };
+        if event.get(key).is_some_and(|value| value.as_str().is_none()) {
+            return false;
+        }
+    }
+    let Some(data) = event.get("data") else {
+        return false;
+    };
+    if !matches!(data, crate::json::Value::Obj(_) | crate::json::Value::Null) {
+        return false;
+    }
+    data_has_required_fields(event_type, data)
+}
+
 pub fn data_has_required_fields(event_type: &str, data: &crate::json::Value) -> bool {
     let contract = document();
     let required = contract
@@ -573,15 +660,9 @@ mod tests {
         )))
         .unwrap();
         for case in vectors["validation"].as_array().unwrap() {
-            let event_type = case["event"]["type"].as_str().unwrap();
-            let data = crate::json::parse(&case["event"]["data"].to_string()).unwrap();
-            let expected = case["data_valid"].as_bool().unwrap();
-            assert_eq!(
-                data_has_required_fields(event_type, &data),
-                expected,
-                "{}",
-                case["name"]
-            );
+            let event = crate::json::parse(&case["event"].to_string()).unwrap();
+            let expected = case["event_valid"].as_bool().unwrap();
+            assert_eq!(validate_event(&event), expected, "{}", case["name"]);
         }
     }
 }

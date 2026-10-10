@@ -46,9 +46,11 @@ def main() -> int:
         vectors = json.load(handle)["validation"]
     for case in vectors:
         problems = validate_event_contract(case["event"])
-        assert (not problems) is case["data_valid"], (case["name"], problems)
+        assert (not problems) is case["event_valid"], (case["name"], problems)
     malformed = dict(event, type="made_up_event")
     assert any("unknown event type" in problem for problem in validate_event_contract(malformed))
+    assert any("contract_version" in problem for problem in validate_event_contract(
+        dict(event, contract_version=True)))
     with tempfile.TemporaryDirectory() as directory:
         path = os.path.join(directory, "journal.jsonl")
         with open(path, "w", encoding="utf-8") as handle:

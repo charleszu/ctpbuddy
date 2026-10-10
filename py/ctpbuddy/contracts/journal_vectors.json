@@ -16,7 +16,7 @@
   "validation": [
     {
       "name": "order_insert_with_fill",
-      "data_valid": true,
+      "event_valid": true,
       "event": {
         "seq": 1,
         "ts_wall": "2026-10-05T09:30:00+08:00",
@@ -44,7 +44,7 @@
     },
     {
       "name": "order_cancel_rejection",
-      "data_valid": true,
+      "event_valid": true,
       "event": {
         "seq": 1,
         "ts_wall": "2026-10-05T09:30:00+08:00",
@@ -61,7 +61,7 @@
     },
     {
       "name": "order_insert_bad_fill_price",
-      "data_valid": false,
+      "event_valid": false,
       "event": {
         "seq": 1,
         "ts_wall": "2026-10-05T09:30:00+08:00",
@@ -89,7 +89,7 @@
     },
     {
       "name": "order_cancel_missing_acceptance",
-      "data_valid": false,
+      "event_valid": false,
       "event": {
         "seq": 1,
         "ts_wall": "2026-10-05T09:30:00+08:00",
@@ -102,6 +102,80 @@
           "submit_status": "5",
           "outcome": {"error_id": 163, "msg": "rejected"}
         }
+      }
+    },
+    {
+      "name": "unknown_event_type",
+      "event_valid": false,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "made_up_event",
+        "data": null
+      }
+    },
+    {
+      "name": "unknown_envelope_field",
+      "event_valid": false,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "server_start",
+        "data": null,
+        "future": true
+      }
+    },
+    {
+      "name": "missing_vt_ms",
+      "event_valid": false,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "type": "server_start",
+        "data": null
+      }
+    },
+    {
+      "name": "wrong_contract_version",
+      "event_valid": false,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "server_start",
+        "data": null,
+        "contract_version": 99
+      }
+    },
+    {
+      "name": "boolean_contract_version",
+      "event_valid": false,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "server_start",
+        "data": null,
+        "contract_version": true
+      }
+    },
+    {
+      "name": "fractional_sequence",
+      "event_valid": false,
+      "event": {
+        "seq": 1.5,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "server_start",
+        "data": null
       }
     }
   ]

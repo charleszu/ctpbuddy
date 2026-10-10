@@ -133,18 +133,10 @@ impl Journal {
         investor_id: &str,
         data: Value,
     ) {
-        if !crate::journal_contract::knows_event(event_type)
-            || !vt_ms.is_finite()
-            || !matches!(&data, Value::Obj(_) | Value::Null)
-            || !crate::journal_contract::data_has_required_fields(event_type, &data)
-        {
-            eprintln!("[ctpbuddy] journal event rejected by contract: {event_type}");
-            return;
-        }
-        self.seq += 1;
+        let next_seq = self.seq + 1;
         let (_d, _t, _ms, iso) = now_wall();
         let mut pairs: Vec<(String, Value)> = vec![
-            ("seq".into(), json::n(self.seq as f64)),
+            ("seq".into(), json::n(next_seq as f64)),
             ("ts_wall".into(), json::s(&iso)),
             ("trading_day".into(), json::s(day)),
             ("vt_ms".into(), json::n(vt_ms)),
@@ -157,7 +149,12 @@ impl Journal {
             pairs.push(("investor".into(), json::s(investor_id)));
         }
         pairs.push(("data".into(), data));
-        let line = Value::Obj(pairs).to_json();
+        let event = Value::Obj(pairs);
+        if !crate::journal_contract::validate_event(&event) {
+            eprintln!("[ctpbuddy] journal event rejected by contract: {event_type}");
+            return;
+        }
+        let line = event.to_json();
         if let Err(e) = self.ensure_writer(day).and_then(|_| {
             self.writer
                 .as_mut()
@@ -170,6 +167,7 @@ impl Journal {
             self.writer = None;
             return;
         }
+        self.seq = next_seq;
         self.pending += 1;
         if self.sync == SyncMode::Always {
             if let Err(e) = self.flush() {
@@ -277,6 +275,40 @@ mod tests {
         );
         assert_eq!(j.seq(), 0);
         assert!(!dir.join("journal").join("20261005.jsonl").exists());
+        drop(j);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejected_event_does_not_create_a_sequence_gap() {
+        let dir = std::env::temp_dir().join(format!(
+            "ctpbuddy-jcontract-sequence-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut j = Journal::new(dir.to_str().unwrap()).unwrap();
+        j.sync = SyncMode::Always;
+        j.record("20261005", f64::NAN, "server_start", "", "", Value::Null);
+        j.record("20261005", 0.0, "server_start", "", "", Value::Null);
+        assert_eq!(j.seq(), 1);
+        let file = std::fs::read_to_string(dir.join("journal").join("20261005.jsonl")).unwrap();
+        assert_eq!(file.lines().count(), 1);
+        assert!(file.lines().next().unwrap().contains("\"seq\":1"));
+        drop(j);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_write_does_not_advance_sequence() {
+        let dir = std::env::temp_dir().join(format!(
+            "ctpbuddy-journal-write-failure-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut j = Journal::new(dir.to_str().unwrap()).unwrap();
+        std::fs::create_dir(j.dir.join("20261005.jsonl")).unwrap();
+        j.record("20261005", 0.0, "server_start", "", "", Value::Null);
+        assert_eq!(j.seq(), 0);
         drop(j);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -159,8 +159,10 @@ def validate_event_contract(event: Dict[str, Any]) -> List[str]:
     event_type = event.get("type")
     if not isinstance(event_type, str) or event_type not in KNOWN_TYPES:
         problems.append("unknown event type %r" % event_type)
-    if "contract_version" in event and event["contract_version"] != CONTRACT_VERSION:
-        problems.append("contract_version %r does not match %d" % (event["contract_version"], CONTRACT_VERSION))
+    if "contract_version" in event:
+        version = event["contract_version"]
+        if isinstance(version, bool) or not isinstance(version, int) or version != CONTRACT_VERSION:
+            problems.append("contract_version %r does not match %d" % (version, CONTRACT_VERSION))
     if "data" in event and DATA_TYPE == "object_or_null" and event["data"] is not None and not isinstance(event["data"], dict):
         problems.append("data must be an object or null")
     spec = EVENTS.get(event_type) if isinstance(event_type, str) else None
