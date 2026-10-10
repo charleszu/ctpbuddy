@@ -97,52 +97,88 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 ## 4. 总体架构
 
 ```mermaid
-flowchart LR
-  subgraph 客户侧
-    C1[下游进程 A<br/>策略 / 终端]
-    C2[下游进程 B<br/>团队成员]
-    S[CTPBuddy Shim<br/>C++ DLL/so 同名替换]
-    C1 --- S
-    C2 --- S
+flowchart TB
+  subgraph EXT[外部输入与使用者数据]
+    TICKS[场景行情<br/>scenario.yaml/json + ticks.csv]
+    REF[参考数据<br/>instruments / margin / commission / trading params JSONL]
+    CAL[离线交易日历<br/>Python TradingCalendar]
+    SETTLE[结算价与结算单<br/>ADMIN 输入]
+    CLIENT[下游策略 / 终端 / 条件单]
   end
-  subgraph Python 层["Python 层（pip install ctpbuddy）"]
-    W[Web 管理后台<br/>Python stdlib ThreadingHTTPServer]
-    K[CLI / SDK / 场景 runner]
+
+  subgraph ACCESS[接入层]
+    SHIM[CTPBuddy Shim<br/>C++ DLL/SO 同名替换<br/>CTP ABI + SPI 分发]
+    TD[TCP TD 前置<br/>默认 127.0.0.1:5560<br/>CB 二进制帧]
+    ADMIN[ADMIN 控制面<br/>JSON over TCP<br/>默认 127.0.0.1:5561]
+    PY[Python CLI / SDK / Web<br/>场景、回放、设置、日结]
   end
-  ZMQ{{"ZeroMQ<br/>DEALER-ROUTER 请求响应<br/>PUB-SUB 回报/行情推送"}}
-  subgraph Rust 核心["CTPBuddy 核心服务（Rust，单机或容器）"]
-    R[会话与多租户路由]
-    M[行情回放引擎<br/>虚拟时钟]
-    E[撮合引擎<br/>默认单线程]
-    L[账户账本<br/>每账户单写者]
-    R --> E
-    M --> E
-    E --> L
+
+  subgraph CORE[CTPBuddy 核心服务（Rust）]
+    SERVER[server<br/>连接、AUTH/登录、请求路由、流控]
+    WIRE[wire<br/>消息号、帧、CTP 结构体镜像]
+    MARKET[market<br/>CsvSource、虚拟时钟、Playback]
+    CATALOG[Catalog / RefData<br/>合约目录、保证金、手续费、交易参数]
+    MATCH[matching<br/>价格时间优先、FAK/FOK、订单状态]
+    LEDGER[ledger<br/>账户、持仓、资金、保证金、手续费、日结]
+    SERVER --> WIRE
+    SERVER --> MATCH
+    SERVER --> LEDGER
+    MARKET --> MATCH
+    CATALOG --> MATCH
+    CATALOG --> LEDGER
+    MATCH --> LEDGER
   end
-  subgraph 行情源["行情源（用户提供）"]
-    P1[CSV / Parquet]
-    P2[自定义插件<br/>Python 协议]
+
+  subgraph STORE[持久化与查询投影]
+    JOURNAL[data/journal/*.jsonl<br/>Rust 唯一权威事件流]
+    SNAPSHOT[data/state/ledger.json<br/>可选恢复快照]
+    REPORT[data/settlement_reports/*.json<br/>结算报告]
+    SQLITE[data/ctpbuddy.db<br/>Python journal 投影，非实时]
   end
-  P1 --> M
-  P2 --> M
-  S <--> ZMQ
-  W <--> ZMQ
-  ZMQ <--> R
+
+  CLIENT <-->|CTP Trader/Md API| SHIM
+  SHIM <-->|RegisterFront / CTPBUDDY_ADDR| TD
+  TD <--> SERVER
+  PY <--> ADMIN
+  ADMIN <--> SERVER
+  TICKS --> MARKET
+  REF --> CATALOG
+  CAL --> PY
+  SETTLE --> ADMIN
+  SERVER -->|OnRsp / OnRtn / OnErr| TD
+  MARKET -->|DepthMarketData| SERVER
+  LEDGER --> JOURNAL
+  SERVER --> JOURNAL
+  LEDGER --> SNAPSHOT
+  ADMIN --> REPORT
+  JOURNAL -->|journal rebuild| SQLITE
 ```
+
+图中需要区分两条通道：
+
+- **TD 数据面**：下游 CTP 应用经同名 Shim 进入 `TCP TD`，传递认证、登录、行情订阅、查询、报撤单和回报。当前实现使用明文 TCP 承载 CB 帧；ZeroMQ 是后续传输适配方向，不能视为当前运行时依赖。
+- **ADMIN 控制面**：Python CLI、SDK 和 Web 通过独立的 ADMIN JSON 通道控制场景、回放、柜台设置、结算和报告写入。ADMIN 默认只绑定回环地址。
+- **数据加载面**：行情和参考数据从文件进入 Rust 核心；交易日历由 Python 读取，只在调用日结时协助推导下一交易日。
+- **持久化面**：Rust 写 journal 和恢复快照；SQLite 由 Python 从 journal 重建，只作为查询投影，不是核心账本的写入路径。
 
 ### 4.1 组件职责
 
 | 组件 | 语言 | 职责 | 明确不做 |
 |---|---|---|---|
-| Shim DLL | C++ | CTP ABI 实现、结构体编解码、ZMQ 收发、SPI 分发 | 任何业务逻辑、行情文件解析 |
-| 核心服务 | Rust | 会话路由、回放时钟、撮合、账本、结算、持久化、admin socket | 不做 Web 页面 |
-| Python 层 | Python | CLI、SDK/断言、场景 runner、Web 后台、行情源插件 | 撮合、账本（绝不进 Python） |
-| 行情源 | 用户侧 | 提供 tick 数据（CSV/Parquet/插件） | 不感知柜台 |
+| Shim DLL/SO | C++ | CTP ABI、结构体编解码、CB 帧收发、SPI 分发 | 业务判断、行情文件解析、账本 |
+| TD 前置 | Rust server | TCP 接入、认证登录、请求路由、流控、CTP 回报面 | 不实现 CTP 客户端 ABI |
+| 行情回放 | Rust market | CSV tick、虚拟时间、播放控制和行情推送 | 不读取账户或执行资金计算 |
+| 参考数据 | Rust Catalog/RefData | 合约、保证金、手续费、交易参数查询与计算输入 | 不从网络自动更新 |
+| 撮合引擎 | Rust matching | 订单簿、价格时间优先、FAK/FOK、交易所回报形状 | 不负责连接和 Web |
+| 账户账本 | Rust ledger | 账户、持仓、资金、保证金、手续费和显式日结 | 不直接连接 SQLite |
+| Python 层 | Python | CLI、SDK、场景编译、Web、日历、journal 投影 | 撮合、账本（绝不进 Python） |
+| 外部数据 | 用户侧 | 提供行情、参考数据、交易日历和结算资料 | 不感知柜台协议 |
 
 ### 4.2 部署形态
 
-- **形态 B（默认）本机单机**：`ctpbuddy up` 起核心 + Python 层，Shim 走 `ipc://` 或 loopback TCP。
-- **形态 C 团队私有**：docker-compose 部署核心服务，团队成员机器上的 Shim 指向内网地址；多租户账户由后台开通。
+- **本机单机（默认）**：核心监听 TD `127.0.0.1:5560` 和 ADMIN `127.0.0.1:5561`，Shim 通过 `RegisterFront()` 或 `CTPBUDDY_ADDR` 连接。
+- **团队私有部署**：核心可部署在内网主机或容器，团队成员机器上的 Shim 指向 TD 内网地址；ADMIN 仍应保持回环或置于受控网络边界内。
+- **多 Broker 隔离**：当前一个核心实例服务一个 `BrokerID`；需要硬隔离时运行多个核心实例，分别使用不同 TD/ADMIN 端口和数据目录。
 - **形态 A（全进程内，类 LocalCTP）**：评估后不采用——崩溃耦合、无法多客户共享、Web 无处安放、版本编译负担重。
 
 ### 4.3 语言分层理由

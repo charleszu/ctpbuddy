@@ -18,13 +18,18 @@ SimNow / openctp 都是远程 CS 模式：网络绑死、无法注入极端行�
 
 ## 架构速览
 
+```mermaid
+flowchart LR
+  C[下游策略 / 终端] <-->|CTP API| S[同名 Shim DLL/SO]
+  S <-->|CB 帧 over TCP<br/>TD :5560| R[Rust 核心服务]
+  P[Python CLI / SDK / Web] <-->|ADMIN JSON<br/>:5561| R
+  D[用户提供的场景行情与参考数据] --> R
+  R --> O[CTP 回报 / 行情推送]
+  R --> J[data/journal/*.jsonl]
+  J --> Q[Python journal 投影<br/>data/ctpbuddy.db]
 ```
-下游系统 ──(同名 DLL 替换)── CTPBuddy Shim (C++) ──ZeroMQ/帧协议── Rust 核心服务
-                                                                    ├─ 行情回放引擎（源由用户提供）
-                                                                    ├─ 撮合引擎（默认单线程确定性）
-                                                                    └─ 账户账本（每账户单写者）
-Python 层 (pip install ctpbuddy): CLI / SDK 断言 / 本机 Web 后台 / 行情源插件
-```
+
+Rust 核心内部由 `server/wire`、`market`、`Catalog/RefData`、`matching` 和 `ledger` 组成；Python 负责场景编译、控制面、Web 和 journal 投影，不实现撮合与账本。当前传输是 TCP，ZeroMQ 是后续适配方向。
 
 ## 当前进展
 
