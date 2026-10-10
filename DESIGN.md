@@ -980,7 +980,7 @@ CREATE TABLE audit_log (
 {"seq":3,"ts_wall":"...","vt_ms":34210000.0,"type":"md_watermark","data":{"idx":42}}
 ```
 
-事件类型由 `py/ctpbuddy/contracts/journal_contract.json` 的 `contract_version=1` 唯一声明：`server_start` / `server_stop` / `scenario_loaded` / `session_auth` / `session_login` / `session_logout` / `order_insert` / `order_cancel` / `order_update` / `fill` / `md_watermark` / `assertion` / `reset_account` / `settlement` / `settlement_report` / `settings_updated` / `deposit` / `withdraw` / `settle` / `admin`。Rust 核心和 Python 读取/回放/投影适配器都从这份 artifact 派生事件词汇；未知类型和显式不匹配的 `contract_version` 必须 fail closed。`projection_meta` 同时保存 contract version 与 artifact SHA-256，便于识别投影使用的契约版本。
+事件类型由 `py/ctpbuddy/contracts/journal_contract.json` 的 `contract_version=1` 唯一声明：`server_start` / `server_stop` / `scenario_loaded` / `session_auth` / `session_login` / `session_logout` / `order_insert` / `order_cancel` / `order_update` / `fill` / `md_watermark` / `assertion` / `reset_account` / `settlement` / `settlement_report` / `settings_updated` / `deposit` / `withdraw` / `settle` / `admin`。契约同时声明稳定事件的 `data_required` / `data_types`；历史泛型的 `settle` / `admin` 明确标记为 `opaque_object`，只保证 envelope 合法，不伪造字段语义。Rust 核心和 Python 读取/回放/投影适配器都从这份 artifact 派生事件词汇；未知类型和显式不匹配的 `contract_version` 必须 fail closed。`projection_meta` 同时保存 contract version 与 artifact SHA-256，便于识别投影使用的契约版本。
 
 **确定性哈希（M2-3 定稿，`py/ctpbuddy/journal.py`）**：
 

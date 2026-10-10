@@ -25,7 +25,7 @@
     "settings_updated": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"], "data_required": ["after"], "data_types": {"after": "object"}},
     "deposit": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"], "data_types": {"amount": "number"}},
     "withdraw": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"], "data_types": {"amount": "number"}},
-    "settle": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]},
-    "admin": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]}
+    "settle": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_policy": "opaque_object"},
+    "admin": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_policy": "opaque_object"}
   }
 }
