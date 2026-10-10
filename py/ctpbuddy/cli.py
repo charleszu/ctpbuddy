@@ -373,11 +373,17 @@ def _load_journal_or_fail(path: str):
 
 
 def cmd_journal_hash(args: argparse.Namespace) -> int:
-    from .journal import hash_stream
+    from .journal import hash_stream, verify_events
 
     events, err = _load_journal_or_fail(args.file)
     if err:
         print("error: %s" % err, file=sys.stderr)
+        return 1
+    problems = verify_events(events)
+    if problems:
+        print("INVALID: %s" % args.file)
+        for problem in problems:
+            print("  -", problem)
         return 1
     only = [t for t in (args.only or "").split(",") if t] or None
     skip = [t for t in (args.skip or "").split(",") if t] or None

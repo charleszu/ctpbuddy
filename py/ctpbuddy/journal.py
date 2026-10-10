@@ -84,7 +84,11 @@ def load_events(path: str) -> List[Dict[str, Any]]:
     for p in journal_paths(path):
         out.extend(_iter_file(p))
     if os.path.isdir(path):
-        out.sort(key=lambda ev: ev.get("seq", 0))
+        # Valid directory journals are ordered by seq because file names are
+        # trading-day partitions. If any seq is malformed, preserve file/line
+        # order so verify_events reports the authoritative input unchanged.
+        if all(isinstance(ev.get("seq"), int) and not isinstance(ev.get("seq"), bool) for ev in out):
+            out.sort(key=lambda ev: ev["seq"])
     return out
 
 

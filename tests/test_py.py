@@ -468,6 +468,7 @@ def test_journal_hash() -> None:
         verify_events,
     )
     from ctpbuddy import replay as replay_mod
+    from ctpbuddy.cli import main as cli_main
 
     # one vocabulary: the types the core emits today are known, and the
     # projection / replay sets are derived from (and contained in) it
@@ -571,6 +572,15 @@ def test_journal_hash() -> None:
         assert load_events(d) == stream  # directory form
         assert list(iter_events(p)) == stream and list(iter_events(d)) == stream
         assert hash_stream(load_events(p)) == hash_stream(stream)
+        malformed = os.path.join(d, "malformed.jsonl")
+        with open(malformed, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(dict(stream[1], type="made_up_event"), ensure_ascii=False) + "\n")
+        assert cli_main(["journal", "hash", malformed]) == 1
+        malformed_dir = os.path.join(d, "malformed-dir")
+        os.mkdir(malformed_dir)
+        with open(os.path.join(malformed_dir, "20261002.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(dict(stream[1], seq="bad"), ensure_ascii=False) + "\n")
+        assert cli_main(["journal", "hash", malformed_dir]) == 1
         # a directory whose file-name order disagrees with seq (回放倒退交易日):
         # load_events and iter_events must agree on the seq order
         with tempfile.TemporaryDirectory() as d2:
@@ -1307,6 +1317,15 @@ def test_journal_contract() -> None:
     typed = dict(fill, data={"trade_id": "t1", "instrument": "rb", "direction": 0,
                              "offset": 0, "price": "3500", "volume": 1})
     assert any("data field 'price' must be number" in problem for problem in validate_event_contract(typed))
+    nested = dict(fill, type="order_insert", data={
+        "order_ref": "r", "instrument": "rb", "exchange": "SHFE", "direction": 0,
+        "offset": 0, "price_type": "2", "limit_price": 3500, "volume": 1,
+        "time_condition": "3", "volume_condition": "1", "min_volume": 1,
+        "outcome": {"accepted": True, "fills": [{"trade_id": "t", "price": "bad", "volume": 1}]},
+    })
+    assert any("fills[0].'price' must be number" in problem for problem in validate_event_contract(nested))
+    nonfinite = dict(fill, vt_ms=float("inf"))
+    assert any("vt_ms must be finite" in problem for problem in validate_event_contract(nonfinite))
     vector_path = os.path.join(REPO, "py", "ctpbuddy", "contracts", "journal_vectors.json")
     with open(vector_path, encoding="utf-8") as fh:
         vector = json.load(fh)["canonical"][0]
