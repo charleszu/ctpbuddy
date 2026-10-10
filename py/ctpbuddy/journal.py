@@ -32,50 +32,17 @@ import json
 import os
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
-#: Admin-port inputs the core knows how to journal AND the replay driver
-#: knows how to re-issue (`reset_account` -> reset_account, `settlement` ->
-#: settle_day, `settlement_report` -> settlement_report, `settings_updated`
-#: -> settings_update).
-REPLAYABLE_ADMIN_TYPES = frozenset({
-    "reset_account", "settlement", "settlement_report", "settings_updated",
-})
-
-#: Admin inputs named by DESIGN §11.4 that no admin command re-issues yet
-#: (the core does not emit them either). A replay classifies them as
-#: `not_replayed` rather than as a difference.
-UNREPLAYABLE_ADMIN_TYPES = frozenset({"deposit", "withdraw", "settle", "admin"})
-
-#: Every admin-side input event (state changes that reach the journal via
-#: the ADMIN port rather than a CTP session).
-ADMIN_INPUT_TYPES = REPLAYABLE_ADMIN_TYPES | UNREPLAYABLE_ADMIN_TYPES
-
-#: Journal events that are inputs to a replay (requests + the tick trace).
-REPLAYABLE_TYPES = frozenset({
-    "scenario_loaded",
-    "session_auth", "session_login", "session_logout",
-    "order_insert", "order_cancel",
-    "md_watermark",
-}) | ADMIN_INPUT_TYPES
-
-#: Types the SQLite projection records in `audit_log`.
-AUDIT_TYPES = frozenset({"scenario_loaded"}) | ADMIN_INPUT_TYPES
-
-#: Day-settlement events (the core emits `settlement`; `settle` is the
-#: DESIGN §11.4 name kept for compatibility) — both carry `accounts`.
-SETTLEMENT_TYPES = frozenset({"settlement", "settle"})
-
-#: Event types per DESIGN §11.4 plus the ones the core emits today.
-KNOWN_TYPES = frozenset({
-    "server_start", "server_stop", "scenario_loaded",
-    "session_auth", "session_login", "session_logout",
-    "order_insert", "order_cancel", "order_update", "fill",
-    "md_watermark", "assertion",
-}) | ADMIN_INPUT_TYPES
-
-#: Types excluded from the core hash: transport/ops noise, not semantics.
-CORE_NOISE_TYPES = frozenset({
-    "server_start", "server_stop", "scenario_loaded", "md_watermark",
-})
+from .journal_contract import (
+    ADMIN_INPUT_TYPES,
+    AUDIT_TYPES,
+    CORE_NOISE_TYPES,
+    ENVELOPE_REQUIRED,
+    KNOWN_TYPES,
+    REPLAYABLE_ADMIN_TYPES,
+    REPLAYABLE_TYPES,
+    SETTLEMENT_TYPES,
+    UNREPLAYABLE_ADMIN_TYPES,
+)
 
 #: Session events whose `data` carries connection-numbering fields.
 _SESSION_TYPES = frozenset({"session_auth", "session_login"})
@@ -186,7 +153,7 @@ def verify_events(events: Sequence[Dict[str, Any]]) -> List[str]:
     problems: List[str] = []
     last = 0
     for i, e in enumerate(events, 1):
-        for k in ("seq", "ts_wall", "trading_day", "vt_ms", "type", "data"):
+        for k in ENVELOPE_REQUIRED:
             if k not in e:
                 problems.append("line %d: missing field %r" % (i, k))
         t = e.get("type")

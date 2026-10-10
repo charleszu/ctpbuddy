@@ -1246,6 +1246,28 @@ def test_replay_admin_inputs() -> None:
     print("[ok] replay: admin inputs re-issued (settle_day/report/settings), unreplayable ones classified not a diff")
 
 
+def test_journal_contract() -> None:
+    from ctpbuddy.journal_contract import (
+        CONTRACT_VERSION, CORE_NOISE_TYPES, ENVELOPE_REQUIRED, KNOWN_TYPES,
+        REPLAYABLE_ADMIN_TYPES, REPLAYABLE_TYPES,
+        UNREPLAYABLE_ADMIN_TYPES, event_spec,
+    )
+    assert CONTRACT_VERSION == 1
+    assert ENVELOPE_REQUIRED == ("seq", "ts_wall", "trading_day", "vt_ms", "type", "data")
+    assert {"server_start", "session_auth"}.issubset(KNOWN_TYPES)
+    assert "server_start" in CORE_NOISE_TYPES
+    assert "session_auth" in REPLAYABLE_TYPES
+    assert REPLAYABLE_ADMIN_TYPES == {"reset_account", "settlement", "settlement_report", "settings_updated"}
+    assert UNREPLAYABLE_ADMIN_TYPES == {"deposit", "withdraw", "settle", "admin"}
+    assert event_spec("server_start")["hash"] == "noise"
+    try:
+        event_spec("made_up_event")
+        raise AssertionError("unknown event must fail closed")
+    except ValueError:
+        pass
+    print("[ok] journal contract: shared event vocabulary and pilot metadata")
+
+
 def test_sdk_lifecycle():
     from ctpbuddy.sdk.client import Client, CTPError
     from ctpbuddy.wire import Frame, PING, PONG
@@ -1299,6 +1321,7 @@ def main() -> int:
     test_sdk_subscribe()
     test_refdata_numeric()
     test_replay_admin_inputs()
+    test_journal_contract()
     test_shim_install_security()
     test_shim_install_faults()
     test_assertions_cli()

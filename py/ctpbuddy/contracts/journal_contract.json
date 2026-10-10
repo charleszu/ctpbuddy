@@ -1,0 +1,30 @@
+{
+  "contract_version": 1,
+  "envelope": {
+    "required": ["seq", "ts_wall", "trading_day", "vt_ms", "type", "data"],
+    "optional": ["broker", "investor"],
+    "data_type": "object_or_null"
+  },
+  "events": {
+    "server_start": {"category": "operational", "replay": "none", "hash": "noise", "projection": []},
+    "server_stop": {"category": "operational", "replay": "none", "hash": "noise", "projection": []},
+    "scenario_loaded": {"category": "operational", "replay": "reissue", "hash": "noise", "projection": ["audit_log"]},
+    "session_auth": {"category": "session_input", "replay": "reissue", "hash": "semantic", "projection": []},
+    "session_login": {"category": "session_input", "replay": "reissue", "hash": "semantic", "projection": []},
+    "session_logout": {"category": "session_input", "replay": "reissue", "hash": "semantic", "projection": []},
+    "order_insert": {"category": "trading_input", "replay": "reissue", "hash": "semantic", "projection": ["order_record"]},
+    "order_cancel": {"category": "trading_input", "replay": "reissue", "hash": "semantic", "projection": []},
+    "order_update": {"category": "trading_output", "replay": "none", "hash": "semantic", "projection": ["order_record"]},
+    "fill": {"category": "trading_output", "replay": "none", "hash": "semantic", "projection": ["trade_record", "position_change"]},
+    "md_watermark": {"category": "operational", "replay": "reissue", "hash": "noise", "projection": []},
+    "assertion": {"category": "scenario_output", "replay": "none", "hash": "semantic", "projection": ["account_snapshot"]},
+    "reset_account": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"]},
+    "settlement": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["account_snapshot", "position_snapshot", "audit_log"]},
+    "settlement_report": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["settlement_report", "audit_log"]},
+    "settings_updated": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"]},
+    "deposit": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]},
+    "withdraw": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]},
+    "settle": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]},
+    "admin": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"]}
+  }
+}

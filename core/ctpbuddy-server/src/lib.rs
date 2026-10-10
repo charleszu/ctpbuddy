@@ -9,6 +9,7 @@ pub mod admin;
 pub mod dtime;
 pub mod handlers;
 pub mod journal;
+pub mod journal_contract;
 pub mod json;
 mod private_flow;
 pub mod scenario;
