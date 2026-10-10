@@ -135,9 +135,20 @@ REPLAYABLE_TYPES: FrozenSet[str] = frozenset(
 AUDIT_TYPES: FrozenSet[str] = frozenset(
     name for name, spec in EVENTS.items() if "audit_log" in spec.get("projection", [])
 )
-SETTLEMENT_TYPES: FrozenSet[str] = frozenset(
-    name for name in ("settlement", "settle") if name in EVENTS
+_PROJECTION_NAMES = frozenset(
+    projection
+    for spec in EVENTS.values()
+    for projection in spec.get("projection", [])
 )
+PROJECTION_TYPES: Dict[str, FrozenSet[str]] = {
+    projection: frozenset(
+        name for name, spec in EVENTS.items()
+        if projection in spec.get("projection", [])
+    )
+    for projection in _PROJECTION_NAMES
+}
+SETTLEMENT_TYPES: FrozenSet[str] = PROJECTION_TYPES.get("position_snapshot", frozenset())
+SETTLEMENT_REPORT_TYPES: FrozenSet[str] = PROJECTION_TYPES.get("settlement_report", frozenset())
 
 
 def event_spec(event_type: str) -> Dict[str, Any]:

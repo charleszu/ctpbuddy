@@ -16,7 +16,7 @@ from .journal import (
     load_events,
     verify_events,
 )
-from .journal_contract import CONTRACT_SHA256, CONTRACT_VERSION
+from .journal_contract import CONTRACT_SHA256, CONTRACT_VERSION, SETTLEMENT_REPORT_TYPES
 
 SCHEMA_VERSION = 2
 APPLICATION_ID = 0x43545042
@@ -129,7 +129,7 @@ def _project(conn, events):
             if delta is not None and offset != "0":
                 delta = -delta
             conn.execute("INSERT INTO position_change VALUES (?,?,?,?,?,?,?,?,?)", (s, day, b, i, d.get("instrument"), side, offset, delta, raw))
-        if t == "settlement_report":
+        if t in SETTLEMENT_REPORT_TYPES:
             content_bytes = d.get("content_bytes", [])
             conn.execute("INSERT INTO settlement_report VALUES (?,?,?,?,?,?,?,?,?,?)", (
                 s, day, b, i, d.get("settlement_id"), d.get("account_id", ""),
