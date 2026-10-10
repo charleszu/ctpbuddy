@@ -42,6 +42,11 @@ def main() -> int:
         },
     }
     assert validate_event_contract(event) == []
+    with open(os.path.join(REPO, "py", "ctpbuddy", "contracts", "journal_vectors.json"), encoding="utf-8") as handle:
+        vectors = json.load(handle)["validation"]
+    for case in vectors:
+        problems = validate_event_contract(case["event"])
+        assert (not problems) is case["data_valid"], (case["name"], problems)
     malformed = dict(event, type="made_up_event")
     assert any("unknown event type" in problem for problem in validate_event_contract(malformed))
     with tempfile.TemporaryDirectory() as directory:

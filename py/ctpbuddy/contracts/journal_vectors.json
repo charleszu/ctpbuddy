@@ -12,5 +12,97 @@
       },
       "expected": "{\"data\":{\"message\":\"ok\"},\"seq\":1,\"trading_day\":\"20261005\",\"type\":\"server_start\",\"vt_ms\":0}"
     }
+  ],
+  "validation": [
+    {
+      "name": "order_insert_with_fill",
+      "data_valid": true,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "order_insert",
+        "data": {
+          "order_ref": "r1",
+          "instrument": "rb2601",
+          "exchange": "SHFE",
+          "direction": 48,
+          "offset": 48,
+          "price_type": "2",
+          "limit_price": 3500,
+          "volume": 1,
+          "time_condition": "3",
+          "volume_condition": "1",
+          "min_volume": 1,
+          "outcome": {
+            "accepted": true,
+            "fills": [{"trade_id": "t1", "price": 3500, "volume": 1}]
+          }
+        }
+      }
+    },
+    {
+      "name": "order_cancel_rejection",
+      "data_valid": true,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "order_cancel",
+        "data": {
+          "order_ref": "r1",
+          "instrument": "rb2601",
+          "submit_status": "5",
+          "outcome": {"accepted": false, "error_id": 163, "msg": "rejected"}
+        }
+      }
+    },
+    {
+      "name": "order_insert_bad_fill_price",
+      "data_valid": false,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "order_insert",
+        "data": {
+          "order_ref": "r1",
+          "instrument": "rb2601",
+          "exchange": "SHFE",
+          "direction": 48,
+          "offset": 48,
+          "price_type": "2",
+          "limit_price": 3500,
+          "volume": 1,
+          "time_condition": "3",
+          "volume_condition": "1",
+          "min_volume": 1,
+          "outcome": {
+            "accepted": true,
+            "fills": [{"trade_id": "t1", "price": "3500", "volume": 1}]
+          }
+        }
+      }
+    },
+    {
+      "name": "order_cancel_missing_acceptance",
+      "data_valid": false,
+      "event": {
+        "seq": 1,
+        "ts_wall": "2026-10-05T09:30:00+08:00",
+        "trading_day": "20261005",
+        "vt_ms": 0,
+        "type": "order_cancel",
+        "data": {
+          "order_ref": "r1",
+          "instrument": "rb2601",
+          "submit_status": "5",
+          "outcome": {"error_id": 163, "msg": "rejected"}
+        }
+      }
+    }
   ]
 }

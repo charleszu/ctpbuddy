@@ -564,4 +564,24 @@ mod tests {
         let vector = &vectors["canonical"][0];
         assert_eq!(canonical_event(&vector["event"]), vector["expected"]);
     }
+
+    #[test]
+    fn validation_vectors_match_python_adapter() {
+        let vectors: Value = serde_json::from_str(include_str!(concat!(
+            env!("OUT_DIR"),
+            "/journal_vectors.json"
+        )))
+        .unwrap();
+        for case in vectors["validation"].as_array().unwrap() {
+            let event_type = case["event"]["type"].as_str().unwrap();
+            let data = crate::json::parse(&case["event"]["data"].to_string()).unwrap();
+            let expected = case["data_valid"].as_bool().unwrap();
+            assert_eq!(
+                data_has_required_fields(event_type, &data),
+                expected,
+                "{}",
+                case["name"]
+            );
+        }
+    }
 }
