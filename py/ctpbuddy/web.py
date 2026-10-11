@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .scenario import ScenarioError, load_scenario_spec
 from .sdk import Admin
+from .store import ReadModelMetadata
 
 MAX_BODY = 8192
 MAX_SCENARIO_NAME = 160
@@ -199,13 +200,15 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                     rows = projection.query(table, broker=one("broker"), investor=one("investor"),
                                             trading_day=one("trading_day"), limit=int(one("limit") or 100),
                                             offset=int(one("offset") or 0))
-                    snapshot = {row[0]: row[1] for row in projection.conn.execute("SELECT key,value FROM projection_meta")}
+                    snapshot = projection.metadata()
+                    metadata = projection.read_model_metadata().as_dict()
             except ValueError:
                 return self.reply(400, {"error": "投影查询参数无效"})
             except (OSError, sqlite3.Error, RuntimeError, JournalError):
                 # 不把 SQLite 的绝对路径或底层文件错误回显给浏览器。
                 return self.reply(503, {"error": "SQLite 投影不可用"})
-            return self.reply(200, {"table": table, "rows": rows, "snapshot": snapshot, "realtime": False})
+            return self.reply(200, {"table": table, "rows": rows, "snapshot": snapshot,
+                                    "metadata": metadata, "realtime": False})
 
         def do_POST(self):
             if not self.valid_source(write=True):
@@ -318,6 +321,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             return {"ok": True, "scenario": status["scenario"], "playback": dict(pb, finished=pb["loaded"] and pb["idx"] >= pb["total"]),
                     "accounts": status.get("accounts", []), "broker_id": status.get("broker_id"),
                     "open_orders": status.get("open_orders"), "positions_state": "admin_live_positions_unavailable",
+                    "metadata": ReadModelMetadata.from_admin_status(status).as_dict(),
                     "realtime": True, "speed_range": {"min": 0, "max": MAX_PLAYBACK_SPEED}}
 
         def invoke(self, patch=None, playback=None, scenario=None, admin_cmd=None, admin_args=None):

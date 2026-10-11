@@ -5,7 +5,9 @@ import json
 import os
 import sqlite3
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Dict, Mapping, Optional
 
 from .journal import (
     AUDIT_TYPES,
@@ -31,6 +33,103 @@ TABLES = ("journal_event", "account", "order_record", "trade_record",
           "position_change", "position_snapshot", "account_snapshot", "audit_log", "settlement_report")
 WEB_TABLES = ("account", "position_snapshot", "account_snapshot", "order_record",
               "trade_record", "audit_log", "settlement_report")
+READ_MODEL_METADATA_FIELDS = (
+    "source_kind", "journal_seq", "virtual_time", "core_hash", "projection_hash",
+    "journal_hash", "calendar_version", "calendar_sha256", "schema_version",
+    "contract_version", "contract_sha256", "event_count", "last_seq",
+)
+
+
+@dataclass(frozen=True)
+class ReadModelMetadata:
+    """Stable provenance shared by live and journal-backed read models.
+
+    A field is ``None`` when the source cannot provide it yet.  The shape is
+    deliberately fixed so consumers do not need to know whether data came
+    from ADMIN or the SQLite projection.
+    """
+
+    source_kind: str
+    journal_seq: Optional[int] = None
+    virtual_time: Optional[str] = None
+    core_hash: Optional[str] = None
+    projection_hash: Optional[str] = None
+    journal_hash: Optional[str] = None
+    calendar_version: Optional[str] = None
+    calendar_sha256: Optional[str] = None
+    schema_version: Optional[str] = None
+    contract_version: Optional[str] = None
+    contract_sha256: Optional[str] = None
+    event_count: Optional[int] = None
+    last_seq: Optional[int] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Return the canonical JSON-friendly field order and shape."""
+        return {field: getattr(self, field) for field in READ_MODEL_METADATA_FIELDS}
+
+    @classmethod
+    def from_projection(cls, metadata: Mapping[str, str]) -> "ReadModelMetadata":
+        """Normalize and validate metadata stored by ``journal rebuild``."""
+        required = {
+            "contract_version", "contract_sha256", "schema_version",
+            "journal_sha256", "event_count", "last_seq",
+        }
+        missing = sorted(key for key in required if key not in metadata)
+        if missing:
+            raise JournalError("SQLite 投影 read-model metadata 缺失: " + ",".join(missing))
+
+        def number(key: str) -> int:
+            value = metadata[key]
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise JournalError("SQLite 投影 read-model metadata 无效: " + key) from exc
+            if parsed < 0:
+                raise JournalError("SQLite 投影 read-model metadata 无效: " + key)
+            return parsed
+
+        if metadata["contract_version"] != str(CONTRACT_VERSION) or metadata["contract_sha256"] != CONTRACT_SHA256:
+            raise JournalError("SQLite 投影 read-model contract/version 不匹配，请 journal rebuild")
+        if metadata["schema_version"] != str(SCHEMA_VERSION):
+            raise JournalError("SQLite 投影 read-model schema/version 不匹配，请 journal rebuild")
+        last_seq = number("last_seq")
+        event_count = number("event_count")
+        return cls(
+            source_kind="sqlite_projection",
+            journal_seq=last_seq,
+            journal_hash=metadata["journal_sha256"],
+            schema_version=metadata["schema_version"],
+            contract_version=metadata["contract_version"],
+            contract_sha256=metadata["contract_sha256"],
+            event_count=event_count,
+            last_seq=last_seq,
+        )
+
+    @classmethod
+    def from_admin_status(cls, status: Mapping[str, Any]) -> "ReadModelMetadata":
+        """Normalize the subset of provenance currently exposed by ADMIN."""
+        playback = status.get("playback")
+        if not isinstance(playback, Mapping):
+            raise JournalError("ADMIN read-model metadata 缺少 playback")
+        journal_seq = status.get("journal_seq")
+        if journal_seq is not None:
+            try:
+                journal_seq = int(journal_seq)
+            except (TypeError, ValueError) as exc:
+                raise JournalError("ADMIN read-model metadata journal_seq 无效") from exc
+            if journal_seq < 0:
+                raise JournalError("ADMIN read-model metadata journal_seq 无效")
+        virtual_time = playback.get("virtual_time")
+        if virtual_time is not None and not isinstance(virtual_time, str):
+            raise JournalError("ADMIN read-model metadata virtual_time 无效")
+        return cls(
+            source_kind="admin_live",
+            journal_seq=journal_seq,
+            virtual_time=virtual_time,
+            core_hash=status.get("core_hash"),
+            calendar_version=status.get("calendar_version"),
+            calendar_sha256=status.get("calendar_sha256"),
+        )
 SCHEMA = """
 CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE journal_event (
@@ -245,9 +344,7 @@ class Projection:
                 raise JournalError("SQLite 投影 schema/version 不匹配，请 journal rebuild")
             metadata = {row[0]: row[1] for row in self.conn.execute(
                 "SELECT key,value FROM projection_meta")}
-            if (metadata.get("contract_version") != str(CONTRACT_VERSION) or
-                    metadata.get("contract_sha256") != CONTRACT_SHA256):
-                raise JournalError("SQLite 投影 contract/version 不匹配，请 journal rebuild")
+            self._read_model_metadata = ReadModelMetadata.from_projection(metadata)
             self.conn.row_factory = sqlite3.Row
         except Exception:
             self.conn.close()
@@ -260,6 +357,10 @@ class Projection:
         """Return the immutable rebuild metadata recorded with this projection."""
         return {row[0]: row[1] for row in self.conn.execute(
             "SELECT key,value FROM projection_meta ORDER BY key")}
+
+    def read_model_metadata(self) -> ReadModelMetadata:
+        """Return validated provenance through the canonical read-model seam."""
+        return self._read_model_metadata
 
     def __enter__(self):
         return self

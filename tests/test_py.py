@@ -23,6 +23,11 @@ import urllib.error
 import urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+READ_MODEL_METADATA_FIELDS = {
+    "source_kind", "journal_seq", "virtual_time", "core_hash", "projection_hash",
+    "journal_hash", "calendar_version", "calendar_sha256", "schema_version",
+    "contract_version", "contract_sha256", "event_count", "last_seq",
+}
 sys.path.insert(0, os.path.join(REPO, "py"))
 
 from ctpbuddy.calendar import CalendarError, TradingCalendar  # noqa: E402
@@ -612,7 +617,7 @@ def test_journal_hash() -> None:
 
 
 def test_journal_projection() -> None:
-    from ctpbuddy.store import Projection, rebuild
+    from ctpbuddy.store import Projection, ReadModelMetadata, rebuild
 
     with tempfile.TemporaryDirectory() as d:
         journal = os.path.join(d, "journal")
@@ -645,6 +650,12 @@ def test_journal_projection() -> None:
             assert projection.query("trade_record")[0]["trade_id"] == "t1"
             assert projection.query("position_change")[0]["volume_delta"] == 2
             assert projection.query("audit_log")[0]["action"] == "settings_updated"
+            read_model = projection.read_model_metadata()
+            assert isinstance(read_model, ReadModelMetadata)
+            assert read_model.source_kind == "sqlite_projection"
+            assert read_model.journal_seq == 5 and read_model.last_seq == 5
+            assert read_model.journal_hash == first["sha256"]
+            assert set(read_model.as_dict()) == READ_MODEL_METADATA_FIELDS
         conn = sqlite3.connect(db)
         try:
             conn.execute("UPDATE projection_meta SET value='stale' WHERE key='contract_sha256'")
@@ -660,6 +671,18 @@ def test_journal_projection() -> None:
         finally:
             if stale is not None:
                 stale.close()
+        rebuild(journal, db)
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("DELETE FROM projection_meta WHERE key='journal_sha256'")
+            conn.commit()
+        finally:
+            conn.close()
+        try:
+            Projection(db)
+            raise AssertionError("缺少 read-model metadata 必须阻止投影打开")
+        except Exception as exc:
+            assert "read-model metadata 缺失" in str(exc)
         rebuild(journal, db)
         with open(db, "wb") as fh:
             fh.write(b"not a sqlite database")
@@ -702,6 +725,9 @@ def test_web_projection() -> None:
                 payload = json.loads(urllib.request.urlopen(request).read())
                 assert payload["rows"] and key in payload["rows"][0], (table, payload)
                 assert payload["snapshot"]["event_count"] == "5" and payload["realtime"] is False, payload
+                assert payload["metadata"]["source_kind"] == "sqlite_projection"
+                assert payload["metadata"]["journal_seq"] == 5
+                assert set(payload["metadata"]) == READ_MODEL_METADATA_FIELDS
             empty = urllib.request.Request(base + "/api/projection?table=account&broker=missing", headers={"Host": host})
             empty_payload = json.loads(urllib.request.urlopen(empty).read())
             assert empty_payload["rows"] == [] and empty_payload["realtime"] is False
@@ -792,6 +818,8 @@ def test_web_replay() -> None:
             csrf = json.loads(request("/api/session").read())["token"]
             status = json.loads(request("/api/replay/status").read())
             assert status["playback"]["idx"] == 0 and status["realtime"] is True
+            assert status["metadata"]["source_kind"] == "admin_live"
+            assert status["metadata"]["virtual_time"] == "09:30:00.000"
             pause = json.loads(request("/api/replay", {"cmd": "pause"}, "POST").read())
             assert pause["playback"]["paused"]
             step = json.loads(request("/api/replay", {"cmd": "step"}, "POST").read())
