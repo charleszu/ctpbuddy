@@ -26,7 +26,7 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | Shim 只解析 `tcp://<IPv4>:<port>` 字面地址 | 下游需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」暂不成立 |
 | §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单与私有流按 BrokerID 隔离；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 场景 bootstrap、ADMIN 日结与 settlement report 仍以首个 BrokerID 为默认命名空间；跨 Broker 的批量日结编排尚未抽成独立命令 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
-| §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，`--recover` 在同一交易日恢复后可继续 RESTART/RESUME；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*） |
+| §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，`--recover` 在同一交易日恢复后可继续 RESTART/RESUME；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；完整 journal crash replay 与未进入最近 snapshot 的尾部仍是恢复边界 |
 | §5 Shim DLL/so | Windows DLL（`shim/build_msvc.py`）与 Linux `.so`（`shim/build_linux.py`，g++/WSL 已通过 `m1_shim_e2e`）；`CTPBUDDY_ADDR` 环境变量可整体重定向前置，前置地址支持主机名 | 前置别名表 `ctpbuddy.ini` 仍未实现；ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | 暂不纳入当前实现范围 |
 | §8.6 / §8.7 昨仓保证金按昨结算价计 | 已实现：`settle_trading_day` 在推进交易日时按供给结算价重算每个存续明细的保证金，并更新 `last_settlement_price`；`MarginPriceType=Last` 仅对今仓按最新价做盘中重估，昨仓仍固定昨结算价 | 真实柜台的跨品种优惠、套利取高和仓单折抵仍未建模；这些不属于单合约日结重估 |
