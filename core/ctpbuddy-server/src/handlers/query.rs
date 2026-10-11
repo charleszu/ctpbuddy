@@ -14,6 +14,13 @@ struct TradeQuery {
     trade_id: String,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InstrumentQuery {
+    exchange_id: String,
+    instrument_id: String,
+    product_id: String,
+}
+
 fn decode_order_query(payload: &[u8]) -> OrderQuery {
     let q: CThostFtdcQryOrderField =
         struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
@@ -30,6 +37,39 @@ fn decode_trade_query(payload: &[u8]) -> TradeQuery {
         instrument_id: cstr(&q.InstrumentID),
         trade_id: cstr(&q.TradeID),
     }
+}
+
+fn decode_instrument_query(payload: &[u8]) -> InstrumentQuery {
+    let q: CThostFtdcQryInstrumentField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryInstrumentField::zeroed);
+    InstrumentQuery {
+        exchange_id: cstr(&q.ExchangeID),
+        instrument_id: cstr(&q.InstrumentID),
+        product_id: cstr(&q.ProductID),
+    }
+}
+
+fn select_instruments(
+    catalog: &Catalog,
+    query: &InstrumentQuery,
+) -> Vec<CThostFtdcInstrumentField> {
+    let mut instruments: Vec<_> = catalog
+        .iter()
+        .filter(|instrument| {
+            query.exchange_id.is_empty() || instrument.exchange_id == query.exchange_id
+        })
+        .filter(|instrument| {
+            query.instrument_id.is_empty() || instrument.instrument_id == query.instrument_id
+        })
+        .filter(|instrument| {
+            query.product_id.is_empty() || instrument.product_id == query.product_id
+        })
+        .collect();
+    instruments.sort_by(|a, b| a.instrument_id.cmp(&b.instrument_id));
+    instruments
+        .into_iter()
+        .map(|instrument| instrument.to_field())
+        .collect()
 }
 
 fn select_latest_orders(
@@ -215,23 +255,8 @@ impl World {
             return;
         }
         // lenient: a malformed payload degrades to "no filter"
-        let q: CThostFtdcQryInstrumentField =
-            struct_from_bytes(&frame.payload).unwrap_or_else(CThostFtdcQryInstrumentField::zeroed);
-        let (ex, ins, prod) = (
-            cstr(&q.ExchangeID),
-            cstr(&q.InstrumentID),
-            cstr(&q.ProductID),
-        );
-        let mut fields: Vec<_> = self
-            .engine
-            .catalog()
-            .iter()
-            .filter(|i| ex.is_empty() || i.exchange_id == ex)
-            .filter(|i| ins.is_empty() || i.instrument_id == ins)
-            .filter(|i| prod.is_empty() || i.product_id == prod)
-            .collect();
-        fields.sort_by(|a, b| a.instrument_id.cmp(&b.instrument_id));
-        let fields: Vec<_> = fields.into_iter().map(|i| i.to_field()).collect();
+        let query = decode_instrument_query(&frame.payload);
+        let fields = select_instruments(self.engine.catalog(), &query);
         for f in &fields {
             self.send_frame(
                 conn_id,
@@ -806,5 +831,32 @@ mod order_trade_query_tests {
         let rows = select_trades(&trades, "B", "I", &query);
         assert_eq!(rows.len(), 1);
         assert_eq!(cstr(&rows[0].TradeID), "T-2");
+    }
+
+    #[test]
+    fn instrument_selection_decodes_filters_and_sorts_by_instrument_id() {
+        assert_eq!(decode_instrument_query(&[]), InstrumentQuery::default());
+
+        let mut query = CThostFtdcQryInstrumentField::zeroed();
+        set_cstr(&mut query.ExchangeID, "SHFE");
+        set_cstr(&mut query.ProductID, "rb");
+        let query = decode_instrument_query(&struct_to_bytes(&query));
+        assert_eq!(query.exchange_id, "SHFE");
+        assert_eq!(query.product_id, "rb");
+
+        let mut catalog = Catalog::new();
+        let mut later = ctpbuddy_matching::Instrument::new("rb2410", "SHFE");
+        later.product_id = "rb".into();
+        let mut earlier = ctpbuddy_matching::Instrument::new("rb2409", "SHFE");
+        earlier.product_id = "rb".into();
+        let other = ctpbuddy_matching::Instrument::new("ag2410", "SHFE");
+        catalog.insert(later);
+        catalog.insert(earlier);
+        catalog.insert(other);
+
+        let rows = select_instruments(&catalog, &query);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(cstr(&rows[0].InstrumentID), "rb2409");
+        assert_eq!(cstr(&rows[1].InstrumentID), "rb2410");
     }
 }

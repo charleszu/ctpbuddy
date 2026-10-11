@@ -33,7 +33,7 @@ use ctpbuddy_matching::{
 };
 use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
-    CThostFtdcOrderField, CThostFtdcQryBrokerTradingParamsField,
+    CThostFtdcInstrumentField, CThostFtdcOrderField, CThostFtdcQryBrokerTradingParamsField,
     CThostFtdcQryInstrumentCommissionRateField, CThostFtdcQryInstrumentField,
     CThostFtdcQryInstrumentMarginRateField, CThostFtdcQryInstrumentOrderCommRateField,
     CThostFtdcQryInvestorPositionDetailField, CThostFtdcQryInvestorPositionField,
