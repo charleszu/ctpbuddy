@@ -76,6 +76,58 @@ pub(crate) fn auth_code_ok(expected: Option<&str>, presented: &str) -> bool {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClientRoute {
+    Ping,
+    Auth,
+    Login,
+    Logout,
+    SettleConfirm,
+    SettlementInfo,
+    OrderInsert,
+    OrderAction,
+    Subscribe(bool),
+    QueryInstrument,
+    QueryTradingAccount,
+    QueryInvestorPosition,
+    QueryOrder,
+    QueryTrade,
+    QueryInstrumentMarginRate,
+    QueryInstrumentCommissionRate,
+    QueryInstrumentOrderCommRate,
+    QueryBrokerTradingParams,
+    QueryInvestorProductGroupMargin,
+    QueryInvestorPositionDetail,
+    Unsupported(u16),
+}
+
+fn client_route(msg_type: u16) -> ClientRoute {
+    match msg_type {
+        msgs::PING => ClientRoute::Ping,
+        msgs::AUTH => ClientRoute::Auth,
+        msgs::REQ_USER_LOGIN => ClientRoute::Login,
+        msgs::REQ_USER_LOGOUT => ClientRoute::Logout,
+        msgs::REQ_SETTLE_CONFIRM => ClientRoute::SettleConfirm,
+        msgs::REQ_QRY_SETTLEMENT_INFO => ClientRoute::SettlementInfo,
+        msgs::REQ_ORDER_INSERT => ClientRoute::OrderInsert,
+        msgs::REQ_ORDER_ACTION => ClientRoute::OrderAction,
+        msgs::SUB_MD => ClientRoute::Subscribe(true),
+        msgs::UNSUB_MD => ClientRoute::Subscribe(false),
+        msgs::REQ_QRY_INSTRUMENT => ClientRoute::QueryInstrument,
+        msgs::REQ_QRY_TRADING_ACCOUNT => ClientRoute::QueryTradingAccount,
+        msgs::REQ_QRY_INVESTOR_POSITION => ClientRoute::QueryInvestorPosition,
+        msgs::REQ_QRY_ORDER => ClientRoute::QueryOrder,
+        msgs::REQ_QRY_TRADE => ClientRoute::QueryTrade,
+        msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE => ClientRoute::QueryInstrumentMarginRate,
+        msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE => ClientRoute::QueryInstrumentCommissionRate,
+        msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE => ClientRoute::QueryInstrumentOrderCommRate,
+        msgs::REQ_QRY_BROKER_TRADING_PARAMS => ClientRoute::QueryBrokerTradingParams,
+        msgs::REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN => ClientRoute::QueryInvestorProductGroupMargin,
+        msgs::REQ_QRY_INVESTOR_POSITION_DETAIL => ClientRoute::QueryInvestorPositionDetail,
+        other => ClientRoute::Unsupported(other),
+    }
+}
+
 impl World {
     pub(crate) fn on_frame(&mut self, conn_id: u64, frame: Frame) {
         let is_admin = match self.conns.get(&conn_id) {
@@ -86,44 +138,43 @@ impl World {
             self.on_admin(conn_id, &frame);
             return;
         }
-        match frame.msg_type {
-            msgs::PING => self.send_frame(
+        match client_route(frame.msg_type) {
+            ClientRoute::Ping => self.send_frame(
                 conn_id,
                 Frame::new(msgs::PONG, frame.req_id, frame.payload.clone()),
             ),
-            msgs::AUTH => self.on_auth(conn_id, &frame),
-            msgs::REQ_USER_LOGIN => self.on_login(conn_id, &frame),
-            msgs::REQ_USER_LOGOUT => self.on_logout(conn_id, &frame),
-            msgs::REQ_SETTLE_CONFIRM => self.on_settle_confirm(conn_id, &frame),
-            msgs::REQ_QRY_SETTLEMENT_INFO => self.on_qry_settlement_info(conn_id, &frame),
-            msgs::REQ_ORDER_INSERT => self.on_order_insert(conn_id, &frame),
-            msgs::REQ_ORDER_ACTION => self.on_order_action(conn_id, &frame),
-            msgs::SUB_MD => self.on_sub_md(conn_id, &frame, true),
-            msgs::UNSUB_MD => self.on_sub_md(conn_id, &frame, false),
-            msgs::REQ_QRY_INSTRUMENT => self.on_qry_instrument(conn_id, &frame),
-            msgs::REQ_QRY_TRADING_ACCOUNT => self.on_qry_trading_account(conn_id, &frame),
-            msgs::REQ_QRY_INVESTOR_POSITION => self.on_qry_investor_position(conn_id, &frame),
-            msgs::REQ_QRY_ORDER => self.on_qry_order(conn_id, &frame),
-            msgs::REQ_QRY_TRADE => self.on_qry_trade(conn_id, &frame),
-            msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE => {
+            ClientRoute::Auth => self.on_auth(conn_id, &frame),
+            ClientRoute::Login => self.on_login(conn_id, &frame),
+            ClientRoute::Logout => self.on_logout(conn_id, &frame),
+            ClientRoute::SettleConfirm => self.on_settle_confirm(conn_id, &frame),
+            ClientRoute::SettlementInfo => self.on_qry_settlement_info(conn_id, &frame),
+            ClientRoute::OrderInsert => self.on_order_insert(conn_id, &frame),
+            ClientRoute::OrderAction => self.on_order_action(conn_id, &frame),
+            ClientRoute::Subscribe(enabled) => self.on_sub_md(conn_id, &frame, enabled),
+            ClientRoute::QueryInstrument => self.on_qry_instrument(conn_id, &frame),
+            ClientRoute::QueryTradingAccount => self.on_qry_trading_account(conn_id, &frame),
+            ClientRoute::QueryInvestorPosition => self.on_qry_investor_position(conn_id, &frame),
+            ClientRoute::QueryOrder => self.on_qry_order(conn_id, &frame),
+            ClientRoute::QueryTrade => self.on_qry_trade(conn_id, &frame),
+            ClientRoute::QueryInstrumentMarginRate => {
                 self.on_qry_instrument_margin_rate(conn_id, &frame)
             }
-            msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE => {
+            ClientRoute::QueryInstrumentCommissionRate => {
                 self.on_qry_instrument_commission_rate(conn_id, &frame)
             }
-            msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE => {
+            ClientRoute::QueryInstrumentOrderCommRate => {
                 self.on_qry_instrument_order_comm_rate(conn_id, &frame)
             }
-            msgs::REQ_QRY_BROKER_TRADING_PARAMS => {
+            ClientRoute::QueryBrokerTradingParams => {
                 self.on_qry_broker_trading_params(conn_id, &frame)
             }
-            msgs::REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN => {
+            ClientRoute::QueryInvestorProductGroupMargin => {
                 self.on_qry_investor_product_group_margin(conn_id, &frame)
             }
-            msgs::REQ_QRY_INVESTOR_POSITION_DETAIL => {
+            ClientRoute::QueryInvestorPositionDetail => {
                 self.on_qry_investor_position_detail(conn_id, &frame)
             }
-            other => {
+            ClientRoute::Unsupported(other) => {
                 eprintln!("[ctpbuddy] conn {conn_id}: unsupported msg 0x{other:04x}");
                 self.send_error(conn_id, frame.req_id, -1, "不支持的消息类型")
             }
@@ -530,7 +581,8 @@ impl World {
 
 #[cfg(test)]
 mod auth_tests {
-    use super::auth_code_ok;
+    use super::{auth_code_ok, client_route, ClientRoute};
+    use ctpbuddy_wire::msgs;
 
     #[test]
     fn token_check() {
@@ -540,5 +592,17 @@ mod auth_tests {
         assert!(!auth_code_ok(Some("s3cret"), "s3creT"));
         assert!(!auth_code_ok(Some("s3cret"), ""));
         assert!(!auth_code_ok(Some("s3cret"), "s3cret!"));
+    }
+
+    #[test]
+    fn client_route_classifies_wire_messages_without_world_state() {
+        assert_eq!(client_route(msgs::PING), ClientRoute::Ping);
+        assert_eq!(
+            client_route(msgs::REQ_ORDER_INSERT),
+            ClientRoute::OrderInsert
+        );
+        assert_eq!(client_route(msgs::SUB_MD), ClientRoute::Subscribe(true));
+        assert_eq!(client_route(msgs::UNSUB_MD), ClientRoute::Subscribe(false));
+        assert_eq!(client_route(0xffff), ClientRoute::Unsupported(0xffff));
     }
 }
