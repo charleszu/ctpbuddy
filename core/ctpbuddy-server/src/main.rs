@@ -39,6 +39,10 @@ options:
                           provider; must load, else the
                           server exits; default = bundled
                           snapshot)
+      --calendar-version <v>
+                          fixed offline calendar version
+      --calendar-sha256 <hex>
+                          fixed offline calendar SHA256
       --scenario <dir>   scenario dir with refdata/ + ticks.csv
       --recover          restore the ledger from <data-dir>/state/ledger.json
                          (also CTPBUDDY_RECOVER=1); working orders are dropped
@@ -143,11 +147,22 @@ fn apply_env(cfg: &mut Config) {
             cfg.refdata_dir = Some(v);
         }
     }
+    let calendar_version = std::env::var("CTPBUDDY_CALENDAR_VERSION").ok();
+    let calendar_sha256 = std::env::var("CTPBUDDY_CALENDAR_SHA256").ok();
+    if calendar_version.is_some() || calendar_sha256.is_some() {
+        cfg.calendar = ctpbuddy_server::calendar_metadata(calendar_version, calendar_sha256)
+            .unwrap_or_else(|e| {
+                eprintln!("invalid calendar metadata: {e}");
+                std::process::exit(1);
+            });
+    }
 }
 
 /// Parse CLI flags on top of `base` (which already carries env/defaults).
 fn parse_cli(mut cfg: Config) -> Result<Config, String> {
     let mut args = std::env::args().skip(1);
+    let mut calendar_version = cfg.calendar.as_ref().map(|v| v.version.clone());
+    let mut calendar_sha256 = cfg.calendar.as_ref().map(|v| v.sha256.clone());
     while let Some(arg) = args.next() {
         // Every value-taking option accepts a following value.
         let mut take = |what: &str| -> Result<String, String> {
@@ -168,6 +183,8 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 cfg.settings_overrides.push("initial_funds".into());
             }
             "--scenario" => cfg.scenario_dir = Some(take("--scenario")?),
+            "--calendar-version" => calendar_version = Some(take("--calendar-version")?),
+            "--calendar-sha256" => calendar_sha256 = Some(take("--calendar-sha256")?),
             "--recover" => cfg.recover = true,
             "--refdata" => cfg.refdata_dir = Some(take("--refdata")?),
             "--qry-freq" => {
@@ -234,6 +251,7 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
             other => return Err(format!("unknown argument: {other}\n\n{USAGE}")),
         }
     }
+    cfg.calendar = ctpbuddy_server::calendar_metadata(calendar_version, calendar_sha256)?;
     Ok(cfg)
 }
 

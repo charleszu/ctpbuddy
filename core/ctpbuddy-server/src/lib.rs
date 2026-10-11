@@ -50,6 +50,36 @@ const ASSERTION_ACCOUNT_NOT_FOUND: &str = "account_not_found";
 const ASSERTION_UNKNOWN_METRIC: &str = "unknown_metric";
 const ASSERTION_NOT_FINITE: &str = "not_finite";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CalendarMetadata {
+    pub version: String,
+    pub sha256: String,
+}
+
+/// Build the explicit calendar provenance accepted by the core.
+pub fn calendar_metadata(
+    version: Option<String>,
+    sha256: Option<String>,
+) -> Result<Option<CalendarMetadata>, String> {
+    match (version, sha256) {
+        (None, None) => Ok(None),
+        (Some(version), Some(sha256))
+            if !version.trim().is_empty()
+                && sha256.len() == 64
+                && sha256.bytes().all(|b| b.is_ascii_hexdigit()) =>
+        {
+            Ok(Some(CalendarMetadata {
+                version: version.trim().to_string(),
+                sha256: sha256.to_ascii_lowercase(),
+            }))
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            Err("calendar_version 与 calendar_sha256 必须成对提供".into())
+        }
+        (Some(_), Some(_)) => Err("calendar version/sha256 无效".into()),
+    }
+}
+
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Id the next accepted connection will receive (never reused).
@@ -112,6 +142,9 @@ pub struct Config {
     /// Restore the ledger from `<data_dir>/state/ledger.json` at startup
     /// (`--recover` / `CTPBUDDY_RECOVER=1`). Working orders are not restored.
     pub recover: bool,
+    /// Explicit offline calendar provenance; the core does not infer or load
+    /// the Python calendar snapshot itself.
+    pub calendar: Option<CalendarMetadata>,
 }
 
 impl Default for Config {
@@ -132,6 +165,7 @@ impl Default for Config {
             self_trade_prevention: false,
             settings_overrides: Vec::new(),
             recover: false,
+            calendar: None,
         }
     }
 }
@@ -625,19 +659,24 @@ impl World {
         }
 
         if let Some(j) = journal.as_mut() {
+            let mut start_data = vec![
+                ("version".into(), json::s(SERVER_VERSION)),
+                (
+                    "scenario".into(),
+                    json::s(cfg.scenario_dir.as_deref().unwrap_or("")),
+                ),
+            ];
+            if let Some(calendar) = &cfg.calendar {
+                start_data.push(("calendar_version".into(), json::s(&calendar.version)));
+                start_data.push(("calendar_sha256".into(), json::s(&calendar.sha256)));
+            }
             j.record(
                 &vt_day,
                 vt_ms,
                 "server_start",
                 &cfg.broker_id,
                 "",
-                json::obj_sorted(vec![
-                    ("version".into(), json::s(SERVER_VERSION)),
-                    (
-                        "scenario".into(),
-                        json::s(cfg.scenario_dir.as_deref().unwrap_or("")),
-                    ),
-                ]),
+                json::obj_sorted(start_data),
             );
             j.flush()?;
         }
@@ -1558,5 +1597,26 @@ mod tests {
         assert!(err.starts_with("--refdata "), "{err}");
         // no explicit dir and no scenario dir -> bundled snapshot, never an error
         assert!(load_refdata(None, None).is_ok());
+    }
+
+    #[test]
+    fn calendar_metadata_requires_explicit_matching_provenance() {
+        let hash = "A".repeat(64);
+        assert_eq!(
+            calendar_metadata(Some(" fixture-r1 ".into()), Some(hash)).unwrap(),
+            Some(CalendarMetadata {
+                version: "fixture-r1".into(),
+                sha256: "a".repeat(64),
+            })
+        );
+        for (version, sha256) in [
+            (Some("fixture".into()), None),
+            (None, Some("a".repeat(64))),
+            (Some("fixture".into()), Some("bad".into())),
+            (Some("".into()), Some("a".repeat(64))),
+        ] {
+            assert!(calendar_metadata(version, sha256).is_err());
+        }
+        assert!(calendar_metadata(None, None).unwrap().is_none());
     }
 }

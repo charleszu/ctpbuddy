@@ -130,7 +130,7 @@ impl World {
                 ])
             })
             .collect();
-        let v = json::obj_sorted(vec![
+        let mut fields = vec![
             ("ok".into(), json::b(true)),
             ("cmd".into(), json::s("status")),
             (
@@ -163,7 +163,12 @@ impl World {
             ),
             ("accounts".into(), Value::Arr(accounts)),
             ("assertions".into(), self.assertions_status()),
-        ]);
+        ];
+        if let Some(calendar) = &self.cfg.calendar {
+            fields.push(("calendar_version".into(), json::s(&calendar.version)));
+            fields.push(("calendar_sha256".into(), json::s(&calendar.sha256)));
+        }
+        let v = json::obj_sorted(fields);
         self.admin_reply(conn_id, req_id, v);
     }
 

@@ -117,6 +117,20 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print("error: ctpbuddy-server binary not found; set CTPBUDDY_CORE or add it to PATH", file=sys.stderr)
         return 1
     cmd: List[str] = [core, "--td", args.td, "--admin", args.admin, "--broker-id", args.broker_id]
+    calendar = None
+    calendar_path = getattr(args, "calendar", None)
+    calendar_sha256 = getattr(args, "calendar_sha256", None)
+    if calendar_path:
+        from .calendar import CalendarError, TradingCalendar
+        try:
+            calendar = TradingCalendar.from_file(calendar_path, expected_sha256=calendar_sha256)
+        except (CalendarError, OSError) as exc:
+            print("error: 日历加载失败: %s" % exc, file=sys.stderr)
+            return 1
+        cmd += ["--calendar-version", calendar.metadata["version"], "--calendar-sha256", calendar.sha256]
+    elif calendar_sha256:
+        print("error: --calendar-sha256 必须与 --calendar 一起使用", file=sys.stderr)
+        return 1
     if args.scenario:
         # YAML is authored, JSON is consumed: compile scenario.yaml so the
         # core's startup path sees the spec (the core never parses YAML).
@@ -522,6 +536,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--speed", type=float, default=None, help="playback speed multiplier (0 = as fast as possible)")
     sp.add_argument("--initial-funds", type=float, default=None, help="new-account initial funds")
     sp.add_argument("--data-dir", default=None, help="journal / runtime data dir")
+    sp.add_argument("--calendar", default=None, help="离线交易日历快照；其版本/SHA256 会显式传给核心")
+    sp.add_argument("--calendar-sha256", default=None, help="固定校验 --calendar 的 SHA256")
     sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("web", help="start the local settings Web backend")
