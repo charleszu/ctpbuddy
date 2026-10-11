@@ -65,6 +65,9 @@ pub const MPT_OPEN_PRICE: u8 = b'4';
 
 /// `THOST_FTDC_HF_Speculation` — the default hedge flag for rate lookups.
 pub const HEDGE_FLAG_SPECULATION: u8 = b'1';
+pub const REFDATA_CONTRACT: &str = "ctpbuddy.refdata";
+pub const REFDATA_CONTRACT_VERSION: i32 = 1;
+pub const REFDATA_FORMAT_VERSION: i32 = 1;
 
 /// The reason a margin number is what it is. Kept as an explicit input rather
 /// than than a `f64` so the price-type rule (notes/04 C2) is a type-level
@@ -712,6 +715,17 @@ impl RefData {
     /// instrument table is an error, since nothing can trade without it.
     pub fn load_jsonl_dir(dir: &str) -> Result<Self, String> {
         let mut rd = RefData::new();
+        let manifest = read_jsonl(&format!("{dir}/manifest.jsonl"))?;
+        if manifest.len() != 1 {
+            return Err(format!("{dir}/manifest.jsonl 缺失或必须只有一行"));
+        }
+        let manifest = &manifest[0];
+        if manifest.str("contract").as_deref() != Some(REFDATA_CONTRACT)
+            || manifest.int("contract_version") != Some(REFDATA_CONTRACT_VERSION)
+            || manifest.int("format_version") != Some(REFDATA_FORMAT_VERSION)
+        {
+            return Err(format!("{dir}/manifest.jsonl contract/version 不匹配"));
+        }
         let instruments = read_jsonl(&format!("{dir}/instruments.jsonl"))?;
         validate_numeric_fields(
             &instruments,

@@ -61,6 +61,10 @@ MARGIN_RATES = "margin_rates.jsonl"
 COMMISSION_RATES = "commission_rates.jsonl"
 ORDER_COMM_RATES = "order_comm_rates.jsonl"
 TRADING_PARAMS = "trading_params.jsonl"
+MANIFEST = "manifest.jsonl"
+CONTRACT = "ctpbuddy.refdata"
+CONTRACT_VERSION = 1
+FORMAT_VERSION = 1
 
 ALL_TABLES = (
     INSTRUMENTS,
@@ -297,6 +301,13 @@ class JsonlDirProvider(RefDataProvider):
         rows = self._read(TRADING_PARAMS)
         return rows[0] if rows else None
 
+    def manifest(self):
+        try:
+            rows = self._read(MANIFEST)
+        except ValueError:
+            return {}
+        return rows[0] if len(rows) == 1 else None
+
 
 class CsvDirProvider(RefDataProvider):
     """A directory of CSVs, one per table, header = snake_case field names.
@@ -457,6 +468,18 @@ def _trading_params(provider: Any) -> Optional[Dict[str, Any]]:
 def validate(provider: RefDataProvider) -> List[str]:
     """Return a list of problems; empty means the core can load this."""
     problems: List[str] = []
+    manifest = getattr(provider, "manifest", None)
+    if manifest is not None:
+        value = manifest()
+        if not isinstance(value, dict):
+            problems.append("manifest.jsonl 缺失或必须只有一行")
+        else:
+            if value.get("contract") != CONTRACT:
+                problems.append("manifest.jsonl contract 不匹配")
+            if value.get("contract_version") != CONTRACT_VERSION:
+                problems.append("manifest.jsonl contract_version 不匹配")
+            if value.get("format_version") != FORMAT_VERSION:
+                problems.append("manifest.jsonl format_version 不匹配")
     instruments = _table(provider, "instruments")
     if not instruments:
         problems.append("instruments 表为空（这是唯一的必填表）")
@@ -505,6 +528,11 @@ def write_jsonl(provider: RefDataProvider, out_dir: str) -> List[str]:
     dump(ORDER_COMM_RATES, _table(provider, "order_comm_rates"))
     tp = _trading_params(provider)
     dump(TRADING_PARAMS, [tp] if tp else [])
+    dump(MANIFEST, [{
+        "contract": CONTRACT,
+        "contract_version": CONTRACT_VERSION,
+        "format_version": FORMAT_VERSION,
+    }])
     return written
 
 

@@ -1288,6 +1288,26 @@ def test_refdata_numeric() -> None:
     print("[ok] refdata: non-numeric values are rejected with table/line/field, never written as 0")
 
 
+def test_refdata_manifest() -> None:
+    from ctpbuddy import refdata
+
+    provider = refdata.DictProvider(instruments=[{"instrument_id": "rb2601", "exchange_id": "SHFE"}])
+    with tempfile.TemporaryDirectory() as d:
+        written = refdata.write_jsonl(provider, d)
+        assert os.path.join(d, refdata.MANIFEST) in written
+        manifest = refdata.jsonl_dir(d).manifest()
+        assert manifest == {
+            "contract": refdata.CONTRACT,
+            "contract_version": refdata.CONTRACT_VERSION,
+            "format_version": refdata.FORMAT_VERSION,
+        }
+        assert refdata.validate(refdata.jsonl_dir(d)) == []
+        with open(os.path.join(d, refdata.MANIFEST), "w", encoding="utf-8") as fh:
+            fh.write('{"contract":"wrong","contract_version":1,"format_version":1}\n')
+        assert any("contract 不匹配" in problem for problem in refdata.validate(refdata.jsonl_dir(d)))
+    print("[ok] refdata: canonical manifest is emitted and validated")
+
+
 def test_replay_admin_inputs() -> None:
     """Admin inputs: re-issued where an admin command exists, otherwise
     classified `not_replayed` (counted, listed, not a problem) and excluded
@@ -1494,6 +1514,7 @@ def main() -> int:
     test_sdk_lifecycle()
     test_sdk_subscribe()
     test_refdata_numeric()
+    test_refdata_manifest()
     test_replay_admin_inputs()
     test_journal_contract()
     test_shim_install_security()

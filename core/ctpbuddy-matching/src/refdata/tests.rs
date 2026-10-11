@@ -154,6 +154,11 @@ fn numeric_refdata_fields_fail_closed() {
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
+        dir.join("manifest.jsonl"),
+        "{\"contract\":\"ctpbuddy.refdata\",\"contract_version\":1,\"format_version\":1}\n",
+    )
+    .unwrap();
+    std::fs::write(
         dir.join("instruments.jsonl"),
         "{\"instrument_id\":\"rb2601\",\"price_tick\":\"nan\"}\n",
     )
@@ -167,6 +172,11 @@ fn numeric_refdata_fields_fail_closed() {
 fn load_one_row(tag: &str, row: &str) -> RefData {
     let dir = std::env::temp_dir().join(format!("ctpbuddy-refdata-{tag}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("manifest.jsonl"),
+        "{\"contract\":\"ctpbuddy.refdata\",\"contract_version\":1,\"format_version\":1}\n",
+    )
+    .unwrap();
     std::fs::write(dir.join("instruments.jsonl"), format!("{row}\n")).unwrap();
     let rd = RefData::load_jsonl_dir(dir.to_str().unwrap()).expect("load");
     let _ = std::fs::remove_dir_all(&dir);
@@ -231,6 +241,11 @@ fn rate_query_fields_and_duplicate_rows_are_preserved_or_rejected() {
         1
     ));
     std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("manifest.jsonl"),
+        "{\"contract\":\"ctpbuddy.refdata\",\"contract_version\":1,\"format_version\":1}\n",
+    )
+    .unwrap();
     std::fs::write(
         dir.join("instruments.jsonl"),
         "{\"instrument_id\":\"rb2601\",\"exchange_id\":\"SHFE\"}\n{\"instrument_id\":\"rb2601\",\"exchange_id\":\"SHFE\"}\n",
