@@ -649,10 +649,20 @@ impl World {
             load_refdata(cfg.refdata_dir.as_deref(), cfg.scenario_dir.as_deref())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let mut playback = None;
-        let mut vt_day = if let Some(calendar) = cfg.calendar_snapshot.as_ref() {
-            calendar
-                .trading_day_for_date(&dtime::today_natural_date())
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+        // A scenario owns the virtual trading day.  Do not consult the
+        // wall-clock calendar before loading it: a perfectly valid historical
+        // scenario may be paired with a snapshot that only covers the
+        // scenario's dates, rather than today's date.  Calendar derivation is
+        // therefore reserved for scenario-less startup, where there is no
+        // tick-authored TradingDay to take precedence.
+        let mut vt_day = if cfg.scenario_dir.is_none() {
+            if let Some(calendar) = cfg.calendar_snapshot.as_ref() {
+                calendar
+                    .trading_day_for_date(&dtime::today_natural_date())
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+            } else {
+                dtime::today_trading_day()
+            }
         } else {
             dtime::today_trading_day()
         };
@@ -2012,6 +2022,37 @@ mod tests {
         assert!(err.starts_with("--refdata "), "{err}");
         // no explicit dir and no scenario dir -> bundled snapshot, never an error
         assert!(load_refdata(None, None).is_ok());
+    }
+
+    #[test]
+    fn scenario_calendar_snapshot_need_not_cover_wall_clock_date() {
+        let dir = std::env::temp_dir().join(format!(
+            "ctpbuddy-calendar-scenario-{}-{}",
+            std::process::id(),
+            NEXT_CONN_ID.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scenarios/dsl_demo/ticks.csv");
+        std::fs::copy(source, dir.join("ticks.csv")).unwrap();
+        let calendar = calendar::CalendarSnapshot::from_value(&serde_json::json!({
+            "schema": "ctpbuddy.trading-calendar/v1",
+            "version": "historical-fixture",
+            "days": [{
+                "date": "2099-01-01",
+                "is_trading_day": true,
+                "trading_day": "20990101"
+            }]
+        }))
+        .unwrap();
+
+        let mut cfg = Config::default();
+        cfg.scenario_dir = Some(dir.to_string_lossy().into_owned());
+        cfg.calendar_snapshot = Some(calendar);
+        let world = World::new(cfg).expect("scenario startup should use tick TradingDay");
+        assert_eq!(world.vt_trading_day, "20261002");
+        drop(world);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
