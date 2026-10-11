@@ -18,6 +18,12 @@ struct OrderInsertCommand {
     volume_condition: u8,
 }
 
+#[derive(Debug)]
+struct CancelCommand {
+    action: CThostFtdcInputOrderActionField,
+    query: CancelQuery,
+}
+
 impl World {
     /// Rejection surface split for an engine (exchange-side) insert rejection
     /// (notes/01 §B, 知识库 §5.1; #42 / DESIGN §8.12). Real CTP answers
@@ -352,18 +358,11 @@ impl World {
             Some(v) => v,
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let action: CThostFtdcInputOrderActionField = match struct_from_bytes(&frame.payload) {
-            Some(f) => f,
-            None => return self.send_error(conn_id, frame.req_id, -2, "撤单字段长度错误"),
+        let command = match decode_order_action(&frame.payload, investor.clone()) {
+            Ok(command) => command,
+            Err((code, msg)) => return self.send_error(conn_id, frame.req_id, code, &msg),
         };
-        let q = CancelQuery {
-            front_id: action.FrontID,
-            session_id: action.SessionID,
-            order_ref: cstr(&action.OrderRef),
-            order_sys_id: cstr(&action.OrderSysID),
-            investor_id: investor.clone(),
-            instrument_id: cstr(&action.InstrumentID),
-        };
+        let CancelCommand { action, query: q } = command;
 
         // 报单流控 (§8.3): 撤单是与报单**分开计算**的独立预算流（notes/14
         // §A.3-02），混做报撤的策略不会被对方的流量挤占。撤单侧超限的显式
@@ -391,11 +390,7 @@ impl World {
 
         // SDK ReqOrderAction：两条定位路线均必填合约；sysid 路线还必填交易所。
         // 错误码使用 error.xml 的 BAD_ORDER_ACTION_FIELD，而非报单字段错误 15。
-        if q.instrument_id.is_empty()
-            || (!q.order_sys_id.is_empty() && cstr(&action.ExchangeID).is_empty())
-        {
-            let code = 23; // BAD_ORDER_ACTION_FIELD
-            let msg = "CTP:错误的报单操作字段";
+        if let Err((code, msg)) = validate_order_action(&q, &action) {
             self.journal_cancel_rejected(&broker, &investor, &q, code, msg);
             self.send_error(conn_id, frame.req_id, code, msg);
             return self.send_err_rtn_action(conn_id, frame.req_id, code, msg, &frame.payload);
@@ -484,6 +479,35 @@ impl World {
             ]),
         );
     }
+}
+
+fn decode_order_action(
+    payload: &[u8],
+    investor_id: String,
+) -> Result<CancelCommand, (i32, String)> {
+    let action: CThostFtdcInputOrderActionField =
+        struct_from_bytes(payload).ok_or((-2, "撤单字段长度错误".to_string()))?;
+    let query = CancelQuery {
+        front_id: action.FrontID,
+        session_id: action.SessionID,
+        order_ref: cstr(&action.OrderRef),
+        order_sys_id: cstr(&action.OrderSysID),
+        investor_id,
+        instrument_id: cstr(&action.InstrumentID),
+    };
+    Ok(CancelCommand { action, query })
+}
+
+fn validate_order_action(
+    query: &CancelQuery,
+    action: &CThostFtdcInputOrderActionField,
+) -> Result<(), (i32, &'static str)> {
+    if query.instrument_id.is_empty()
+        || (!query.order_sys_id.is_empty() && cstr(&action.ExchangeID).is_empty())
+    {
+        return Err((23, "CTP:错误的报单操作字段"));
+    }
+    Ok(())
 }
 
 fn decode_order_insert(
@@ -721,5 +745,30 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.0, -2);
         assert_eq!(error.1, "报单字段长度错误");
+    }
+
+    #[test]
+    fn decode_order_action_keeps_wire_validation_separate_from_world_effects() {
+        let mut action = CThostFtdcInputOrderActionField::zeroed();
+        action.FrontID = 4;
+        action.SessionID = 5;
+        set_cstr(&mut action.OrderRef, "7");
+        set_cstr(&mut action.InstrumentID, "rb2601");
+        let command = decode_order_action(&struct_to_bytes(&action), "u1".into()).unwrap();
+
+        assert_eq!(command.query.front_id, 4);
+        assert_eq!(command.query.session_id, 5);
+        assert_eq!(command.query.order_ref, "7");
+        assert!(validate_order_action(&command.query, &command.action).is_ok());
+    }
+
+    #[test]
+    fn validate_order_action_rejects_missing_instrument() {
+        let action = CThostFtdcInputOrderActionField::zeroed();
+        let command = decode_order_action(&struct_to_bytes(&action), "u1".into()).unwrap();
+        assert_eq!(
+            validate_order_action(&command.query, &command.action),
+            Err((23, "CTP:错误的报单操作字段"))
+        );
     }
 }
