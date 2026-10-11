@@ -120,6 +120,17 @@ def test_scenario() -> None:
         row["action_day"] = "20261001"
         write_canonical(d, [row])
         assert list(iter_ticks(d))[0]["action_day"] == "20261001"
+        row["trading_day"] = "20260230"
+        write_canonical(d, [row])
+        problems = validate_scenario(d)
+        assert any("trading_day" in problem for problem in problems), problems
+        row["trading_day"] = "20261002"
+        row["action_day"] = "20261301"
+        write_canonical(d, [row])
+        problems = validate_scenario(d)
+        assert any("action_day" in problem for problem in problems), problems
+        row["action_day"] = "20261001"
+        write_canonical(d, [row])
         # broken scenarios are rejected
         with open(os.path.join(d, "ticks.csv"), "a", encoding="utf-8") as fh:
             fh.write("rb2601,SHFE,20261002,09:30:01,0\n")

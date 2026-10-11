@@ -11,6 +11,7 @@ md forwarder, parquet, database replay...) implement the same
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import os
 from typing import Any, Dict, Iterator, List
 
@@ -26,6 +27,16 @@ CANONICAL_COLUMNS = [
 # `action_day` was added after the original 40-column format.  Keep loading
 # legacy files while making newly-authored files carry the explicit field.
 REQUIRED_COLUMNS = len(CANONICAL_COLUMNS) - 1
+
+
+def _valid_compact_date(value: str) -> bool:
+    if len(value) != 8 or not value.isdigit():
+        return False
+    try:
+        dt.date.fromisoformat("%s-%s-%s" % (value[:4], value[4:6], value[6:]))
+    except ValueError:
+        return False
+    return True
 
 INSTRUMENT_COLUMNS = [
     "instrument", "exchange", "product", "volume_multiple", "price_tick",
@@ -67,6 +78,12 @@ def validate_scenario(scenario_dir: str) -> List[str]:
                 problems.append("ticks.csv line %d: non-numeric last_price/volume" % lineno)
                 if len(problems) > 5:
                     break
+            if not _valid_compact_date(row[2].strip()):
+                problems.append("ticks.csv line %d: trading_day is not a valid YYYYMMDD" % lineno)
+            if len(row) > REQUIRED_COLUMNS and row[REQUIRED_COLUMNS].strip() and not _valid_compact_date(row[REQUIRED_COLUMNS].strip()):
+                problems.append("ticks.csv line %d: action_day is not a valid YYYYMMDD" % lineno)
+            if len(problems) > 5:
+                break
     instruments = files["instruments"]
     if os.path.exists(instruments):
         with open(instruments, "r", encoding="utf-8", newline="") as f:

@@ -268,6 +268,18 @@ impl CsvSource {
                 .get(CSV_COLUMNS.len())
                 .map(|s| s.trim().to_string())
                 .unwrap_or_default();
+            if !valid_compact_date(&t.trading_day) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("csv line {}: trading_day is not a valid YYYYMMDD", i + 1),
+                ));
+            }
+            if !t.action_day.is_empty() && !valid_compact_date(&t.action_day) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("csv line {}: action_day is not a valid YYYYMMDD", i + 1),
+                ));
+            }
             t.update_time = c[3].trim().into();
             t.update_millisec = int(4)?;
             t.last_price = num(5)?;
@@ -302,6 +314,26 @@ impl CsvSource {
         }
         Ok(out)
     }
+}
+
+fn valid_compact_date(value: &str) -> bool {
+    if value.len() != 8 || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let year = value[0..4].parse::<i32>().unwrap_or(0);
+    let month = value[4..6].parse::<u32>().unwrap_or(0);
+    let day = value[6..8].parse::<u32>().unwrap_or(0);
+    if year < 1 || !(1..=12).contains(&month) || day == 0 {
+        return false;
+    }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        2 if leap => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    day <= max_day
 }
 
 fn parse_time_ms(s: &str) -> f64 {
@@ -637,6 +669,10 @@ mod tests {
         assert_eq!(ticks.len(), 1);
         assert_eq!(ticks[0].trading_day, "20261009");
         assert_eq!(ticks[0].action_day, "20261008");
+        row[CSV_COLUMNS.len()] = "20261301".into();
+        std::fs::write(&path, row.join(",") + "\n").unwrap();
+        let error = CsvSource::load(path.to_str().unwrap()).unwrap_err();
+        assert!(error.to_string().contains("action_day"), "{error}");
         let _ = std::fs::remove_file(path);
     }
 }
