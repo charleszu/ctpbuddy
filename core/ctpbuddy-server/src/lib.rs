@@ -1210,6 +1210,7 @@ impl World {
                 "fill" => self.replay_fill_event(&event)?,
                 "order_update" => self.replay_order_update_event(&event)?,
                 "settlement" => self.replay_settlement_event(&event)?,
+                "settings_updated" => self.replay_settings_event(&event)?,
                 "reset_account" => {
                     let broker = event.get_str("broker").unwrap_or_default();
                     let all = event
@@ -1235,7 +1236,7 @@ impl World {
                 "server_start" | "server_stop" | "scenario_loaded" | "session_auth"
                 | "session_login" | "session_logout" | "md_watermark" | "assertion"
                 | "order_insert" | "order_cancel" | "settlement_report" | "ledger_recovered" => {}
-                "settings_updated" | "deposit" | "withdraw" | "settle" | "admin" => {
+                "deposit" | "withdraw" | "settle" | "admin" => {
                     return Err(format!(
                         "journal tail event '{event_type}' cannot be reconstructed from the snapshot"
                     ));
@@ -1282,6 +1283,19 @@ impl World {
         self.settlement_confirmed.clear();
         self.vt_trading_day = next_day;
         self.vt_now_ms = 0.0;
+        Ok(())
+    }
+
+    fn replay_settings_event(&mut self, event: &Value) -> Result<(), String> {
+        let after = event
+            .get("data")
+            .and_then(|data| data.get("after"))
+            .ok_or_else(|| "settings_updated recovery event missing after".to_string())?;
+        let next = settings::patch(&self.cfg, after)?;
+        self.ledger.set_initial_funds(next.initial_funds);
+        self.engine
+            .set_self_trade_prevention(next.self_trade_prevention);
+        self.cfg = next;
         Ok(())
     }
 
@@ -2042,6 +2056,22 @@ mod tests {
         world.replay_settlement_event(&event).unwrap();
         assert_eq!(world.vt_trading_day, "20261004");
         assert_eq!(world.vt_now_ms, 0.0);
+    }
+
+    #[test]
+    fn recovery_replays_settings_without_persisting_again() {
+        let mut world = World::new(Config::default()).expect("world");
+        let event = json::parse(
+            r#"{"type":"settings_updated","data":{"after":{"qry_freq":7,"order_freq":31,"max_user_sessions":4,"settlement_required":false,"self_trade_prevention":true,"initial_funds":12345.0}}}"#,
+        )
+        .unwrap();
+        world.replay_settings_event(&event).unwrap();
+        assert_eq!(world.cfg.qry_freq, 7);
+        assert_eq!(world.cfg.order_freq, 31);
+        assert_eq!(world.cfg.max_user_sessions, 4);
+        assert!(!world.cfg.settlement_required);
+        assert!(world.cfg.self_trade_prevention);
+        assert_eq!(world.cfg.initial_funds, 12345.0);
     }
 
     #[test]
