@@ -37,15 +37,31 @@ pub fn write_with_flow(
     snapshot: &Value,
     private_flow: &Value,
 ) -> std::io::Result<()> {
+    write_with_flow_meta(data_dir, trading_day, snapshot, private_flow, None)
+}
+
+/// Atomically replace the recovery snapshot and record the journal prefix it
+/// covers. The sequence is metadata only for now; full journal replay remains
+/// a separate recovery phase.
+pub fn write_with_flow_meta(
+    data_dir: &str,
+    trading_day: &str,
+    snapshot: &Value,
+    private_flow: &Value,
+    journal_seq: Option<u64>,
+) -> std::io::Result<()> {
     let path = state_path(data_dir);
     let dir = path.parent().expect("state path has a parent");
     fs::create_dir_all(dir)?;
-    let doc = json!({
+    let mut doc = json!({
         "file_version": FILE_VERSION,
         "trading_day": trading_day,
         "ledger": snapshot,
         "private_flow": private_flow,
     });
+    if let Some(seq) = journal_seq {
+        doc["journal_seq"] = json!(seq);
+    }
     let tmp = dir.join("ledger.json.tmp");
     {
         let mut f = File::create(&tmp)?;
@@ -68,6 +84,12 @@ pub fn read(data_dir: &str) -> Result<Option<(String, Ledger)>, String> {
 /// Read a snapshot and its optional private-flow recovery data. Older files
 /// are accepted with an empty flow payload.
 pub fn read_with_flow(data_dir: &str) -> Result<Option<(String, Ledger, Value)>, String> {
+    Ok(read_with_flow_meta(data_dir)?.map(|(day, ledger, flow, _)| (day, ledger, flow)))
+}
+
+pub fn read_with_flow_meta(
+    data_dir: &str,
+) -> Result<Option<(String, Ledger, Value, Option<u64>)>, String> {
     let path = state_path(data_dir);
     let text = match fs::read_to_string(&path) {
         Ok(t) => t,
@@ -91,6 +113,7 @@ pub fn read_with_flow(data_dir: &str) -> Result<Option<(String, Ledger, Value)>,
         day,
         ledger,
         doc.get("private_flow").cloned().unwrap_or(Value::Null),
+        doc.get("journal_seq").and_then(Value::as_u64),
     )))
 }
 
@@ -117,6 +140,9 @@ mod tests {
         // overwrite is atomic: no temp file left behind
         write(&dir, "20261006", &l.to_snapshot()).unwrap();
         assert!(!state_path(&dir).with_file_name("ledger.json.tmp").exists());
+        write_with_flow_meta(&dir, "20261007", &l.to_snapshot(), &Value::Null, Some(42)).unwrap();
+        let (_, _, _, seq) = read_with_flow_meta(&dir).unwrap().unwrap();
+        assert_eq!(seq, Some(42));
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -162,6 +162,12 @@ impl World {
                 json::n(self.journal.as_ref().map(|j| j.seq()).unwrap_or(0) as f64),
             ),
             (
+                "snapshot_journal_seq".into(),
+                self.snapshot_journal_seq
+                    .map(|seq| json::n(seq as f64))
+                    .unwrap_or(Value::Null),
+            ),
+            (
                 "contract_version".into(),
                 json::s(&journal_contract::contract_version().to_string()),
             ),

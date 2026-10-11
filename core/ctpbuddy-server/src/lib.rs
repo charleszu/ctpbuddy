@@ -619,6 +619,8 @@ pub struct World {
     /// Last ledger snapshot written to `<data_dir>/state/` and when.
     last_snapshot: Option<SerdeValue>,
     last_private_flow_snapshot: Option<SerdeValue>,
+    /// Journal sequence covered by the last durable recovery snapshot.
+    snapshot_journal_seq: Option<u64>,
     last_snapshot_at: Instant,
     shutdown: bool,
 }
@@ -742,13 +744,14 @@ impl World {
                 }),
             last_snapshot: None,
             last_private_flow_snapshot: None,
+            snapshot_journal_seq: None,
             last_snapshot_at: Instant::now(),
             shutdown: false,
             cfg,
         };
         if world.cfg.recover && !world.cfg.data_dir.is_empty() {
-            match state::read_with_flow(&world.cfg.data_dir) {
-                Ok(Some((day, ledger, private_flow))) => {
+            match state::read_with_flow_meta(&world.cfg.data_dir) {
+                Ok(Some((day, ledger, private_flow, journal_seq))) => {
                     println!(
                         "[ctpbuddy] recovered ledger: {} account(s), trading day {day}",
                         ledger.accounts().count()
@@ -762,6 +765,7 @@ impl World {
                         );
                     }
                     world.ledger = ledger;
+                    world.snapshot_journal_seq = journal_seq;
                     if world.vt_trading_day == day && !private_flow.is_null() {
                         if let Err(e) = world.restore_private_flow(&private_flow) {
                             eprintln!("[ctpbuddy] private-flow recovery skipped: {e}");
@@ -779,6 +783,12 @@ impl World {
                             (
                                 "reason".into(),
                                 json::s("服务重启，journal 中此前无终态的在途挂单作废，冻结已清零"),
+                            ),
+                            (
+                                "snapshot_journal_seq".into(),
+                                journal_seq
+                                    .map(|seq| json::n(seq as f64))
+                                    .unwrap_or(Value::Null),
                             ),
                         ]),
                     );
@@ -1182,8 +1192,10 @@ impl World {
         }
         let snap = self.ledger.to_snapshot();
         let flow = self.private_flow_snapshot();
+        let journal_seq = self.journal.as_ref().map(|j| j.seq());
         if self.last_snapshot.as_ref() == Some(&snap)
             && self.last_private_flow_snapshot.as_ref() == Some(&flow)
+            && self.snapshot_journal_seq == journal_seq
         {
             return;
         }
@@ -1196,10 +1208,17 @@ impl World {
                 return;
             }
         }
-        match state::write_with_flow(&self.cfg.data_dir, &self.vt_trading_day, &snap, &flow) {
+        match state::write_with_flow_meta(
+            &self.cfg.data_dir,
+            &self.vt_trading_day,
+            &snap,
+            &flow,
+            journal_seq,
+        ) {
             Ok(()) => {
                 self.last_snapshot = Some(snap);
                 self.last_private_flow_snapshot = Some(flow);
+                self.snapshot_journal_seq = journal_seq;
             }
             Err(e) => eprintln!("[ctpbuddy] ledger snapshot failed: {e}"),
         }
