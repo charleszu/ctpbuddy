@@ -69,7 +69,7 @@ pub fn calendar_metadata(
                 && sha256.bytes().all(|b| b.is_ascii_hexdigit()) =>
         {
             Ok(Some(CalendarMetadata {
-                version,
+                version: version.trim().to_string(),
                 sha256: sha256.to_ascii_lowercase(),
             }))
         }
@@ -1608,7 +1608,7 @@ mod tests {
         assert_eq!(
             calendar_metadata(Some(" fixture-r1 ".into()), Some(hash)).unwrap(),
             Some(CalendarMetadata {
-                version: " fixture-r1 ".into(),
+                version: "fixture-r1".into(),
                 sha256: "a".repeat(64),
             })
         );

@@ -83,7 +83,10 @@ class TradingCalendar:
         if snapshot.get("schema") != self.SCHEMA:
             raise CalendarError("不支持的交易日历 schema")
         version = snapshot.get("version")
-        if not isinstance(version, str) or not version.strip() or version.lower() in {"latest", "head", "main", "master"}:
+        if not isinstance(version, str):
+            raise CalendarError("必须提供固定的非空 version，而非浮动分支")
+        version = version.strip()
+        if not version or version.lower() in {"latest", "head", "main", "master"}:
             raise CalendarError("必须提供固定的非空 version，而非浮动分支")
         source = snapshot.get("source")
         _keys(source, {"kind", "name", "revision", "license", "scope", "url"}, "source")

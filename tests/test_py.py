@@ -384,6 +384,14 @@ def test_calendar() -> None:
     assert cal.is_trading_day("2026-10-02")
     assert not cal.is_trading_day("20261003")
     assert cal.next_trading_day("20261002") == "20261005"
+    padded = TradingCalendar.from_json(dict(snapshot, version=" fixture-2026-10-r1 "))
+    assert padded.metadata["version"] == "fixture-2026-10-r1"
+    for floating in (" latest ", "head", " main ", "master"):
+        try:
+            TradingCalendar.from_json(dict(snapshot, version=floating))
+            raise AssertionError("floating calendar version must fail")
+        except CalendarError:
+            pass
     assert cal.night_session("2026-10-02", "SHFE") == ("20261002", "20261005")
     assert cal.metadata["sha256"] == cal.sha256
     override = dict(snapshot, version="user-r2", days=[{"date": "2026-10-03", "is_trading_day": True, "trading_day": "20261003"}])
