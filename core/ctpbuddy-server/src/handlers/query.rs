@@ -27,6 +27,11 @@ struct TradingAccountQuery {
     investor_id: String,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InvestorPositionQuery {
+    instrument_id: String,
+}
+
 fn decode_order_query(payload: &[u8]) -> OrderQuery {
     let q: CThostFtdcQryOrderField =
         struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
@@ -71,6 +76,48 @@ fn trading_account_query_matches(
 ) -> bool {
     (query.broker_id.is_empty() || query.broker_id == broker)
         && (query.investor_id.is_empty() || query.investor_id == investor)
+}
+
+fn decode_investor_position_query(payload: &[u8]) -> InvestorPositionQuery {
+    let q: CThostFtdcQryInvestorPositionField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryInvestorPositionField::zeroed);
+    InvestorPositionQuery {
+        instrument_id: cstr(&q.InstrumentID),
+    }
+}
+
+fn project_investor_positions(
+    positions: Vec<&Position>,
+    broker: &str,
+    investor: &str,
+    day: &str,
+    catalog: &Catalog,
+    query: &InvestorPositionQuery,
+) -> Vec<CThostFtdcInvestorPositionField> {
+    let mut held: Vec<_> = positions
+        .into_iter()
+        .filter(|position| {
+            query.instrument_id.is_empty() || position.instrument_id == query.instrument_id
+        })
+        .collect();
+    // HashMap order varies per process; clients diff these streams.
+    held.sort_by(|a, b| {
+        a.instrument_id
+            .cmp(&b.instrument_id)
+            .then(a.side.cmp(&b.side))
+    });
+    held.into_iter()
+        .flat_map(|position| {
+            let instrument = catalog.get(&position.instrument_id);
+            let exchange_id = instrument
+                .map(|instrument| instrument.exchange_id.as_str())
+                .unwrap_or_default();
+            let multiple = instrument
+                .map(|instrument| instrument.volume_multiple)
+                .unwrap_or(1);
+            position.to_query_fields(broker, investor, exchange_id, day, multiple)
+        })
+        .collect()
 }
 
 fn select_instruments(
@@ -336,40 +383,16 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryInvestorPositionField = struct_from_bytes(&frame.payload)
-            .unwrap_or_else(CThostFtdcQryInvestorPositionField::zeroed);
-        let filter = cstr(&q.InstrumentID);
+        let query = decode_investor_position_query(&frame.payload);
         let day = self.vt_day();
-        let mut held: Vec<_> = self
-            .ledger
-            .positions_of(&broker, &investor)
-            .into_iter()
-            .filter(|p| filter.is_empty() || p.instrument_id == filter)
-            .collect();
-        // HashMap order varies per process; clients diff these streams
-        held.sort_by(|a, b| {
-            a.instrument_id
-                .cmp(&b.instrument_id)
-                .then(a.side.cmp(&b.side))
-        });
-        let positions: Vec<_> = held
-            .into_iter()
-            .flat_map(|p| {
-                let ex = self
-                    .engine
-                    .catalog()
-                    .get(&p.instrument_id)
-                    .map(|i| i.exchange_id.clone())
-                    .unwrap_or_default();
-                let mult = self
-                    .engine
-                    .catalog()
-                    .get(&p.instrument_id)
-                    .map(|i| i.volume_multiple)
-                    .unwrap_or(1);
-                p.to_query_fields(&broker, &investor, &ex, &day, mult)
-            })
-            .collect();
+        let positions = project_investor_positions(
+            self.ledger.positions_of(&broker, &investor),
+            &broker,
+            &investor,
+            &day,
+            self.engine.catalog(),
+            &query,
+        );
         for f in &positions {
             self.send_frame(
                 conn_id,
@@ -908,5 +931,40 @@ mod order_trade_query_tests {
         assert_eq!(query.investor_id, "I");
         assert!(trading_account_query_matches(&query, "B", "I"));
         assert!(!trading_account_query_matches(&query, "B", "other"));
+    }
+
+    #[test]
+    fn investor_position_projection_filters_and_sorts_rows() {
+        assert_eq!(
+            decode_investor_position_query(&[]),
+            InvestorPositionQuery::default()
+        );
+
+        let mut query = CThostFtdcQryInvestorPositionField::zeroed();
+        set_cstr(&mut query.InstrumentID, "ag");
+        let query = decode_investor_position_query(&struct_to_bytes(&query));
+        assert_eq!(query.instrument_id, "ag");
+
+        let mut catalog = Catalog::new();
+        catalog.insert(ctpbuddy_matching::Instrument::new("ag", "SHFE"));
+        catalog.insert(ctpbuddy_matching::Instrument::new("rb", "SHFE"));
+        let ag = Position::new("ag", PositionSide::Long);
+        let rb = Position::new("rb", PositionSide::Short);
+        let rows = project_investor_positions(
+            vec![&rb, &ag],
+            "B",
+            "I",
+            "20261011",
+            &catalog,
+            &InvestorPositionQuery::default(),
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(cstr(&rows[0].InstrumentID), "ag");
+        assert_eq!(cstr(&rows[1].InstrumentID), "rb");
+
+        let rows =
+            project_investor_positions(vec![&rb, &ag], "B", "I", "20261011", &catalog, &query);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(cstr(&rows[0].InstrumentID), "ag");
     }
 }
