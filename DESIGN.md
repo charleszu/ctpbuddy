@@ -533,7 +533,7 @@ assertions:             # 可选：场景内断言（CI 用）
 - **结算确认前置（对齐真实 CTP，非 LocalCTP）**：每交易日首次登录成功后，必须 `ReqQrySettlementInfoConfirm` 查确认状态 → 未确认才 `ReqQrySettlementInfo`（不填日期取上一交易日）→ 展示确认 → `ReqSettlementInfoConfirm`，**完成后才能报单**（当天已确认的会话再次登录可直接交易）。LocalCTP「不校验结算单确认」是参考实现的简化，不作为 CTPBuddy 口径；
 - 日结当前为显式 `ADMIN settle_day`：用户供给结算价与下一期货交易日，并在 playback 暂停且无活动订单时执行；今仓转昨、按结算价重算持仓盈亏。不会按默认 17:00 自动触发。显式 `ADMIN settlement_report` 可在查询前供给真实/外部结算正文并持久化，字段以原始 GBK 字节保存。未供给正文时，`settle_day` 生成明确标注 `modeled_ledger_minimal` 的当前账本最小可审计文本，不伪造未建模字段。
 - `ReqQrySettlementInfo/OnRspQrySettlementInfo` 按 `Content` 每段最多 500 字节返回，`SequenceNo` 从 1 递增；每段携带 `TradingDay/SettlementID/BrokerID/InvestorID`（以及已建模的 AccountID/CurrencyID），随后发送空 `QRY_LAST`，由 Shim 映射为 `pSettlementInfo=null,bIsLast=true`。未命中查询只返回该终止回调。
-- 已实现结算字段重置：`PreBalance=最终动态权益`、`PreSettlementPrice=供给结算价`、`YdPosition=剩余持仓`、`TodayPosition=0`，当日盈亏/手续费/冻结清零，TradingDay 推进；**存续持仓的保证金原样保留、不按结算价重估**（真实柜台日结按当日结算价重算持仓保证金，这是已知差距，见 §0.6；§8.6 「昨仓恒用昨结算价」因此只对成交时刻的保证金快照成立，跨日不滚动）；到期合约自动强平尚未实现。
+- 已实现结算字段重置：`PreBalance=最终动态权益`、`PreSettlementPrice=供给结算价`、`YdPosition=剩余持仓`、`TodayPosition=0`，当日盈亏/手续费/冻结清零，TradingDay 推进；**存续持仓的保证金按供给结算价重估**（逐明细按剩余手数重算并刷新账户占用；§8.6「昨仓恒用昨结算价」在跨日后继续成立）；到期合约自动强平尚未实现。
 - 当前完成后写入 `settlement` journal 事件；PUB `sys` 广播属于规划，不按已实现描述。
 - 长假/节假日不由核心按固定时刻自动推断；CTPBuddy 仅使用用户提供并校验的离线 `TradingCalendar` 快照，运行时不联网。
 
