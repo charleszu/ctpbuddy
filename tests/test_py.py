@@ -745,7 +745,7 @@ def test_journal_projection() -> None:
 
 
 def test_projection_calendar_metadata() -> None:
-    from ctpbuddy.store import Projection, rebuild
+    from ctpbuddy.store import Projection, ReadModelMetadata, rebuild
 
     with tempfile.TemporaryDirectory() as d:
         journal = os.path.join(d, "journal")
@@ -766,6 +766,19 @@ def test_projection_calendar_metadata() -> None:
             assert metadata.calendar_version == "fixture-r1"
             assert metadata.calendar_sha256 == "a" * 64
             assert metadata.virtual_time == "00:00:00.000"
+        live = ReadModelMetadata.from_admin_status({
+            "playback": {"virtual_time": "09:30:00.000"},
+            "journal_seq": 3,
+            "contract_version": "1",
+            "calendar_version": "fixture-r1",
+            "calendar_sha256": "a" * 64,
+        })
+        assert live.contract_version == "1" and live.journal_seq == 3
+        try:
+            ReadModelMetadata.from_admin_status({"playback": {}, "contract_version": "99"})
+            raise AssertionError("ADMIN contract version mismatch must fail")
+        except Exception as exc:
+            assert "contract/version" in str(exc)
     print("[ok] projection calendar metadata: server_start provenance survives rebuild")
 
 

@@ -155,11 +155,15 @@ class ReadModelMetadata:
 
         calendar = _calendar_metadata_pair(
             status.get("calendar_version"), status.get("calendar_sha256"), "ADMIN")
+        contract_version = text("contract_version")
+        if contract_version is not None and contract_version != str(CONTRACT_VERSION):
+            raise JournalError("ADMIN read-model metadata contract/version 不匹配")
         return cls(
             source_kind="admin_live",
             journal_seq=journal_seq,
             virtual_time=virtual_time,
             core_hash=text("core_hash"),
+            contract_version=contract_version,
             calendar_version=calendar[0] if calendar else None,
             calendar_sha256=calendar[1] if calendar else None,
         )

@@ -14,7 +14,7 @@ use ctpbuddy_wire::Frame;
 
 use crate::json::{self, Value};
 use crate::scenario;
-use crate::{World, SERVER_VERSION};
+use crate::{journal_contract, World, SERVER_VERSION};
 
 impl World {
     pub(crate) fn on_admin(&mut self, conn_id: u64, frame: &Frame) {
@@ -160,6 +160,10 @@ impl World {
             (
                 "journal_seq".into(),
                 json::n(self.journal.as_ref().map(|j| j.seq()).unwrap_or(0) as f64),
+            ),
+            (
+                "contract_version".into(),
+                json::s(&journal_contract::contract_version().to_string()),
             ),
             ("accounts".into(), Value::Arr(accounts)),
             ("assertions".into(), self.assertions_status()),

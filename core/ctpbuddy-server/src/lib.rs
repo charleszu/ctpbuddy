@@ -1642,5 +1642,6 @@ mod tests {
             Some("fixture-r1")
         );
         assert_eq!(value.get_str("calendar_sha256"), Some("b".repeat(64)));
+        assert_eq!(value.get_str("contract_version"), Some("1".into()));
     }
 }
