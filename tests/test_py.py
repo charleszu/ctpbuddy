@@ -775,7 +775,7 @@ def test_web_replay() -> None:
         calls = []
 
         def __init__(self, *args, **kwargs):
-            pass
+            self.calendar = kwargs.get("calendar")
 
         def __enter__(self):
             return self
@@ -784,7 +784,11 @@ def test_web_replay() -> None:
             pass
 
         def status(self):
-            return {"scenario": "web-fixture", "playback": dict(self.state)}
+            result = {"scenario": "web-fixture", "playback": dict(self.state)}
+            if self.calendar is not None:
+                result.update({"calendar_version": self.calendar.metadata["version"],
+                               "calendar_sha256": self.calendar.sha256})
+            return result
 
         def cmd(self, name, **kwargs):
             self.calls.append((name, kwargs))
@@ -803,7 +807,9 @@ def test_web_replay() -> None:
             return {"ok": True, "cmd": name}
 
     with patch("ctpbuddy.web.Admin", FakeAdmin):
-        server = make_server("127.0.0.1", 0, "127.0.0.1:1")
+        from types import SimpleNamespace
+        calendar = SimpleNamespace(metadata={"version": "web-fixture-calendar"}, sha256="c" * 64)
+        server = make_server("127.0.0.1", 0, "127.0.0.1:1", calendar=calendar)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -824,6 +830,8 @@ def test_web_replay() -> None:
             assert status["playback"]["idx"] == 0 and status["realtime"] is True
             assert status["metadata"]["source_kind"] == "admin_live"
             assert status["metadata"]["virtual_time"] == "09:30:00.000"
+            assert status["metadata"]["calendar_version"] == "web-fixture-calendar"
+            assert status["metadata"]["calendar_sha256"] == "c" * 64
             pause = json.loads(request("/api/replay", {"cmd": "pause"}, "POST").read())
             assert pause["playback"]["paused"]
             step = json.loads(request("/api/replay", {"cmd": "step"}, "POST").read())

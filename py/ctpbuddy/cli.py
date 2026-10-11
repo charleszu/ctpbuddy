@@ -153,7 +153,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_web(args: argparse.Namespace) -> int:
     from .web import serve
-    return serve(args.host, args.port, args.admin, args.db, args.workspace)
+    calendar = None
+    if args.calendar:
+        from .calendar import CalendarError, TradingCalendar
+        try:
+            calendar = TradingCalendar.from_file(args.calendar, expected_sha256=args.calendar_sha256)
+        except (CalendarError, OSError) as exc:
+            print("error: 日历加载失败: %s" % exc, file=sys.stderr)
+            return 1
+    return serve(args.host, args.port, args.admin, args.db, args.workspace, calendar)
 
 
 def cmd_install_shim(args: argparse.Namespace) -> int:
@@ -522,6 +530,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--admin", default="127.0.0.1:5561")
     sp.add_argument("--db", default=None, help="SQLite journal 投影路径，启用只读查询 API")
     sp.add_argument("--workspace", default=".", help="Web 场景 workspace；只浏览 workspace/scenarios")
+    sp.add_argument("--calendar", default=None, help="离线交易日历快照；用于 live read-model 时间来源元数据")
+    sp.add_argument("--calendar-sha256", default=None, help="固定校验 --calendar 的 SHA256")
     sp.set_defaults(func=cmd_web)
 
     sp = sub.add_parser("install-shim", help="安全安装受支持的 shim DLL（默认 dry-run）")

@@ -76,7 +76,7 @@ def _scenario_view(workspace, relative):
                         "positions_state": "scenario_initial_only_not_live"}
 
 
-def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None, workspace=None):
+def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None, workspace=None, calendar=None):
     if host == "loopback":
         host = "127.0.0.1"
     if host == "localhost":
@@ -332,7 +332,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 slots.release()
                 return self.reply(429, {"error": "回放命令正在执行"})
             try:
-                with Admin(admin, timeout=3) as client:
+                with Admin(admin, timeout=3, calendar=calendar) as client:
                     if admin_cmd is not None:
                         result = client.cmd(admin_cmd, **admin_args)
                     elif scenario is not None:
@@ -381,8 +381,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
     return Server((host, port), Handler)
 
 
-def serve(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None, workspace=None):
-    server = make_server(host, port, admin, database, workspace)
+def serve(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=None, workspace=None, calendar=None):
+    server = make_server(host, port, admin, database, workspace, calendar)
     print("[ctpbuddy] 本地参数后台 http://%s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
     try:
         server.serve_forever()
