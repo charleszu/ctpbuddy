@@ -621,4 +621,22 @@ mod tests {
         t.action_day = "20261008".into();
         assert_eq!(cstr(&t.to_depth_md().ActionDay), "20261008");
     }
+
+    #[test]
+    fn csv_source_preserves_optional_action_day_column() {
+        let path =
+            std::env::temp_dir().join(format!("ctpbuddy-action-day-{}.csv", std::process::id()));
+        let mut row = vec![String::new(); CSV_COLUMNS.len() + 1];
+        row[0] = "rb2601".into();
+        row[1] = "SHFE".into();
+        row[2] = "20261009".into();
+        row[3] = "21:00:00".into();
+        row[CSV_COLUMNS.len()] = "20261008".into();
+        std::fs::write(&path, row.join(",") + "\n").unwrap();
+        let ticks = CsvSource::load(path.to_str().unwrap()).unwrap();
+        assert_eq!(ticks.len(), 1);
+        assert_eq!(ticks[0].trading_day, "20261009");
+        assert_eq!(ticks[0].action_day, "20261008");
+        let _ = std::fs::remove_file(path);
+    }
 }

@@ -1,6 +1,7 @@
 """Market-data source plugin: turn a scenario directory into canonical ticks.
 
-The Rust core owns the canonical `CsvSource` format (40 columns, see
+The Rust core owns the canonical `CsvSource` format (40 required columns plus
+an optional `action_day` column, see
 core/ctpbuddy-market/src/lib.rs `CSV_COLUMNS`). This module is the Python-side
 authoring/validation helper: it validates scenario dirs and normalizes
 exchange-native dumps into the canonical CSV layout. Custom sources (CTP
@@ -19,7 +20,12 @@ CANONICAL_COLUMNS = [
     "high", "low", "close", "upper", "lower", "pre_open_interest", "average", "bid1", "bid2",
     "bid3", "bid4", "bid5", "ask1", "ask2", "ask3", "ask4", "ask5", "bidvol1", "bidvol2",
     "bidvol3", "bidvol4", "bidvol5", "askvol1", "askvol2", "askvol3", "askvol4", "askvol5",
+    "action_day",
 ]
+
+# `action_day` was added after the original 40-column format.  Keep loading
+# legacy files while making newly-authored files carry the explicit field.
+REQUIRED_COLUMNS = len(CANONICAL_COLUMNS) - 1
 
 INSTRUMENT_COLUMNS = [
     "instrument", "exchange", "product", "volume_multiple", "price_tick",
@@ -49,8 +55,8 @@ def validate_scenario(scenario_dir: str) -> List[str]:
         for lineno, row in enumerate(csv.reader(f), start=1):
             if not row or (lineno == 1 and row[0] == "instrument") or row[0].startswith("#"):
                 continue
-            if len(row) < len(CANONICAL_COLUMNS):
-                problems.append("ticks.csv line %d: %d columns, want %d" % (lineno, len(row), len(CANONICAL_COLUMNS)))
+            if len(row) < REQUIRED_COLUMNS:
+                problems.append("ticks.csv line %d: %d columns, want at least %d" % (lineno, len(row), REQUIRED_COLUMNS))
                 if len(problems) > 5:
                     break
                 continue

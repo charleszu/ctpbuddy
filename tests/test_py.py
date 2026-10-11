@@ -116,6 +116,10 @@ def test_scenario() -> None:
         ticks = list(iter_ticks(d))
         assert len(ticks) == 1 and ticks[0]["instrument"] == "rb2601", ticks
         assert ticks[0]["bid1"] == "3498" and ticks[0]["ask1"] == "3502", ticks[0]
+        assert ticks[0]["action_day"] == "", ticks[0]
+        row["action_day"] = "20261001"
+        write_canonical(d, [row])
+        assert list(iter_ticks(d))[0]["action_day"] == "20261001"
         # broken scenarios are rejected
         with open(os.path.join(d, "ticks.csv"), "a", encoding="utf-8") as fh:
             fh.write("rb2601,SHFE,20261002,09:30:01,0\n")
