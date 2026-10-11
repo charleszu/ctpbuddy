@@ -27,6 +27,16 @@ pub fn recover_requested(env: Option<&str>) -> bool {
 
 /// Atomically replace the snapshot file.
 pub fn write(data_dir: &str, trading_day: &str, snapshot: &Value) -> std::io::Result<()> {
+    write_with_flow(data_dir, trading_day, snapshot, &Value::Null)
+}
+
+/// Atomically replace the snapshot file, including private-flow recovery data.
+pub fn write_with_flow(
+    data_dir: &str,
+    trading_day: &str,
+    snapshot: &Value,
+    private_flow: &Value,
+) -> std::io::Result<()> {
     let path = state_path(data_dir);
     let dir = path.parent().expect("state path has a parent");
     fs::create_dir_all(dir)?;
@@ -34,6 +44,7 @@ pub fn write(data_dir: &str, trading_day: &str, snapshot: &Value) -> std::io::Re
         "file_version": FILE_VERSION,
         "trading_day": trading_day,
         "ledger": snapshot,
+        "private_flow": private_flow,
     });
     let tmp = dir.join("ledger.json.tmp");
     {
@@ -51,6 +62,12 @@ pub fn write(data_dir: &str, trading_day: &str, snapshot: &Value) -> std::io::Re
 /// `Ok(None)` when no snapshot exists; `Err` when one exists but is unusable
 /// (recovery must not silently fall back to an empty book).
 pub fn read(data_dir: &str) -> Result<Option<(String, Ledger)>, String> {
+    Ok(read_with_flow(data_dir)?.map(|(day, ledger, _)| (day, ledger)))
+}
+
+/// Read a snapshot and its optional private-flow recovery data. Older files
+/// are accepted with an empty flow payload.
+pub fn read_with_flow(data_dir: &str) -> Result<Option<(String, Ledger, Value)>, String> {
     let path = state_path(data_dir);
     let text = match fs::read_to_string(&path) {
         Ok(t) => t,
@@ -70,7 +87,11 @@ pub fn read(data_dir: &str) -> Result<Option<(String, Ledger)>, String> {
         doc.get("ledger").ok_or("snapshot: missing ledger")?,
         Some(&day),
     )?;
-    Ok(Some((day, ledger)))
+    Ok(Some((
+        day,
+        ledger,
+        doc.get("private_flow").cloned().unwrap_or(Value::Null),
+    )))
 }
 
 #[cfg(test)]

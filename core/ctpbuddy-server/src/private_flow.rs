@@ -1,8 +1,123 @@
 //! Private-flow bookkeeping and SubscribePrivateTopic replay (RESTART / RESUME / QUICK).
 
+use serde_json::{json, Value as SerdeValue};
+
 use super::*;
 
 impl World {
+    pub(crate) fn private_flow_snapshot(&self) -> SerdeValue {
+        let bytes = |data: &[u8]| -> SerdeValue {
+            SerdeValue::Array(data.iter().map(|byte| json!(*byte)).collect())
+        };
+        json!({
+            "orders": self.orders_today.iter().map(|field| bytes(&struct_to_bytes(field))).collect::<Vec<_>>(),
+            "trades": self.trades_today.iter().map(|field| bytes(&struct_to_bytes(field))).collect::<Vec<_>>(),
+            "sequence": self.private_seq.iter().map(|(trade, index)| json!({"trade": trade, "index": index})).collect::<Vec<_>>(),
+            "cursors": self.private_cursor.iter().map(|((broker, investor), index)| json!({
+                "broker": broker, "investor": investor, "index": index
+            })).collect::<Vec<_>>(),
+        })
+    }
+
+    pub(crate) fn restore_private_flow(&mut self, value: &SerdeValue) -> Result<(), String> {
+        let object = value.as_object().ok_or("private_flow 必须是对象")?;
+        let decode = |name: &str| -> Result<Vec<Vec<u8>>, String> {
+            object
+                .get(name)
+                .and_then(SerdeValue::as_array)
+                .ok_or_else(|| format!("private_flow.{name} 必须是数组"))?
+                .iter()
+                .map(|item| {
+                    item.as_array()
+                        .ok_or_else(|| format!("private_flow.{name} 条目必须是字节数组"))?
+                        .iter()
+                        .map(|byte| {
+                            let n = byte
+                                .as_u64()
+                                .ok_or_else(|| format!("private_flow.{name} 字节必须是整数"))?;
+                            u8::try_from(n).map_err(|_| format!("private_flow.{name} 字节超出范围"))
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+        let orders = decode("orders")?;
+        let trades = decode("trades")?;
+        let mut decoded_orders = Vec::with_capacity(orders.len());
+        for bytes in orders {
+            decoded_orders.push(
+                struct_from_bytes::<CThostFtdcOrderField>(&bytes)
+                    .ok_or("private_flow order bytes 长度错误")?,
+            );
+        }
+        let mut decoded_trades = Vec::with_capacity(trades.len());
+        for bytes in trades {
+            decoded_trades.push(
+                struct_from_bytes::<CThostFtdcTradeField>(&bytes)
+                    .ok_or("private_flow trade bytes 长度错误")?,
+            );
+        }
+        let sequence = object
+            .get("sequence")
+            .and_then(SerdeValue::as_array)
+            .ok_or("private_flow.sequence 必须是数组")?
+            .iter()
+            .map(|item| {
+                let item = item
+                    .as_object()
+                    .ok_or("private_flow.sequence 条目必须是对象")?;
+                let trade = item
+                    .get("trade")
+                    .and_then(SerdeValue::as_bool)
+                    .ok_or("private_flow.sequence.trade 必须是布尔值")?;
+                let index = item
+                    .get("index")
+                    .and_then(SerdeValue::as_u64)
+                    .ok_or("private_flow.sequence.index 必须是整数")?
+                    as usize;
+                if trade {
+                    if index >= decoded_trades.len() {
+                        return Err("private_flow.sequence 指向不存在的 trade".into());
+                    }
+                } else if index >= decoded_orders.len() {
+                    return Err("private_flow.sequence 指向不存在的 order".into());
+                }
+                Ok((trade, index))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let mut cursors = HashMap::new();
+        for item in object
+            .get("cursors")
+            .and_then(SerdeValue::as_array)
+            .ok_or("private_flow.cursors 必须是数组")?
+        {
+            let item = item
+                .as_object()
+                .ok_or("private_flow.cursors 条目必须是对象")?;
+            let broker = item
+                .get("broker")
+                .and_then(SerdeValue::as_str)
+                .ok_or("private_flow.cursors.broker 必须是字符串")?;
+            let investor = item
+                .get("investor")
+                .and_then(SerdeValue::as_str)
+                .ok_or("private_flow.cursors.investor 必须是字符串")?;
+            let index = item
+                .get("index")
+                .and_then(SerdeValue::as_u64)
+                .ok_or("private_flow.cursors.index 必须是整数")? as usize;
+            if index > sequence.len() {
+                return Err("private_flow.cursors.index 超出 sequence".into());
+            }
+            cursors.insert((broker.to_string(), investor.to_string()), index);
+        }
+        self.orders_today = decoded_orders;
+        self.trades_today = decoded_trades;
+        self.private_seq = sequence;
+        self.private_cursor = cursors;
+        Ok(())
+    }
+
     /// Drop the trading day's order/trade history and the replay indexes
     /// that point into it (reset and explicit settlement).
     pub(crate) fn clear_day_flow(&mut self) {
@@ -110,5 +225,16 @@ mod tests {
         // RESUME from a fresh cursor
         world.private_cursor.clear();
         assert_eq!(replay(&mut world, 5, 1), vec!["1", "2", "3"]);
+
+        let snapshot = world.private_flow_snapshot();
+        world.clear_day_flow();
+        assert!(world.orders_today.is_empty());
+        world.restore_private_flow(&snapshot).unwrap();
+        assert_eq!(world.orders_today.len(), 4);
+        assert_eq!(world.private_seq.len(), 4);
+        assert_eq!(
+            world.private_cursor.get(&("9999".into(), "u".into())),
+            Some(&4)
+        );
     }
 }
