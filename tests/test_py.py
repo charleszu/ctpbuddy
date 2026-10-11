@@ -696,6 +696,30 @@ def test_journal_projection() -> None:
     print("[ok] journal projection: schema/version, deterministic rebuild, recovery and queries")
 
 
+def test_projection_calendar_metadata() -> None:
+    from ctpbuddy.store import Projection, rebuild
+
+    with tempfile.TemporaryDirectory() as d:
+        journal = os.path.join(d, "journal")
+        os.mkdir(journal)
+        event = {
+            "seq": 1, "ts_wall": "2026-10-03T09:30:00+08:00", "trading_day": "20261003",
+            "vt_ms": 0, "type": "server_start", "data": {
+                "version": "0.1.0", "scenario": "", "calendar_version": "fixture-r1",
+                "calendar_sha256": "a" * 64,
+            },
+        }
+        with open(os.path.join(journal, "20261003.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(event) + "\n")
+        db = os.path.join(d, "projection.db")
+        rebuild(journal, db)
+        with Projection(db) as projection:
+            metadata = projection.read_model_metadata()
+            assert metadata.calendar_version == "fixture-r1"
+            assert metadata.calendar_sha256 == "a" * 64
+    print("[ok] projection calendar metadata: server_start provenance survives rebuild")
+
+
 def test_web_projection() -> None:
     from ctpbuddy.store import rebuild
     from ctpbuddy.web import make_server
@@ -1458,6 +1482,7 @@ def main() -> int:
     test_calendar()
     test_journal_hash()
     test_journal_projection()
+    test_projection_calendar_metadata()
     test_web_projection()
     test_web_replay()
     print("\nPY UNIT: PASS")
