@@ -649,7 +649,13 @@ impl World {
             load_refdata(cfg.refdata_dir.as_deref(), cfg.scenario_dir.as_deref())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         let mut playback = None;
-        let mut vt_day = dtime::today_trading_day();
+        let mut vt_day = if let Some(calendar) = cfg.calendar_snapshot.as_ref() {
+            calendar
+                .trading_day_for_date(&dtime::today_natural_date())
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+        } else {
+            dtime::today_trading_day()
+        };
         // Before any scenario clock exists there is no virtual time: 0.0 is
         // the deterministic pre-clock value. Journal envelopes must be a pure
         // function of scenario state (DESIGN §11.4 hash determinism), so the

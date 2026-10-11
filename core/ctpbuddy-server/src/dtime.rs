@@ -67,6 +67,19 @@ pub fn today_trading_day() -> String {
     format!("{y:04}{m:02}{d:02}")
 }
 
+/// Current China Standard Time civil date without applying the night-session
+/// trading-day rollover. Calendar snapshots use this natural date as their
+/// lookup key before deciding whether the day is open or closed.
+pub fn today_natural_date() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let cst = now.as_secs() as i64 + 8 * 3600;
+    let days = cst.div_euclid(86_400);
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}{m:02}{d:02}")
+}
+
 /// (year, month, day) -> days since 1970-01-01. Inverse of `civil_from_days`.
 pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };

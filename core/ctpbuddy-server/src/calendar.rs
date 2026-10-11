@@ -15,6 +15,14 @@ use crate::CalendarMetadata;
 pub struct CalendarSnapshot {
     pub version: String,
     trading_days: BTreeMap<String, bool>,
+    night_sessions: BTreeMap<(String, String), NightSession>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NightSession {
+    pub status: String,
+    pub action_day: Option<String>,
+    pub trading_day: Option<String>,
 }
 
 impl CalendarSnapshot {
@@ -50,6 +58,7 @@ impl CalendarSnapshot {
             .filter(|rows| !rows.is_empty())
             .ok_or("交易日历 days 必须是非空数组")?;
         let mut trading_days = BTreeMap::new();
+        let mut night_sessions = BTreeMap::new();
         for row in rows {
             let row = row.as_object().ok_or("交易日历 day 必须是对象")?;
             let date = row
@@ -75,11 +84,92 @@ impl CalendarSnapshot {
             if trading_days.insert(compact, open).is_some() {
                 return Err("交易日历含重复自然日".into());
             }
+            let date = row
+                .get("date")
+                .and_then(Value::as_str)
+                .ok_or("交易日历 day.date 必须是字符串")?;
+            let date = compact_date(date)?;
+            if let Some(exchanges) = row.get("exchanges") {
+                let exchanges = exchanges
+                    .as_object()
+                    .ok_or("交易日历 day.exchanges 必须是对象")?;
+                for (exchange, night) in exchanges {
+                    let night = night.as_object().ok_or("交易日历 night 必须是对象")?;
+                    let status = night
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .unwrap_or("open");
+                    if !matches!(status, "open" | "closed") {
+                        return Err("交易日历 night.status 必须是 open/closed".into());
+                    }
+                    let action = night.get("night_action_day");
+                    let trading = night.get("night_trading_day");
+                    if status == "closed" {
+                        if action.is_some_and(|value| !value.is_null())
+                            || trading.is_some_and(|value| !value.is_null())
+                        {
+                            return Err("关闭夜盘不能设置 ActionDay/TradingDay".into());
+                        }
+                        night_sessions.insert(
+                            (date.clone(), exchange.clone()),
+                            NightSession {
+                                status: status.to_string(),
+                                action_day: None,
+                                trading_day: None,
+                            },
+                        );
+                    } else {
+                        let action = action
+                            .and_then(Value::as_str)
+                            .ok_or("开放夜盘缺少 night_action_day")?;
+                        let trading = trading
+                            .and_then(Value::as_str)
+                            .ok_or("开放夜盘缺少 night_trading_day")?;
+                        let action = compact_date(action)?;
+                        let trading = compact_date(trading)?;
+                        night_sessions.insert(
+                            (date.clone(), exchange.clone()),
+                            NightSession {
+                                status: status.to_string(),
+                                action_day: Some(action),
+                                trading_day: Some(trading),
+                            },
+                        );
+                    }
+                }
+            }
         }
         Ok(Self {
             version,
             trading_days,
+            night_sessions,
         })
+    }
+
+    pub fn trading_day_for_date(&self, date: &str) -> Result<String, String> {
+        let date = compact_date(date)?;
+        match self.trading_days.get(&date) {
+            Some(true) => Ok(date),
+            Some(false) => Err(format!("交易日历明确标记 {date} 为休市")),
+            None => Err(format!("交易日历未覆盖 {date}")),
+        }
+    }
+
+    pub fn night_session(&self, date: &str, exchange: &str) -> Result<(String, String), String> {
+        let date = compact_date(date)?;
+        let Some(session) = self
+            .night_sessions
+            .get(&(date.clone(), exchange.to_string()))
+        else {
+            return Err(format!("交易日历未覆盖 {date} 的 {exchange} 夜盘"));
+        };
+        if session.status == "closed" {
+            return Err(format!("交易日历明确标记 {date} 的 {exchange} 夜盘休市"));
+        }
+        Ok((
+            session.action_day.clone().expect("open night action day"),
+            session.trading_day.clone().expect("open night trading day"),
+        ))
     }
 
     pub fn next_trading_day(&self, current: &str) -> Result<String, String> {
@@ -145,6 +235,46 @@ mod tests {
         });
         let calendar = CalendarSnapshot::from_value(&value).unwrap();
         assert_eq!(calendar.next_trading_day("20261002").unwrap(), "20261005");
+        assert!(calendar.night_session("20261002", "SHFE").is_err());
+    }
+
+    #[test]
+    fn validates_and_exposes_explicit_night_session_mapping() {
+        let value = json!({
+            "schema": "ctpbuddy.trading-calendar/v1",
+            "version": "fixture-r1",
+            "days": [{
+                "date": "2026-10-02",
+                "is_trading_day": true,
+                "trading_day": "20261002",
+                "exchanges": {
+                    "SHFE": {
+                        "status": "open",
+                        "night_action_day": "2026-10-02",
+                        "night_trading_day": "20261002"
+                    }
+                }
+            }]
+        });
+        let calendar = CalendarSnapshot::from_value(&value).unwrap();
+        assert_eq!(
+            calendar.night_session("20261002", "SHFE").unwrap(),
+            ("20261002".into(), "20261002".into())
+        );
+        let closed = json!({
+            "schema": "ctpbuddy.trading-calendar/v1",
+            "version": "fixture-r1",
+            "days": [{
+                "date": "2026-10-02",
+                "is_trading_day": true,
+                "trading_day": "20261002",
+                "exchanges": {"SHFE": {"status": "closed"}}
+            }]
+        });
+        assert!(CalendarSnapshot::from_value(&closed)
+            .unwrap()
+            .night_session("20261002", "SHFE")
+            .is_err());
     }
 
     #[test]
