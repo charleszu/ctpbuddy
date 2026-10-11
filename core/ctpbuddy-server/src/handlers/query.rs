@@ -21,6 +21,12 @@ struct InstrumentQuery {
     product_id: String,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TradingAccountQuery {
+    broker_id: String,
+    investor_id: String,
+}
+
 fn decode_order_query(payload: &[u8]) -> OrderQuery {
     let q: CThostFtdcQryOrderField =
         struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
@@ -47,6 +53,24 @@ fn decode_instrument_query(payload: &[u8]) -> InstrumentQuery {
         instrument_id: cstr(&q.InstrumentID),
         product_id: cstr(&q.ProductID),
     }
+}
+
+fn decode_trading_account_query(payload: &[u8]) -> TradingAccountQuery {
+    let q: CThostFtdcQryTradingAccountField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryTradingAccountField::zeroed);
+    TradingAccountQuery {
+        broker_id: cstr(&q.BrokerID),
+        investor_id: cstr(&q.InvestorID),
+    }
+}
+
+fn trading_account_query_matches(
+    query: &TradingAccountQuery,
+    broker: &str,
+    investor: &str,
+) -> bool {
+    (query.broker_id.is_empty() || query.broker_id == broker)
+        && (query.investor_id.is_empty() || query.investor_id == investor)
 }
 
 fn select_instruments(
@@ -279,14 +303,10 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: ctpbuddy_wire::generated::CThostFtdcQryTradingAccountField =
-            struct_from_bytes(&frame.payload).unwrap_or_else(|| {
-                ctpbuddy_wire::generated::CThostFtdcQryTradingAccountField::zeroed()
-            });
+        let query = decode_trading_account_query(&frame.payload);
         // A session only ever sees its own account: a foreign BrokerID /
         // InvestorID filter answers an empty stream, never another investor.
-        let (qb, qi) = (cstr(&q.BrokerID), cstr(&q.InvestorID));
-        if (!qb.is_empty() && qb != broker) || (!qi.is_empty() && qi != investor) {
+        if !trading_account_query_matches(&query, &broker, &investor) {
             return self.send_qry_empty(conn_id, frame.req_id);
         }
         let day = self.vt_day();
@@ -858,5 +878,35 @@ mod order_trade_query_tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(cstr(&rows[0].InstrumentID), "rb2409");
         assert_eq!(cstr(&rows[1].InstrumentID), "rb2410");
+    }
+
+    #[test]
+    fn trading_account_query_keeps_lenient_decode_and_session_scoping() {
+        assert_eq!(
+            decode_trading_account_query(&[]),
+            TradingAccountQuery::default()
+        );
+        assert!(trading_account_query_matches(
+            &TradingAccountQuery::default(),
+            "B",
+            "I"
+        ));
+        assert!(!trading_account_query_matches(
+            &TradingAccountQuery {
+                broker_id: "other".into(),
+                investor_id: String::new(),
+            },
+            "B",
+            "I"
+        ));
+
+        let mut query = CThostFtdcQryTradingAccountField::zeroed();
+        set_cstr(&mut query.BrokerID, "B");
+        set_cstr(&mut query.InvestorID, "I");
+        let query = decode_trading_account_query(&struct_to_bytes(&query));
+        assert_eq!(query.broker_id, "B");
+        assert_eq!(query.investor_id, "I");
+        assert!(trading_account_query_matches(&query, "B", "I"));
+        assert!(!trading_account_query_matches(&query, "B", "other"));
     }
 }

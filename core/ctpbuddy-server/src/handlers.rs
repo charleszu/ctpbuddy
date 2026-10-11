@@ -38,8 +38,8 @@ use ctpbuddy_wire::generated::{
     CThostFtdcQryInstrumentMarginRateField, CThostFtdcQryInstrumentOrderCommRateField,
     CThostFtdcQryInvestorPositionDetailField, CThostFtdcQryInvestorPositionField,
     CThostFtdcQryInvestorProductGroupMarginField, CThostFtdcQryOrderField,
-    CThostFtdcQrySettlementInfoField, CThostFtdcQryTradeField, CThostFtdcReqUserLoginField,
-    CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
+    CThostFtdcQrySettlementInfoField, CThostFtdcQryTradeField, CThostFtdcQryTradingAccountField,
+    CThostFtdcReqUserLoginField, CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
     CThostFtdcSettlementInfoField, CThostFtdcSpecificInstrumentField, CThostFtdcTradeField,
     CThostFtdcUserLogoutField,
 };
