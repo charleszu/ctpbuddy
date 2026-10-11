@@ -45,6 +45,20 @@ struct InstrumentRateQuery {
     hedge_flag: u8,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ProductGroupMarginQuery {
+    broker_id: String,
+    investor_id: String,
+    product_group_id: String,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct BrokerTradingParamsQuery {
+    broker_id: String,
+    investor_id: String,
+    currency_id: String,
+}
+
 fn decode_order_query(payload: &[u8]) -> OrderQuery {
     let q: CThostFtdcQryOrderField =
         struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
@@ -144,6 +158,41 @@ fn decode_instrument_order_comm_rate_query(payload: &[u8]) -> InstrumentRateQuer
     }
 }
 
+fn decode_product_group_margin_query(payload: &[u8]) -> ProductGroupMarginQuery {
+    let q: CThostFtdcQryInvestorProductGroupMarginField = struct_from_bytes(payload)
+        .unwrap_or_else(CThostFtdcQryInvestorProductGroupMarginField::zeroed);
+    ProductGroupMarginQuery {
+        broker_id: cstr(&q.BrokerID),
+        investor_id: cstr(&q.InvestorID),
+        product_group_id: cstr(&q.ProductGroupID),
+    }
+}
+
+fn product_group_margin_query_matches(
+    query: &ProductGroupMarginQuery,
+    broker: &str,
+    investor: &str,
+) -> bool {
+    !query.broker_id.is_empty()
+        && !query.investor_id.is_empty()
+        && query.broker_id == broker
+        && query.investor_id == investor
+}
+
+fn decode_broker_trading_params_query(payload: &[u8]) -> BrokerTradingParamsQuery {
+    let q: CThostFtdcQryBrokerTradingParamsField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryBrokerTradingParamsField::zeroed);
+    BrokerTradingParamsQuery {
+        broker_id: cstr(&q.BrokerID),
+        investor_id: cstr(&q.InvestorID),
+        currency_id: cstr(&q.CurrencyID),
+    }
+}
+
+fn broker_trading_params_query_has_required_fields(query: &BrokerTradingParamsQuery) -> bool {
+    !query.broker_id.is_empty() && !query.investor_id.is_empty() && !query.currency_id.is_empty()
+}
+
 fn rate_query_has_required_identity(query: &InstrumentRateQuery) -> bool {
     !query.broker_id.is_empty() && !query.investor_id.is_empty()
 }
@@ -205,6 +254,28 @@ fn project_instrument_order_comm_rates(
             field
         })
         .collect()
+}
+
+fn filter_product_group_margin_rows(
+    rows: Vec<CThostFtdcInvestorProductGroupMarginField>,
+    product_group_id: &str,
+) -> Vec<CThostFtdcInvestorProductGroupMarginField> {
+    rows.into_iter()
+        .filter(|row| product_group_id.is_empty() || cstr(&row.ProductGroupID) == product_group_id)
+        .collect()
+}
+
+fn project_broker_trading_params(
+    params: &TradingParams,
+    broker: &str,
+    investor: &str,
+    currency: &str,
+) -> CThostFtdcBrokerTradingParamsField {
+    let mut field = params.to_field();
+    set_cstr(&mut field.BrokerID, broker);
+    set_cstr(&mut field.InvestorID, investor);
+    set_cstr(&mut field.CurrencyID, currency);
+    field
 }
 
 fn project_investor_positions(
@@ -814,24 +885,18 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryInvestorProductGroupMarginField = struct_from_bytes(&frame.payload)
-            .unwrap_or_else(CThostFtdcQryInvestorProductGroupMarginField::zeroed);
-        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
-            return self.send_qry_empty(conn_id, frame.req_id);
-        }
-        if cstr(&q.BrokerID) != broker || cstr(&q.InvestorID) != investor {
+        let query = decode_product_group_margin_query(&frame.payload);
+        if !product_group_margin_query_matches(&query, &broker, &investor) {
             return self.send_qry_empty(conn_id, frame.req_id);
         }
         // 官方查询页：ExchangeID/InvestUnitID 不是过滤条件，HedgeFlag 不需要填写。
         self.mark_to_market_now();
-        let filter = cstr(&q.ProductGroupID);
         let day = self.clock_owned().0;
-        let rows = self
-            .ledger
-            .product_group_margin(&broker, &investor, self.engine.catalog(), &day)
-            .into_iter()
-            .filter(|f| filter.is_empty() || cstr(&f.ProductGroupID) == filter)
-            .collect();
+        let rows = filter_product_group_margin_rows(
+            self.ledger
+                .product_group_margin(&broker, &investor, self.engine.catalog(), &day),
+            &query.product_group_id,
+        );
         self.send_rate_rows(
             conn_id,
             frame.req_id,
@@ -848,21 +913,20 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryBrokerTradingParamsField = struct_from_bytes(&frame.payload)
-            .unwrap_or_else(CThostFtdcQryBrokerTradingParamsField::zeroed);
+        let query = decode_broker_trading_params_query(&frame.payload);
         // BrokerID / InvestorID / CurrencyID are all mandatory here.
-        let currency = cstr(&q.CurrencyID);
-        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() || currency.is_empty() {
+        if !broker_trading_params_query_has_required_fields(&query) {
             return self.send_qry_empty(conn_id, frame.req_id);
         }
         // One row per broker — this is where MarginPriceType comes from, and it
         // is the field the whole margin calculation hangs on.
         let catalog = self.engine.catalog();
-        let p = catalog.trading_params().clone();
-        let mut f = p.to_field();
-        set_cstr(&mut f.BrokerID, &broker);
-        set_cstr(&mut f.InvestorID, &investor);
-        set_cstr(&mut f.CurrencyID, &currency);
+        let f = project_broker_trading_params(
+            catalog.trading_params(),
+            &broker,
+            &investor,
+            &query.currency_id,
+        );
         self.send_rate_rows(
             conn_id,
             frame.req_id,
@@ -1184,5 +1248,50 @@ mod order_trade_query_tests {
         let order_rows = project_instrument_order_comm_rates(&catalog, &scope, "B", "I");
         assert_eq!(order_rows.len(), 1);
         assert_eq!(cstr(&order_rows[0].InstrumentID), "rb");
+    }
+
+    #[test]
+    fn product_group_and_broker_param_queries_keep_identity_filters() {
+        assert!(!product_group_margin_query_matches(
+            &decode_product_group_margin_query(&[]),
+            "B",
+            "I"
+        ));
+        let mut group_query = CThostFtdcQryInvestorProductGroupMarginField::zeroed();
+        set_cstr(&mut group_query.BrokerID, "B");
+        set_cstr(&mut group_query.InvestorID, "I");
+        set_cstr(&mut group_query.ProductGroupID, "rb");
+        let group_query = decode_product_group_margin_query(&struct_to_bytes(&group_query));
+        assert_eq!(group_query.product_group_id, "rb");
+        assert!(product_group_margin_query_matches(&group_query, "B", "I"));
+        assert!(!product_group_margin_query_matches(
+            &group_query,
+            "B",
+            "other"
+        ));
+
+        let mut row = CThostFtdcInvestorProductGroupMarginField::zeroed();
+        set_cstr(&mut row.ProductGroupID, "rb");
+        let rows = filter_product_group_margin_rows(vec![row], "rb");
+        assert_eq!(rows.len(), 1);
+        let rows = filter_product_group_margin_rows(rows, "ag");
+        assert!(rows.is_empty());
+
+        let empty = decode_broker_trading_params_query(&[]);
+        assert!(!broker_trading_params_query_has_required_fields(&empty));
+        let mut params_query = CThostFtdcQryBrokerTradingParamsField::zeroed();
+        set_cstr(&mut params_query.BrokerID, "B");
+        set_cstr(&mut params_query.InvestorID, "I");
+        set_cstr(&mut params_query.CurrencyID, "CNY");
+        let params_query = decode_broker_trading_params_query(&struct_to_bytes(&params_query));
+        assert!(broker_trading_params_query_has_required_fields(
+            &params_query
+        ));
+
+        let params = TradingParams::default();
+        let field = project_broker_trading_params(&params, "B", "I", "CNY");
+        assert_eq!(cstr(&field.BrokerID), "B");
+        assert_eq!(cstr(&field.InvestorID), "I");
+        assert_eq!(cstr(&field.CurrencyID), "CNY");
     }
 }

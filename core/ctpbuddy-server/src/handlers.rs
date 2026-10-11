@@ -31,14 +31,15 @@ use ctpbuddy_ledger::{
 };
 use ctpbuddy_matching::{
     CancelQuery, Catalog, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome,
-    ERR_BAD_FIELD, ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
-    ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ, HEDGE_FLAG_SPECULATION,
+    TradingParams, ERR_BAD_FIELD, ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID,
+    ERR_INSTRUMENT_NOT_FOUND, ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ, HEDGE_FLAG_SPECULATION,
 };
 use ctpbuddy_wire::generated::{
-    cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
-    CThostFtdcInstrumentCommissionRateField, CThostFtdcInstrumentField,
+    cstr, set_cstr, CThostFtdcBrokerTradingParamsField, CThostFtdcInputOrderActionField,
+    CThostFtdcInputOrderField, CThostFtdcInstrumentCommissionRateField, CThostFtdcInstrumentField,
     CThostFtdcInstrumentMarginRateField, CThostFtdcInstrumentOrderCommRateField,
-    CThostFtdcInvestorPositionDetailField, CThostFtdcInvestorPositionField, CThostFtdcOrderField,
+    CThostFtdcInvestorPositionDetailField, CThostFtdcInvestorPositionField,
+    CThostFtdcInvestorProductGroupMarginField, CThostFtdcOrderField,
     CThostFtdcQryBrokerTradingParamsField, CThostFtdcQryInstrumentCommissionRateField,
     CThostFtdcQryInstrumentField, CThostFtdcQryInstrumentMarginRateField,
     CThostFtdcQryInstrumentOrderCommRateField, CThostFtdcQryInvestorPositionDetailField,
