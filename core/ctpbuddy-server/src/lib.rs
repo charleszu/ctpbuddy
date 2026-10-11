@@ -1209,6 +1209,7 @@ impl World {
             match event_type.as_str() {
                 "fill" => self.replay_fill_event(&event)?,
                 "order_update" => self.replay_order_update_event(&event)?,
+                "settlement" => self.replay_settlement_event(&event)?,
                 "reset_account" => {
                     let broker = event.get_str("broker").unwrap_or_default();
                     let all = event
@@ -1234,7 +1235,7 @@ impl World {
                 "server_start" | "server_stop" | "scenario_loaded" | "session_auth"
                 | "session_login" | "session_logout" | "md_watermark" | "assertion"
                 | "order_insert" | "order_cancel" | "settlement_report" | "ledger_recovered" => {}
-                "settlement" | "settings_updated" | "deposit" | "withdraw" | "settle" | "admin" => {
+                "settings_updated" | "deposit" | "withdraw" | "settle" | "admin" => {
                     return Err(format!(
                         "journal tail event '{event_type}' cannot be reconstructed from the snapshot"
                     ));
@@ -1242,6 +1243,45 @@ impl World {
                 other => return Err(format!("unknown recovery event '{other}'")),
             }
         }
+        Ok(())
+    }
+
+    fn replay_settlement_event(&mut self, event: &Value) -> Result<(), String> {
+        let data = event
+            .get("data")
+            .ok_or_else(|| "settlement recovery event missing data".to_string())?;
+        let next_day = data
+            .get_str("next_trading_day")
+            .ok_or_else(|| "settlement recovery event missing next_trading_day".to_string())?;
+        let prices = data
+            .get("settlement_prices")
+            .and_then(Value::as_obj)
+            .ok_or_else(|| "settlement recovery event missing settlement_prices".to_string())?
+            .iter()
+            .map(|(instrument, value)| {
+                let price = value
+                    .as_num()
+                    .filter(|value| value.is_finite())
+                    .ok_or_else(|| format!("settlement price for {instrument} is invalid"))?;
+                Ok((instrument.clone(), price))
+            })
+            .collect::<Result<std::collections::HashMap<_, _>, String>>()?;
+        self.ledger
+            .settle_trading_day(
+                self.engine.catalog(),
+                &prices,
+                &self.vt_trading_day,
+                &next_day,
+            )
+            .map_err(|error| format!("settlement recovery failed: {error}"))?;
+        self.engine.advance_trading_day();
+        if let Some(playback) = self.playback.as_mut() {
+            playback.advance_trading_day(&next_day);
+        }
+        self.clear_day_flow();
+        self.settlement_confirmed.clear();
+        self.vt_trading_day = next_day;
+        self.vt_now_ms = 0.0;
         Ok(())
     }
 
@@ -1989,6 +2029,19 @@ mod tests {
         assert_eq!(position.today_position, 1);
         assert_eq!(world.trades_today.len(), 1);
         assert_eq!(world.private_seq, vec![(true, 0)]);
+    }
+
+    #[test]
+    fn recovery_replays_settlement_and_advances_trading_day() {
+        let mut world = World::new(Config::default()).expect("world");
+        world.vt_trading_day = "20261003".into();
+        let event = json::parse(
+            r#"{"type":"settlement","data":{"next_trading_day":"20261004","settlement_prices":{},"accounts":[]}}"#,
+        )
+        .unwrap();
+        world.replay_settlement_event(&event).unwrap();
+        assert_eq!(world.vt_trading_day, "20261004");
+        assert_eq!(world.vt_now_ms, 0.0);
     }
 
     #[test]
