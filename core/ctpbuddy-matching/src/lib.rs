@@ -20,9 +20,9 @@ pub use engine::{
 };
 pub use exchange_rules::{rules_for, ExchangeRules};
 pub use refdata::{
-    CommissionKind, CommissionRate, Instrument, MarginPrice, MarginRate, OrderCommRate, RefData,
-    TradingParams, HEDGE_FLAG_SPECULATION, MPT_AVERAGE, MPT_OPEN_PRICE, MPT_PRE_SETTLEMENT,
-    MPT_SETTLEMENT,
+    CommissionKind, CommissionRate, CrossMarginRule, Instrument, MarginPrice, MarginRate,
+    OrderCommRate, RefData, TradingParams, HEDGE_FLAG_SPECULATION, MPT_AVERAGE, MPT_OPEN_PRICE,
+    MPT_PRE_SETTLEMENT, MPT_SETTLEMENT,
 };
 
 use ctpbuddy_wire::generated::set_cstr;

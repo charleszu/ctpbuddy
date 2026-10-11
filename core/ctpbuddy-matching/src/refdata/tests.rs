@@ -92,6 +92,34 @@ fn broker_specific_rates_override_neutral_rows_without_colliding() {
 }
 
 #[test]
+fn cross_margin_rules_are_explicit_and_broker_specific_rows_override_neutral() {
+    let mut rd = RefData::new();
+    rd.insert_instrument(rb());
+    let mut other = Instrument::new("cu2601", "SHFE");
+    other.volume_multiple = 5;
+    rd.insert_instrument(other);
+    rd.insert_cross_margin_rule(CrossMarginRule {
+        broker_id: String::new(),
+        rule_id: "spread".into(),
+        long_instrument_id: "rb2601".into(),
+        short_instrument_id: "cu2601".into(),
+        offset_ratio: 0.5,
+    })
+    .unwrap();
+    rd.insert_cross_margin_rule(CrossMarginRule {
+        broker_id: "B2".into(),
+        rule_id: "spread".into(),
+        long_instrument_id: "rb2601".into(),
+        short_instrument_id: "cu2601".into(),
+        offset_ratio: 0.8,
+    })
+    .unwrap();
+    assert_eq!(rd.cross_margin_rules_for("B1").len(), 1);
+    assert_eq!(rd.cross_margin_rules_for("B2").len(), 1);
+    assert_eq!(rd.cross_margin_rules_for("B2")[0].offset_ratio, 0.8);
+}
+
+#[test]
 fn commission_sums_by_money_and_by_volume() {
     let mut c = CommissionRate::default();
     c.instrument_id = "rb2601".into();

@@ -25,9 +25,9 @@
 use std::collections::HashMap;
 
 pub use crate::refdata::{
-    parse_delivery_ym, CommissionKind, CommissionRate, Instrument, MarginPrice, MarginRate,
-    OrderCommRate, RefData, TradingParams, HEDGE_FLAG_SPECULATION, MPT_AVERAGE, MPT_OPEN_PRICE,
-    MPT_PRE_SETTLEMENT, MPT_SETTLEMENT,
+    parse_delivery_ym, CommissionKind, CommissionRate, CrossMarginRule, Instrument, MarginPrice,
+    MarginRate, OrderCommRate, RefData, TradingParams, HEDGE_FLAG_SPECULATION, MPT_AVERAGE,
+    MPT_OPEN_PRICE, MPT_PRE_SETTLEMENT, MPT_SETTLEMENT,
 };
 
 use crate::Direction;
@@ -137,6 +137,14 @@ impl Catalog {
 
     pub fn insert_order_comm_rate(&mut self, r: OrderCommRate) {
         self.inner.insert_order_comm_rate(r);
+    }
+
+    pub fn insert_cross_margin_rule(&mut self, rule: CrossMarginRule) -> Result<(), String> {
+        self.inner.insert_cross_margin_rule(rule)
+    }
+
+    pub fn cross_margin_rules_for(&self, broker_id: &str) -> Vec<&CrossMarginRule> {
+        self.inner.cross_margin_rules_for(broker_id)
     }
 
     pub fn set_trading_params(&mut self, p: TradingParams) {

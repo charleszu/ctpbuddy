@@ -1380,6 +1380,42 @@ def test_refdata_manifest() -> None:
     print("[ok] refdata: canonical manifest is emitted and validated")
 
 
+def test_cross_margin_refdata_contract() -> None:
+    from ctpbuddy import refdata
+
+    provider = refdata.DictProvider(
+        instruments=[
+            {"instrument_id": "rb2601", "exchange_id": "SHFE"},
+            {"instrument_id": "cu2601", "exchange_id": "SHFE"},
+        ],
+        cross_margin_rules=[
+            {
+                "broker_id": "B1",
+                "rule_id": "rb-cu",
+                "long_instrument_id": "rb2601",
+                "short_instrument_id": "cu2601",
+                "offset_ratio": "0.5",
+            }
+        ],
+    )
+    with tempfile.TemporaryDirectory() as d:
+        written = refdata.write_jsonl(provider, d)
+        path = os.path.join(d, refdata.CROSS_MARGIN_RULES)
+        assert path in written
+        assert refdata.validate(refdata.jsonl_dir(d)) == []
+        assert refdata.jsonl_dir(d).cross_margin_rules()[0]["offset_ratio"] == 0.5
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "broker_id": "B1",
+                "rule_id": "bad",
+                "long_instrument_id": "missing",
+                "short_instrument_id": "cu2601",
+                "offset_ratio": 0.5,
+            }) + "\n")
+        assert any("未知合约" in problem for problem in refdata.validate(refdata.jsonl_dir(d)))
+    print("[ok] refdata: explicit cross-margin contract validates and round-trips")
+
+
 def test_replay_admin_inputs() -> None:
     """Admin inputs: re-issued where an admin command exists, otherwise
     classified `not_replayed` (counted, listed, not a problem) and excluded
@@ -1587,6 +1623,7 @@ def main() -> int:
     test_sdk_subscribe()
     test_refdata_numeric()
     test_refdata_manifest()
+    test_cross_margin_refdata_contract()
     test_replay_admin_inputs()
     test_journal_contract()
     test_shim_install_security()

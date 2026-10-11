@@ -20,6 +20,7 @@ margin_rates()       ReqQryInstrumentMarginRate
 commission_rates()   ReqQryInstrumentCommissionRate
 order_comm_rates()   ReqQryInstrumentOrderCommRate (申报费)
 trading_params()     ReqQryBrokerTradingParams (MarginPriceType)
+cross_margin_rules() provider-supplied cross-product offset agreements
 ===================  ==========================================
 
 Field names are the snake_case of the CTP field names, so
@@ -29,7 +30,7 @@ Values use the CTP-native encoding where one exists (``exchange_id`` is
 ``SHFE``, ``hedge_flag`` is ``b'1'``) — the provider's job is to translate a
 vendor export, not to re-invent CTP's own vocabulary.
 
-A provider implements any subset of the five methods; the core treats a
+A provider implements any subset of the six methods; the core treats a
 missing table as "this desk has no such rule" (margin 0 is a legitimate
 answer) rather than as an error.
 
@@ -61,6 +62,7 @@ MARGIN_RATES = "margin_rates.jsonl"
 COMMISSION_RATES = "commission_rates.jsonl"
 ORDER_COMM_RATES = "order_comm_rates.jsonl"
 TRADING_PARAMS = "trading_params.jsonl"
+CROSS_MARGIN_RULES = "cross_margin_rules.jsonl"
 MANIFEST = "manifest.jsonl"
 CONTRACT = "ctpbuddy.refdata"
 CONTRACT_VERSION = 1
@@ -81,6 +83,7 @@ ALL_TABLES = (
     COMMISSION_RATES,
     ORDER_COMM_RATES,
     TRADING_PARAMS,
+    CROSS_MARGIN_RULES,
 )
 
 # --- field orders (also the CSV header order) -------------------------------
@@ -232,6 +235,10 @@ class RefDataProvider:
         """ReqQryBrokerTradingParams — one row, or None for the default."""
         return None
 
+    def cross_margin_rules(self) -> Iterable[Dict[str, Any]]:
+        """Explicit cross-product long/short offset agreements."""
+        return []
+
 
 class DictProvider(RefDataProvider):
     """Provider over already-materialized lists (tests, small desks)."""
@@ -243,12 +250,14 @@ class DictProvider(RefDataProvider):
         commission_rates: Optional[List[Dict[str, Any]]] = None,
         order_comm_rates: Optional[List[Dict[str, Any]]] = None,
         trading_params: Optional[Dict[str, Any]] = None,
+        cross_margin_rules: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         self._instruments = instruments or []
         self._margin_rates = margin_rates or []
         self._commission_rates = commission_rates or []
         self._order_comm_rates = order_comm_rates or []
         self._trading_params = trading_params
+        self._cross_margin_rules = cross_margin_rules or []
 
     def instruments(self):
         return self._instruments
@@ -264,6 +273,9 @@ class DictProvider(RefDataProvider):
 
     def trading_params(self):
         return self._trading_params
+
+    def cross_margin_rules(self):
+        return self._cross_margin_rules
 
 
 class JsonlDirProvider(RefDataProvider):
@@ -310,6 +322,9 @@ class JsonlDirProvider(RefDataProvider):
         rows = self._read(TRADING_PARAMS)
         return rows[0] if rows else None
 
+    def cross_margin_rules(self):
+        return self._read(CROSS_MARGIN_RULES)
+
     def manifest(self):
         try:
             rows = self._read(MANIFEST)
@@ -355,6 +370,9 @@ class CsvDirProvider(RefDataProvider):
     def trading_params(self):
         rows = self._read("trading_params")
         return rows[0] if rows else None
+
+    def cross_margin_rules(self):
+        return self._read("cross_margin_rules")
 
 
 def csv_dir(path: str) -> RefDataProvider:
@@ -499,6 +517,32 @@ def validate(provider: RefDataProvider) -> List[str]:
         (_table(provider, "order_comm_rates"), ORDER_COMM_RATE_FIELDS, ORDER_COMM_RATES),
     ):
         problems += _check_rows(rows, fields, name)
+    cross = _table(provider, "cross_margin_rules")
+    problems += _check_rows(
+        cross,
+        ["broker_id", "rule_id", "long_instrument_id", "short_instrument_id", "offset_ratio"],
+        CROSS_MARGIN_RULES,
+    )
+    instrument_ids = {str(row.get("instrument_id")) for row in instruments}
+    seen_cross = set()
+    for i, row in enumerate(cross, start=1):
+        long_id = str(row.get("long_instrument_id", ""))
+        short_id = str(row.get("short_instrument_id", ""))
+        ratio = row.get("offset_ratio")
+        key = (str(row.get("broker_id", "")), str(row.get("rule_id", "")))
+        if long_id not in instrument_ids or short_id not in instrument_ids:
+            problems.append("%s line %d: 规则引用未知合约" % (CROSS_MARGIN_RULES, i))
+        if long_id and long_id == short_id:
+            problems.append("%s line %d: 多空腿不能是同一合约" % (CROSS_MARGIN_RULES, i))
+        if key in seen_cross:
+            problems.append("%s line %d: broker_id/rule_id 重复" % (CROSS_MARGIN_RULES, i))
+        seen_cross.add(key)
+        try:
+            ratio_n = _to_number(ratio)
+            if not 0 <= float(ratio_n) <= 1:
+                problems.append("%s line %d: offset_ratio 必须在 0..1" % (CROSS_MARGIN_RULES, i))
+        except (TypeError, ValueError):
+            pass
     tp = _trading_params(provider)
     if tp is not None:
         mpt = str(tp.get("margin_price_type", DEFAULT_MARGIN_PRICE_TYPE) or DEFAULT_MARGIN_PRICE_TYPE)
@@ -537,6 +581,7 @@ def write_jsonl(provider: RefDataProvider, out_dir: str) -> List[str]:
     dump(ORDER_COMM_RATES, _table(provider, "order_comm_rates"))
     tp = _trading_params(provider)
     dump(TRADING_PARAMS, [tp] if tp else [])
+    dump(CROSS_MARGIN_RULES, _table(provider, "cross_margin_rules"))
     dump(MANIFEST, [{
         "contract": CONTRACT,
         "contract_version": CONTRACT_VERSION,
@@ -558,6 +603,7 @@ _NUMERIC = {
     "close_today_ratio_by_money", "close_today_ratio_by_volume",
     "order_comm_by_volume", "order_action_comm_by_volume",
     "order_comm_by_trade", "order_action_comm_by_trade",
+    "offset_ratio",
 }
 
 
@@ -611,3 +657,4 @@ def iter_tables(provider: RefDataProvider) -> Iterator[tuple]:
     yield ORDER_COMM_RATES, _table(provider, "order_comm_rates")
     tp = _trading_params(provider)
     yield TRADING_PARAMS, [tp] if tp else []
+    yield CROSS_MARGIN_RULES, _table(provider, "cross_margin_rules")

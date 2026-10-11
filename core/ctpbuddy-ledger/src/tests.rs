@@ -1,6 +1,7 @@
 use super::*;
 use ctpbuddy_matching::{
-    to_fixed, CommissionRate, Direction, Instrument, MarginRate, OffsetFlag, TradingParams,
+    to_fixed, CommissionRate, CrossMarginRule, Direction, Instrument, MarginRate, OffsetFlag,
+    TradingParams,
 };
 
 fn fixture(enabled: bool) -> Catalog {
@@ -46,6 +47,37 @@ fn fill(id: &str, direction: Direction, offset: OffsetFlag, volume: i32) -> Fill
         trade_id: to_fixed("1"),
         order_key: "1".into(),
     }
+}
+
+#[test]
+fn explicit_cross_margin_rule_reliefs_only_the_paired_legs() {
+    let mut catalog = fixture(false);
+    catalog
+        .insert_cross_margin_rule(CrossMarginRule {
+            broker_id: "TEST".into(),
+            rule_id: "spread-1".into(),
+            long_instrument_id: "TESTA01".into(),
+            short_instrument_id: "TESTB01".into(),
+            offset_ratio: 0.5,
+        })
+        .unwrap();
+    let mut ledger = Ledger::new(10_000.0);
+    ledger.ensure_account("TEST", "alice");
+    ledger.on_fill(
+        &fill("TESTA01", Direction::Buy, OffsetFlag::Open, 1),
+        &catalog,
+        10.0,
+        "20261003",
+    );
+    ledger.on_fill(
+        &fill("TESTB01", Direction::Sell, OffsetFlag::Open, 1),
+        &catalog,
+        10.0,
+        "20261003",
+    );
+    let account = ledger.account("TEST", "alice").unwrap();
+    // Base margin = 100 + 150; paired relief = min(100, 150) * 50%.
+    assert_eq!(account.used_margin.to_f64(), 200.0);
 }
 
 #[test]

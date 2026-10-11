@@ -41,6 +41,7 @@ Shim 只负责 CTP ABI 适配、帧封装和 SPI 分发；文件数据的加载�
 | 手续费率 | 开仓、平昨、平今的按金额/按手费率 | 否；缺失时按零手续费处理 | `commission_rates.jsonl` |
 | 报单/撤单费 | 申报费相关字段 | 否 | `order_comm_rates.jsonl` |
 | 柜台交易参数 | `MarginPriceType`、币种、可用资金口径等 | 否，有默认值 | `trading_params.jsonl` |
+| 跨品种保证金协议 | 明确的多空腿合约对、`offset_ratio` 和 BrokerID 覆盖 | 否；缺失时不做跨品种 relief | `cross_margin_rules.jsonl` |
 | 初始账户状态 | 初始资金、初始持仓明细、开仓价、开仓日期、昨结算价 | 否 | `scenario.yaml` / `scenario.json` |
 | 交易日历 | 自然日、期货 `TradingDay`、夜盘 `ActionDay/TradingDay` 映射 | 仅日结推导下一交易日时需要 | Python `TradingCalendar` |
 | 日结输入 | 合约结算价、下一交易日 | 跨交易日时需要 | ADMIN `settle_day` |
@@ -113,6 +114,7 @@ myrefdata/
   commission_rates.jsonl
   order_comm_rates.jsonl
   trading_params.jsonl
+  cross_margin_rules.jsonl
 ```
 
 表与 CTP 查询的对应关系如下：
@@ -124,6 +126,7 @@ myrefdata/
 | `commission_rates.jsonl` | `ReqQryInstrumentCommissionRate` | 开仓、平昨、平今手续费 |
 | `order_comm_rates.jsonl` | `ReqQryInstrumentOrderCommRate` | 报单和撤单申报费 |
 | `trading_params.jsonl` | `ReqQryBrokerTradingParams` | 保证金计价方式等柜台参数 |
+| `cross_margin_rules.jsonl` | provider 扩展契约 | 显式多空腿的跨品种保证金 relief；核心不按品种名推断 |
 
 `instruments.jsonl` 是唯一必填表。其他表可以为空；“没有这条规则”是合法柜台配置，不会被自动填入虚构费率。
 

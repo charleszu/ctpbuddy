@@ -11,6 +11,7 @@
 //! | `CommissionRate` | `ReqQryInstrumentCommissionRate` |
 //! | `OrderCommRate` | `ReqQryInstrumentOrderCommRate` (申报费) |
 //! | `TradingParams` | `ReqQryBrokerTradingParams` (`MarginPriceType`) |
+//! | `CrossMarginRule` | provider-supplied cross-product offset agreement |
 //!
 //! This matters for more than tidiness. notes/04 C3: the rate the counter
 //! *charges* you is the one `ReqQryInstrumentMarginRate` returns (公司费率),
@@ -422,6 +423,19 @@ pub struct OrderCommRate {
     pub order_action_comm_by_trade: f64,
 }
 
+/// Explicit cross-product margin agreement. A row pairs one long leg with
+/// one short leg and grants `offset_ratio` of the smaller booked margin as a
+/// relief. The relation is data-driven: the core never infers spreads from
+/// product names or exchange codes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CrossMarginRule {
+    pub broker_id: String,
+    pub rule_id: String,
+    pub long_instrument_id: String,
+    pub short_instrument_id: String,
+    pub offset_ratio: f64,
+}
+
 impl OrderCommRate {
     /// 报单 + 撤单 一次性收齐：CTP 在成交/撤单时按次收取，盘中可用资金
     /// 不含申报费，只体现在结算单（notes/04 D2）。`trades` counts FAK/FOK
@@ -514,6 +528,7 @@ pub struct RefData {
     commission_rates_by_broker: HashMap<(String, String), CommissionRate>,
     order_comm_rates: HashMap<String, OrderCommRate>,
     order_comm_rates_by_broker: HashMap<(String, String), OrderCommRate>,
+    cross_margin_rules: Vec<CrossMarginRule>,
     params: TradingParams,
 }
 
@@ -552,6 +567,50 @@ impl RefData {
             self.order_comm_rates_by_broker
                 .insert((r.broker_id.clone(), r.instrument_id.clone()), r);
         }
+    }
+
+    pub fn insert_cross_margin_rule(&mut self, rule: CrossMarginRule) -> Result<(), String> {
+        if rule.rule_id.trim().is_empty()
+            || rule.long_instrument_id.trim().is_empty()
+            || rule.short_instrument_id.trim().is_empty()
+            || rule.long_instrument_id == rule.short_instrument_id
+            || !rule.offset_ratio.is_finite()
+            || !(0.0..=1.0).contains(&rule.offset_ratio)
+        {
+            return Err(format!("跨品种保证金规则 {:?} 非法", rule.rule_id));
+        }
+        if self.cross_margin_rules.iter().any(|r| {
+            r.broker_id == rule.broker_id
+                && (r.rule_id == rule.rule_id
+                    || r.long_instrument_id == rule.long_instrument_id
+                        && r.short_instrument_id == rule.short_instrument_id)
+        }) {
+            return Err(format!("跨品种保证金规则 {:?} 重复", rule.rule_id));
+        }
+        self.cross_margin_rules.push(rule);
+        Ok(())
+    }
+
+    pub fn cross_margin_rules(&self) -> &[CrossMarginRule] {
+        &self.cross_margin_rules
+    }
+
+    pub fn cross_margin_rules_for(&self, broker_id: &str) -> Vec<&CrossMarginRule> {
+        let exact: Vec<&CrossMarginRule> = self
+            .cross_margin_rules
+            .iter()
+            .filter(|r| r.broker_id == broker_id)
+            .collect();
+        let mut out = exact.clone();
+        out.extend(self.cross_margin_rules.iter().filter(|r| {
+            r.broker_id.is_empty()
+                && !exact.iter().any(|e| {
+                    e.rule_id == r.rule_id
+                        || (e.long_instrument_id == r.long_instrument_id
+                            && e.short_instrument_id == r.short_instrument_id)
+                })
+        }));
+        out
     }
 
     pub fn set_params(&mut self, p: TradingParams) {
@@ -778,9 +837,11 @@ impl RefData {
     // ---- loading ----
 
     /// Load a canonical JSONL directory produced by `ctpbuddy refdata export`
-    /// (or any provider that writes the same five files). Missing rate tables
+    /// (or any provider that writes the same tables). Missing rate tables
     /// are legal — they mean "this desk has no such rule" — but a missing
     /// instrument table is an error, since nothing can trade without it.
+    /// `cross_margin_rules.jsonl` is optional; when present every relation is
+    /// explicit and malformed/unknown legs fail the load closed.
     pub fn load_jsonl_dir(dir: &str) -> Result<Self, String> {
         let mut rd = RefData::new();
         let manifest = read_jsonl(&format!("{dir}/manifest.jsonl"))?;
@@ -1103,6 +1164,42 @@ impl RefData {
             r.order_comm_by_trade = row.num("order_comm_by_trade").unwrap_or(0.0);
             r.order_action_comm_by_trade = row.num("order_action_comm_by_trade").unwrap_or(0.0);
             rd.insert_order_comm_rate(r);
+        }
+        let cross_margin_rules = read_jsonl(&format!("{dir}/cross_margin_rules.jsonl"))?;
+        validate_numeric_fields(
+            &cross_margin_rules,
+            "cross_margin_rules.jsonl",
+            &["offset_ratio"],
+        )?;
+        for (n, row) in cross_margin_rules.iter().enumerate() {
+            let rule = CrossMarginRule {
+                broker_id: row.str("broker_id").unwrap_or_default(),
+                rule_id: row.str("rule_id").ok_or_else(|| {
+                    format!("cross_margin_rules.jsonl line {}: 缺 rule_id", n + 1)
+                })?,
+                long_instrument_id: row.str("long_instrument_id").ok_or_else(|| {
+                    format!(
+                        "cross_margin_rules.jsonl line {}: 缺 long_instrument_id",
+                        n + 1
+                    )
+                })?,
+                short_instrument_id: row.str("short_instrument_id").ok_or_else(|| {
+                    format!(
+                        "cross_margin_rules.jsonl line {}: 缺 short_instrument_id",
+                        n + 1
+                    )
+                })?,
+                offset_ratio: row.num("offset_ratio").unwrap_or(f64::NAN),
+            };
+            if rd.instrument(&rule.long_instrument_id).is_none()
+                || rd.instrument(&rule.short_instrument_id).is_none()
+            {
+                return Err(format!(
+                    "cross_margin_rules.jsonl line {}: 规则引用未知合约",
+                    n + 1
+                ));
+            }
+            rd.insert_cross_margin_rule(rule)?;
         }
         if let Some(row) = read_jsonl(&format!("{dir}/trading_params.jsonl"))?
             .into_iter()

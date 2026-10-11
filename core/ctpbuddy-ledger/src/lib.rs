@@ -446,11 +446,38 @@ impl Ledger {
     /// only ever change their own account, so they refresh just that one.
     fn refresh_account(&mut self, key: &AccountKey, catalog: &Catalog) {
         let groups = self.group_aggs(key, catalog);
+        let base_used_margin: Money = groups.values().map(GroupAgg::use_margin).sum();
+        let cross_relief = self.cross_margin_relief(key, catalog);
         if let Some(a) = self.accounts.get_mut(key) {
-            a.used_margin = groups.values().map(GroupAgg::use_margin).sum();
+            a.used_margin = (base_used_margin - cross_relief).floor_zero();
             a.frozen_margin = groups.values().map(GroupAgg::frozen_margin).sum();
             a.frozen_commission = groups.values().map(|g| g.frozen_commission).sum();
         }
+    }
+
+    /// Apply only explicitly supplied cross-product agreements. Each rule
+    /// consumes the smaller booked margin of its long/short pair, so a rule
+    /// cannot create negative margin and absent provider data has no effect.
+    fn cross_margin_relief(&self, key: &AccountKey, catalog: &Catalog) -> Money {
+        catalog
+            .cross_margin_rules_for(&key.broker_id)
+            .into_iter()
+            .filter_map(|rule| {
+                let long = self.positions.get(&(
+                    key.clone(),
+                    rule.long_instrument_id.clone(),
+                    PositionSide::Long,
+                ))?;
+                let short = self.positions.get(&(
+                    key.clone(),
+                    rule.short_instrument_id.clone(),
+                    PositionSide::Short,
+                ))?;
+                Some(Money::from_f64(
+                    long.margin.to_f64().min(short.margin.to_f64()) * rule.offset_ratio,
+                ))
+            })
+            .sum()
     }
 
     /// Reserve closeable volume for a close order.
