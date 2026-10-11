@@ -52,7 +52,14 @@ class Admin:
         return self.cmd("ping")
 
     def status(self) -> Dict[str, Any]:
-        return self.cmd("status")
+        status = self.cmd("status")
+        if self.calendar is not None:
+            # Keep the Rust ADMIN wire response unchanged while making the
+            # Python control-plane adapter explicit about its time authority.
+            status = dict(status)
+            status["calendar_version"] = self.calendar.metadata["version"]
+            status["calendar_sha256"] = self.calendar.sha256
+        return status
 
     def settings(self) -> Dict[str, Any]:
         return self.cmd("settings_get")

@@ -425,6 +425,10 @@ def test_calendar() -> None:
         assert cli_main(["calendar", "validate", path, "--sha256", "bad"]) == 1
     with patch("ctpbuddy.sdk.admin.socket.create_connection"):
         admin = Admin(calendar=cal)
+        with patch.object(admin, "cmd", return_value={"ok": True, "playback": {}}):
+            status = admin.status()
+            assert status["calendar_version"] == "fixture-2026-10-r1"
+            assert status["calendar_sha256"] == cal.sha256
         with patch.object(admin, "cmd", return_value={"ok": True}) as cmd, patch.object(admin, "status", return_value={"playback": {"trading_day": "20261002"}}) as status:
             admin.settle_day({"rb": 1})
             cmd.assert_called_once_with("settle_day", settlement_prices={"rb": 1}, next_trading_day="20261005")
