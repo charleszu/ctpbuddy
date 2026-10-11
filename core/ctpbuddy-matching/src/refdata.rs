@@ -507,8 +507,13 @@ impl TradingParams {
 pub struct RefData {
     instruments: HashMap<String, Instrument>,
     margin_rates: HashMap<String, MarginRate>,
+    /// Broker-specific company rates. The legacy maps above remain the
+    /// broker-neutral fallback used by existing fixtures and callers.
+    margin_rates_by_broker: HashMap<(String, String), MarginRate>,
     commission_rates: HashMap<String, CommissionRate>,
+    commission_rates_by_broker: HashMap<(String, String), CommissionRate>,
     order_comm_rates: HashMap<String, OrderCommRate>,
+    order_comm_rates_by_broker: HashMap<(String, String), OrderCommRate>,
     params: TradingParams,
 }
 
@@ -523,15 +528,30 @@ impl RefData {
     }
 
     pub fn insert_margin_rate(&mut self, r: MarginRate) {
-        self.margin_rates.insert(r.instrument_id.clone(), r);
+        if r.broker_id.is_empty() {
+            self.margin_rates.insert(r.instrument_id.clone(), r);
+        } else {
+            self.margin_rates_by_broker
+                .insert((r.broker_id.clone(), r.instrument_id.clone()), r);
+        }
     }
 
     pub fn insert_commission_rate(&mut self, r: CommissionRate) {
-        self.commission_rates.insert(r.instrument_id.clone(), r);
+        if r.broker_id.is_empty() {
+            self.commission_rates.insert(r.instrument_id.clone(), r);
+        } else {
+            self.commission_rates_by_broker
+                .insert((r.broker_id.clone(), r.instrument_id.clone()), r);
+        }
     }
 
     pub fn insert_order_comm_rate(&mut self, r: OrderCommRate) {
-        self.order_comm_rates.insert(r.instrument_id.clone(), r);
+        if r.broker_id.is_empty() {
+            self.order_comm_rates.insert(r.instrument_id.clone(), r);
+        } else {
+            self.order_comm_rates_by_broker
+                .insert((r.broker_id.clone(), r.instrument_id.clone()), r);
+        }
     }
 
     pub fn set_params(&mut self, p: TradingParams) {
@@ -556,12 +576,32 @@ impl RefData {
         self.margin_rates.get(id)
     }
 
+    /// Resolve a company margin rate for a broker, falling back to the
+    /// broker-neutral row. This is the rate path used by account calculations.
+    pub fn margin_rate_for(&self, broker_id: &str, id: &str) -> Option<&MarginRate> {
+        self.margin_rates_by_broker
+            .get(&(broker_id.to_string(), id.to_string()))
+            .or_else(|| self.margin_rates.get(id))
+    }
+
     pub fn commission_rate(&self, id: &str) -> Option<&CommissionRate> {
         self.commission_rates.get(id)
     }
 
+    pub fn commission_rate_for(&self, broker_id: &str, id: &str) -> Option<&CommissionRate> {
+        self.commission_rates_by_broker
+            .get(&(broker_id.to_string(), id.to_string()))
+            .or_else(|| self.commission_rates.get(id))
+    }
+
     pub fn order_comm_rate(&self, id: &str) -> Option<&OrderCommRate> {
         self.order_comm_rates.get(id)
+    }
+
+    pub fn order_comm_rate_for(&self, broker_id: &str, id: &str) -> Option<&OrderCommRate> {
+        self.order_comm_rates_by_broker
+            .get(&(broker_id.to_string(), id.to_string()))
+            .or_else(|| self.order_comm_rates.get(id))
     }
 
     pub fn instruments(&self) -> impl Iterator<Item = &Instrument> {
@@ -569,15 +609,21 @@ impl RefData {
     }
 
     pub fn margin_rate_rows(&self) -> impl Iterator<Item = &MarginRate> {
-        self.margin_rates.values()
+        self.margin_rates
+            .values()
+            .chain(self.margin_rates_by_broker.values())
     }
 
     pub fn commission_rate_rows(&self) -> impl Iterator<Item = &CommissionRate> {
-        self.commission_rates.values()
+        self.commission_rates
+            .values()
+            .chain(self.commission_rates_by_broker.values())
     }
 
     pub fn order_comm_rate_rows(&self) -> impl Iterator<Item = &OrderCommRate> {
-        self.order_comm_rates.values()
+        self.order_comm_rates
+            .values()
+            .chain(self.order_comm_rates_by_broker.values())
     }
 
     pub fn instrument_count(&self) -> usize {
@@ -593,22 +639,22 @@ impl RefData {
 
     /// Every margin rate, ordered by instrument.
     pub fn margin_rate_rows_sorted(&self) -> Vec<&MarginRate> {
-        let mut v: Vec<&MarginRate> = self.margin_rates.values().collect();
-        v.sort_by(|a, b| a.instrument_id.cmp(&b.instrument_id));
+        let mut v: Vec<&MarginRate> = self.margin_rate_rows().collect();
+        v.sort_by(|a, b| (&a.instrument_id, &a.broker_id).cmp(&(&b.instrument_id, &b.broker_id)));
         v
     }
 
     /// Every commission rate, ordered by instrument.
     pub fn commission_rate_rows_sorted(&self) -> Vec<&CommissionRate> {
-        let mut v: Vec<&CommissionRate> = self.commission_rates.values().collect();
-        v.sort_by(|a, b| a.instrument_id.cmp(&b.instrument_id));
+        let mut v: Vec<&CommissionRate> = self.commission_rate_rows().collect();
+        v.sort_by(|a, b| (&a.instrument_id, &a.broker_id).cmp(&(&b.instrument_id, &b.broker_id)));
         v
     }
 
     /// Every 报单/撤单费 row, ordered by instrument.
     pub fn order_comm_rate_rows_sorted(&self) -> Vec<&OrderCommRate> {
-        let mut v: Vec<&OrderCommRate> = self.order_comm_rates.values().collect();
-        v.sort_by(|a, b| a.instrument_id.cmp(&b.instrument_id));
+        let mut v: Vec<&OrderCommRate> = self.order_comm_rate_rows().collect();
+        v.sort_by(|a, b| (&a.instrument_id, &a.broker_id).cmp(&(&b.instrument_id, &b.broker_id)));
         v
     }
 
@@ -624,12 +670,23 @@ impl RefData {
         price: MarginPrice,
         volume: i32,
     ) -> f64 {
+        self.margin_for("", instrument_id, direction, price, volume)
+    }
+
+    pub fn margin_for(
+        &self,
+        broker_id: &str,
+        instrument_id: &str,
+        direction: Direction,
+        price: MarginPrice,
+        volume: i32,
+    ) -> f64 {
         let multiple = self
             .instrument(instrument_id)
             .map(|i| i.volume_multiple)
             .unwrap_or(1);
         let p = price.value();
-        if let Some(r) = self.margin_rate(instrument_id) {
+        if let Some(r) = self.margin_rate_for(broker_id, instrument_id) {
             return r.margin(direction, p, multiple, volume);
         }
         if let Some(i) = self.instrument(instrument_id) {
@@ -654,11 +711,22 @@ impl RefData {
         price: f64,
         volume: i32,
     ) -> f64 {
+        self.commission_for("", instrument_id, kind, price, volume)
+    }
+
+    pub fn commission_for(
+        &self,
+        broker_id: &str,
+        instrument_id: &str,
+        kind: CommissionKind,
+        price: f64,
+        volume: i32,
+    ) -> f64 {
         let multiple = self
             .instrument(instrument_id)
             .map(|i| i.volume_multiple)
             .unwrap_or(1);
-        if let Some(r) = self.commission_rate(instrument_id) {
+        if let Some(r) = self.commission_rate_for(broker_id, instrument_id) {
             return r.commission(kind, price, multiple, volume);
         }
         // No rate table: fee 0 is a legitimate answer for a desk that does not
@@ -892,7 +960,13 @@ impl RefData {
             r.instrument_id = row
                 .str("instrument_id")
                 .ok_or_else(|| format!("margin_rates.jsonl line {}: 缺 instrument_id", n + 1))?;
-            if rd.margin_rate(&r.instrument_id).is_some() {
+            let duplicate = if r.broker_id.is_empty() {
+                rd.margin_rates.contains_key(&r.instrument_id)
+            } else {
+                rd.margin_rates_by_broker
+                    .contains_key(&(r.broker_id.clone(), r.instrument_id.clone()))
+            };
+            if duplicate {
                 return Err(format!(
                     "margin_rates.jsonl line {}: instrument_id 重复 {:?}",
                     n + 1,
@@ -942,7 +1016,13 @@ impl RefData {
             r.instrument_id = row.str("instrument_id").ok_or_else(|| {
                 format!("commission_rates.jsonl line {}: 缺 instrument_id", n + 1)
             })?;
-            if rd.commission_rate(&r.instrument_id).is_some() {
+            let duplicate = if r.broker_id.is_empty() {
+                rd.commission_rates.contains_key(&r.instrument_id)
+            } else {
+                rd.commission_rates_by_broker
+                    .contains_key(&(r.broker_id.clone(), r.instrument_id.clone()))
+            };
+            if duplicate {
                 return Err(format!(
                     "commission_rates.jsonl line {}: instrument_id 重复 {:?}",
                     n + 1,
@@ -992,7 +1072,13 @@ impl RefData {
             r.instrument_id = row.str("instrument_id").ok_or_else(|| {
                 format!("order_comm_rates.jsonl line {}: 缺 instrument_id", n + 1)
             })?;
-            if rd.order_comm_rate(&r.instrument_id).is_some() {
+            let duplicate = if r.broker_id.is_empty() {
+                rd.order_comm_rates.contains_key(&r.instrument_id)
+            } else {
+                rd.order_comm_rates_by_broker
+                    .contains_key(&(r.broker_id.clone(), r.instrument_id.clone()))
+            };
+            if duplicate {
                 return Err(format!(
                     "order_comm_rates.jsonl line {}: instrument_id 重复 {:?}",
                     n + 1,

@@ -283,7 +283,7 @@ impl World {
         let app = v
             .get_str("app_id")
             .unwrap_or_else(|| "ctpbuddy-client".into());
-        if broker != self.cfg.broker_id {
+        if !self.cfg.supports_broker(&broker) {
             return self.send_auth_error(
                 conn_id,
                 frame.req_id,
@@ -375,7 +375,7 @@ impl World {
         let broker = cstr(&req.BrokerID);
         let user = cstr(&req.UserID);
         // 错误码全集.md: 63 AUTH_FAILED ← BrokerID 与核心不一致；3 INVALID_LOGIN ← UserID 为空。
-        if broker != self.cfg.broker_id {
+        if !self.cfg.supports_broker(&broker) {
             return self.send_error(
                 conn_id,
                 frame.req_id,

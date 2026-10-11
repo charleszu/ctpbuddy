@@ -13,7 +13,8 @@ usage: ctpbuddy-server [options]
 
 options:
   -a, --admin <addr>     admin control endpoint      (default 127.0.0.1:5561)
-  -b, --broker-id <id>   the only BrokerID served     (default 8888)
+  -b, --broker-id <id>   BrokerID, or comma-separated BrokerIDs served
+                          by one shared core         (default 8888)
       --data-dir <dir>   journal / runtime data dir   (default ./data)
   -h, --help             show this help
   -f, --initial-funds <n>

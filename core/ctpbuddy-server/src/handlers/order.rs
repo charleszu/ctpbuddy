@@ -176,7 +176,8 @@ impl World {
                 .pre_settlement(&instrument)
                 .or_else(|| self.engine.last_price(&instrument))
                 .unwrap_or(price_est);
-            catalog.margin(
+            catalog.margin_for(
+                &broker,
                 &instrument,
                 direction,
                 catalog.margin_price_for(true, basis, price_est),
@@ -185,8 +186,12 @@ impl World {
         } else {
             0.0
         };
-        let est_comm =
-            catalog.estimated_commission(&instrument, price_est, input.VolumeTotalOriginal);
+        let est_comm = catalog.estimated_commission_for(
+            &broker,
+            &instrument,
+            price_est,
+            input.VolumeTotalOriginal,
+        );
         if let Err(code) = self.ledger.freeze(
             &order_key,
             &broker,

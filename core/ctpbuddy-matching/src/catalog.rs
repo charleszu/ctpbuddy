@@ -95,14 +95,34 @@ impl Catalog {
         self.inner.margin_rate(instrument_id)
     }
 
+    pub fn margin_rate_for(&self, broker_id: &str, instrument_id: &str) -> Option<&MarginRate> {
+        self.inner.margin_rate_for(broker_id, instrument_id)
+    }
+
     /// 手续费率 — the row `ReqQryInstrumentCommissionRate` returns.
     pub fn commission_rate(&self, instrument_id: &str) -> Option<&CommissionRate> {
         self.inner.commission_rate(instrument_id)
     }
 
+    pub fn commission_rate_for(
+        &self,
+        broker_id: &str,
+        instrument_id: &str,
+    ) -> Option<&CommissionRate> {
+        self.inner.commission_rate_for(broker_id, instrument_id)
+    }
+
     /// 报单/撤单费 — `ReqQryInstrumentOrderCommRate` (申报费).
     pub fn order_comm_rate(&self, instrument_id: &str) -> Option<&OrderCommRate> {
         self.inner.order_comm_rate(instrument_id)
+    }
+
+    pub fn order_comm_rate_for(
+        &self,
+        broker_id: &str,
+        instrument_id: &str,
+    ) -> Option<&OrderCommRate> {
+        self.inner.order_comm_rate_for(broker_id, instrument_id)
     }
 
     // ---- rate-table writers (fixtures, tests, admin-driven refits) ----
@@ -136,6 +156,18 @@ impl Catalog {
         self.inner.margin(instrument_id, direction, price, volume)
     }
 
+    pub fn margin_for(
+        &self,
+        broker_id: &str,
+        instrument_id: &str,
+        direction: Direction,
+        price: MarginPrice,
+        volume: i32,
+    ) -> f64 {
+        self.inner
+            .margin_for(broker_id, instrument_id, direction, price, volume)
+    }
+
     /// 手续费 for one fill leg (开仓 / 平昨 / 平今 priced separately).
     pub fn commission(
         &self,
@@ -145,6 +177,18 @@ impl Catalog {
         volume: i32,
     ) -> f64 {
         self.inner.commission(instrument_id, kind, price, volume)
+    }
+
+    pub fn commission_for(
+        &self,
+        broker_id: &str,
+        instrument_id: &str,
+        kind: CommissionKind,
+        price: f64,
+        volume: i32,
+    ) -> f64 {
+        self.inner
+            .commission_for(broker_id, instrument_id, kind, price, volume)
     }
 
     /// Which price a fill's margin is computed against, per
@@ -170,6 +214,30 @@ impl Catalog {
         let close_today =
             self.inner
                 .commission(instrument_id, CommissionKind::CloseToday, price, volume);
+        open.max(close_today)
+    }
+
+    pub fn estimated_commission_for(
+        &self,
+        broker_id: &str,
+        instrument_id: &str,
+        price: f64,
+        volume: i32,
+    ) -> f64 {
+        let open = self.inner.commission_for(
+            broker_id,
+            instrument_id,
+            CommissionKind::Open,
+            price,
+            volume,
+        );
+        let close_today = self.inner.commission_for(
+            broker_id,
+            instrument_id,
+            CommissionKind::CloseToday,
+            price,
+            volume,
+        );
         open.max(close_today)
     }
 

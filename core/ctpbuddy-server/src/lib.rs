@@ -101,7 +101,9 @@ pub enum GateStream {
 pub struct Config {
     pub td_endpoint: String,
     pub admin_endpoint: String,
-    /// The only BrokerID this core instance serves (DESIGN.md §6.4).
+    /// BrokerIDs served by this core instance. A comma-separated value enables
+    /// a shared world for multiple brokers; the first ID remains the default
+    /// journal/settlement namespace for backward compatibility.
     pub broker_id: String,
     pub scenario_dir: Option<String>,
     /// Reference-data directory (canonical JSONL from a ref-data provider).
@@ -171,6 +173,23 @@ impl Default for Config {
             calendar: None,
             calendar_snapshot: None,
         }
+    }
+}
+
+impl Config {
+    pub fn supports_broker(&self, broker: &str) -> bool {
+        self.broker_id
+            .split(',')
+            .map(str::trim)
+            .any(|id| !id.is_empty() && id == broker)
+    }
+
+    pub fn broker_ids(&self) -> Vec<&str> {
+        self.broker_id
+            .split(',')
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .collect()
     }
 }
 
@@ -600,6 +619,12 @@ pub struct World {
     shutdown: bool,
 }
 
+struct PrivateNotification {
+    broker: String,
+    investor: String,
+    frame: Frame,
+}
+
 impl World {
     pub fn new(cfg: Config) -> std::io::Result<Self> {
         let mut journal = if cfg.data_dir.is_empty() {
@@ -837,7 +862,8 @@ impl World {
                     ctpbuddy_matching::Direction::Sell
                 };
                 let margin = p.margin.unwrap_or_else(|| {
-                    catalog.margin(
+                    catalog.margin_for(
+                        broker,
                         &p.instrument,
                         direction,
                         MarginPrice::PreSettlement(p.pre_settlement),
@@ -1169,6 +1195,29 @@ impl World {
     /// Timer pulse: release due ticks, settle fills, mark to market, flush journal.
     fn pulse(&mut self) {
         let now = Instant::now();
+        let ticks = self.poll_playback(now);
+        if !ticks.is_empty() {
+            self.process_ticks(&ticks);
+            self.journal_record_json(
+                "md_watermark",
+                "",
+                "",
+                json::obj_sorted(vec![("idx".into(), json::n(self.playback_progress()))]),
+            );
+        }
+        // scenario assertions fire at deterministic virtual times (§7.4)
+        self.eval_assertions();
+        self.mark_to_market();
+        if let Some(j) = self.journal.as_mut() {
+            j.flush_if_due(now);
+        }
+        if now.duration_since(self.last_snapshot_at) >= SNAPSHOT_EVERY {
+            self.last_snapshot_at = now;
+            self.persist_ledger();
+        }
+    }
+
+    fn poll_playback(&mut self, now: Instant) -> Vec<Tick> {
         let (ticks, vtime) = match self.playback.as_mut() {
             Some(pb) => {
                 let t = pb.poll(now);
@@ -1179,23 +1228,20 @@ impl World {
         if !ticks.is_empty() {
             self.vt_now_ms = vtime;
         }
-        for tick in &ticks {
+        ticks
+    }
+
+    fn process_ticks(&mut self, ticks: &[Tick]) {
+        for tick in ticks {
             self.push_market_data(tick);
             let events = self.engine.on_tick(tick);
             for ev in events {
                 self.dispatch_event(ev);
             }
         }
-        // scenario assertions fire at deterministic virtual times (§7.4)
-        self.eval_assertions();
-        if !ticks.is_empty() {
-            self.journal_record_json(
-                "md_watermark",
-                "",
-                "",
-                json::obj_sorted(vec![("idx".into(), json::n(self.playback_progress()))]),
-            );
-        }
+    }
+
+    fn mark_to_market(&mut self) {
         // mark to market (unrealized PnL drives account queries)
         let prices = self.engine.last_prices();
         let pre_settlements = self.engine.pre_settlements();
@@ -1205,13 +1251,6 @@ impl World {
             &pre_settlements,
             &self.vt_trading_day,
         );
-        if let Some(j) = self.journal.as_mut() {
-            j.flush_if_due(now);
-        }
-        if now.duration_since(self.last_snapshot_at) >= SNAPSHOT_EVERY {
-            self.last_snapshot_at = now;
-            self.persist_ledger();
-        }
     }
 
     fn push_market_data(&mut self, tick: &Tick) {
@@ -1228,15 +1267,22 @@ impl World {
         }
     }
 
-    /// Route an engine event: ledger settles first, then the wire push.
+    /// Apply an engine event to durable/account state, then hand the resulting
+    /// notification to the transport fanout. Keeping those phases separate
+    /// prevents connection delivery from becoming part of ledger semantics.
     fn dispatch_event(&mut self, ev: EngineEvent) {
+        let notification = self.apply_engine_event(ev);
+        self.emit_private_notification(notification);
+    }
+
+    fn apply_engine_event(&mut self, ev: EngineEvent) -> PrivateNotification {
         match ev {
-            EngineEvent::Order(field) => self.dispatch_order_event(field),
-            EngineEvent::Trade { field, fill } => self.dispatch_trade_event(field, fill),
+            EngineEvent::Order(field) => self.apply_order_event(field),
+            EngineEvent::Trade { field, fill } => self.apply_trade_event(field, fill),
         }
     }
 
-    fn dispatch_order_event(&mut self, field: CThostFtdcOrderField) {
+    fn apply_order_event(&mut self, field: CThostFtdcOrderField) -> PrivateNotification {
         if field.OrderStatus == b'5' {
             let key = format!(
                 "{}/{}/{}",
@@ -1252,17 +1298,21 @@ impl World {
         let field = *field;
         let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
         let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
-        let targets = self.investor_conns(&b, &i);
-        self.mark_delivered(&b, &i, !targets.is_empty());
-        for id in targets {
-            self.send_frame(id, frame.clone());
-        }
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         self.journal_record_order_update(&day, now, &field);
+        PrivateNotification {
+            broker: b,
+            investor: i,
+            frame,
+        }
     }
 
-    fn dispatch_trade_event(&mut self, field: CThostFtdcTradeField, fill: ctpbuddy_matching::Fill) {
+    fn apply_trade_event(
+        &mut self,
+        field: CThostFtdcTradeField,
+        fill: ctpbuddy_matching::Fill,
+    ) -> PrivateNotification {
         let pre_settle = self
             .engine
             .pre_settlement(&fill.instrument_id)
@@ -1279,14 +1329,26 @@ impl World {
         let field = *field;
         let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
         let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
-        let targets = self.investor_conns(&b, &i);
-        self.mark_delivered(&b, &i, !targets.is_empty());
-        for id in targets {
-            self.send_frame(id, frame.clone());
-        }
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         self.journal_record_fill(&day, now, &fill);
+        PrivateNotification {
+            broker: b,
+            investor: i,
+            frame,
+        }
+    }
+
+    fn emit_private_notification(&mut self, notification: PrivateNotification) {
+        let targets = self.investor_conns(&notification.broker, &notification.investor);
+        self.mark_delivered(
+            &notification.broker,
+            &notification.investor,
+            !targets.is_empty(),
+        );
+        for id in targets {
+            self.send_frame(id, notification.frame.clone());
+        }
     }
     fn on_conn_opened(&mut self, id: u64, writer: Sender<Frame>, is_admin: bool) {
         self.conns.insert(
@@ -1582,6 +1644,16 @@ mod tests {
         assert_eq!(parse_max_conns(Some("8")), 8);
         assert_eq!(parse_max_conns(Some("0")), DEFAULT_MAX_CONNS);
         assert_eq!(parse_max_conns(Some("abc")), DEFAULT_MAX_CONNS);
+    }
+
+    #[test]
+    fn broker_allowlist_accepts_comma_separated_ids() {
+        let mut cfg = Config::default();
+        cfg.broker_id = "8888, B2".into();
+        assert!(cfg.supports_broker("8888"));
+        assert!(cfg.supports_broker("B2"));
+        assert!(!cfg.supports_broker("B3"));
+        assert_eq!(cfg.broker_ids(), vec!["8888", "B2"]);
     }
 
     #[test]

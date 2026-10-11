@@ -206,7 +206,7 @@ fn project_instrument_margin_rates(
 ) -> Vec<CThostFtdcInstrumentMarginRateField> {
     scope
         .iter()
-        .filter_map(|id| catalog.margin_rate(id))
+        .filter_map(|id| catalog.margin_rate_for(broker, id))
         .map(|rate| {
             let mut field = rate.to_field();
             set_cstr(&mut field.BrokerID, broker);
@@ -226,7 +226,7 @@ fn project_instrument_commission_rates(
 ) -> Vec<CThostFtdcInstrumentCommissionRateField> {
     scope
         .iter()
-        .filter_map(|id| catalog.commission_rate(id))
+        .filter_map(|id| catalog.commission_rate_for(broker, id))
         .map(|rate| {
             let mut field = rate.to_field();
             set_cstr(&mut field.BrokerID, broker);
@@ -245,7 +245,7 @@ fn project_instrument_order_comm_rates(
 ) -> Vec<CThostFtdcInstrumentOrderCommRateField> {
     scope
         .iter()
-        .filter_map(|id| catalog.order_comm_rate(id))
+        .filter_map(|id| catalog.order_comm_rate_for(broker, id))
         .map(|rate| {
             let mut field = rate.to_field();
             set_cstr(&mut field.BrokerID, broker);

@@ -79,7 +79,7 @@ impl Ledger {
                 )
             })
             .collect();
-        for position in staged.positions.values_mut() {
+        for ((account_key, _, _), position) in staged.positions.iter_mut() {
             let volume = position.volume();
             let price = prices
                 .get(&position.instrument_id)
@@ -112,7 +112,8 @@ impl Ledger {
                 PositionSide::Short => ctpbuddy_matching::Direction::Sell,
             };
             for detail in &mut position.details {
-                detail.margin = Money::from_f64(catalog.margin(
+                detail.margin = Money::from_f64(catalog.margin_for(
+                    &account_key.broker_id,
                     &position.instrument_id,
                     direction,
                     ctpbuddy_matching::MarginPrice::PreSettlement(price),
@@ -180,7 +181,7 @@ impl Ledger {
         // 不重估（notes/04 C2）。默认 '1' 与 '3'/'4' 不随行情变化。
         let reprice_margin = catalog.trading_params().margin_price_type == b'2';
         let mut margin_changed = false;
-        for pos in self.positions.values_mut() {
+        for ((key, _, _), pos) in self.positions.iter_mut() {
             let mult = catalog
                 .get(&pos.instrument_id)
                 .map(|i| i.volume_multiple)
@@ -208,7 +209,8 @@ impl Ledger {
             pos.settlement_price = p;
             if reprice_margin {
                 if let Some(last) = prices.get(&pos.instrument_id).copied().filter(|v| *v > 0.0) {
-                    margin_changed |= reprice_today_margin(pos, catalog, last, trading_day);
+                    margin_changed |=
+                        reprice_today_margin(pos, catalog, &key.broker_id, last, trading_day);
                 }
             }
         }
@@ -232,6 +234,7 @@ impl Ledger {
 fn reprice_today_margin(
     pos: &mut Position,
     catalog: &Catalog,
+    broker_id: &str,
     last: f64,
     trading_day: &str,
 ) -> bool {
@@ -251,7 +254,8 @@ fn reprice_today_margin(
         .iter_mut()
         .filter(|d| d.volume > 0 && d.open_volume > 0 && d.is_today(trading_day))
     {
-        let full = Money::from_f64(catalog.margin(
+        let full = Money::from_f64(catalog.margin_for(
+            broker_id,
             &pos.instrument_id,
             direction,
             ctpbuddy_matching::MarginPrice::Last(last),

@@ -24,13 +24,14 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 |---|---|---|
 | §6 ZeroMQ DEALER/ROUTER + PUB/SUB | plain TCP，一连接一客户端，帧格式一致 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道 |
 | §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | Shim 只解析 `tcp://<IPv4>:<port>` 字面地址 | 下游需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」暂不成立 |
-| §6.4 / §10 单进程托管多 Broker | 每个核心实例只服务一个 `--broker-id`；费率表只按合约索引 | 多 Broker 需多实例部署 |
+| §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单与私有流按 BrokerID 隔离；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 场景 bootstrap、ADMIN 日结与 settlement report 仍以首个 BrokerID 为默认命名空间；跨 Broker 的批量日结编排尚未抽成独立命令 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
-| §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：Shim 的 `SubscribePrivateTopic(nResumeType)` 经 AUTH 的 `private_resume` 上报；登录响应后 RESTART(0) 重放当日全部 RtnOrder/RtnTrade，RESUME(1) 只重放该投资者无在线会话期间产生的回报（服务端按投资者游标，非 API 本地流文件序号，nSeqNo 忽略），QUICK(2) 或未调用则不重放；日结/重置清空 | 游标不随进程重启保存（`--recover` 后当日回报为空）；多会话同账号共享一个游标；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；未调用 SubscribePrivateTopic 时保持旧行为（只推实时） |
+| §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，`--recover` 在同一交易日恢复后可继续 RESTART/RESUME；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*） |
 | §5 Shim DLL/so | Windows DLL（`shim/build_msvc.py`）与 Linux `.so`（`shim/build_linux.py`，g++/WSL 已通过 `m1_shim_e2e`）；`CTPBUDDY_ADDR` 环境变量可整体重定向前置，前置地址支持主机名 | 前置别名表 `ctpbuddy.ini` 仍未实现；ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
-| §7.3 Parquet / 插件行情源 | 仅 CSV | — |
+| §7.3 Parquet / 插件行情源 | 仅 CSV | 暂不纳入当前实现范围 |
 | §8.6 / §8.7 昨仓保证金按昨结算价计 | 已实现：`settle_trading_day` 在推进交易日时按供给结算价重算每个存续明细的保证金，并更新 `last_settlement_price`；`MarginPriceType=Last` 仅对今仓按最新价做盘中重估，昨仓仍固定昨结算价 | 真实柜台的跨品种优惠、套利取高和仓单折抵仍未建模；这些不属于单合约日结重估 |
-| World wire routing seam | `handlers.rs` 已将客户端消息号到业务路由抽为纯 `client_route` 函数，order/query 的业务副作用仍由 `World` 承载 | 连接生命周期、journal、playback、账本和回报编排仍集中在 `World`，后续需继续拆 command/result 与 side-effect coordinator |
+| World wire routing seam | `handlers.rs` 已将客户端消息号到业务路由抽为纯 `client_route` 函数，order/query 的输入解码与字段校验已有纯 command seam；engine event 已拆成 state apply 与 private notification fanout 两阶段，pulse 已拆为 playback polling、tick processing、mark-to-market、durability 四段；账本计算已按 broker 解析费率 | 连接生命周期、journal、playback、账本和回报编排仍由 `World` 统一协调；跨组件 command/result 类型和独立 side-effect coordinator 仍可继续下沉 |
+| 交易日历与虚拟时间权威来源 | Rust core 可加载经过 Python 校验的离线快照，并在 ADMIN `settle_day` 缺省 `next_trading_day` 时按快照推导；显式 version/SHA256 仍作为 provenance | 夜盘 exchange mapping 仍由 Python 查询，Rust 只消费日盘 TradingDay 集合；无快照的无场景运行仍保留显式 wall-clock fallback |
 | §8.10 挂单成交价与触发条件 | tick 到达时 resting 单按 **tick 档位价**成交而非自身限价（买 3001 挂单遇 bid1=3002 成交在 3002，即「价格改善」，见 `m2_flow` flow008）；只看五档深度是否穿越，**不看 `LastPrice` 穿越**，深度为空的源（仅 LastPrice）退化为按最新价成交：限价单仅在最新价穿越其限价时成交，成交价取最新价；设 `CTPBUDDY_MAKER_AT_LIMIT=1` 后 resting 限价单按自身限价成交（maker 语义） | 真实交易所 maker 按自身限价成交；以成交价断言滑点的下游会看到正向偏差；默认仍有价格改善偏差（可用 `CTPBUDDY_MAKER_AT_LIMIT=1` 消除）；LastPrice 穿越即成交不模拟队列位置，偏乐观 |
 | §8.3 / §8.10 自成交预防 | **默认关闭**（柜台设置 `self_trade_prevention`，CLI `--self-trade-prevention true` / env `CTPBUDDY_SELF_TRADE_PREVENTION`，运行时可经 ADMIN `settings_update` 切换；引擎侧 `MatchingEngine::set_self_trade_prevention`），同账户交叉直接成交，与真实 CTP 一致；显式开启时跳过同账户挂单会**跨过该档位继续向后匹配**，破坏价格时间优先 | 开启后的成交序不是任何真实交易所的行为，仅供需要仿真「自成交被拦」的 desk 自行打开；默认配置下不影响 |
 
@@ -314,7 +315,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 > 落地状态：帧格式与消息目录已按本节实现（M1）；传输层暂用 plain TCP（一连接一客户端、帧背靠背）承载相同帧，ZeroMQ 是既定目标传输—— framing 与传输解耦，替换 ZMQ 是传输适配层改动、不动协议（`core/ctpbuddy-server/src/lib.rs` 顶部注释同）。
 
 - 查询语义对齐 CTP：多帧循环 + 末帧 `is_last=1`；
-- **BrokerID 策略：单进程托管多 Broker**：broker 是核心内的一等实体（各有合约目录、保证金/手续费规则表、账户空间），默认 BrokerID 为 **8888**（不与 SimNow 的 9999 及主流实盘券商号冲突，金融俗惯例里的吉利号，`--broker-id` 可改）。AUTH 按核心的 broker 清单强校验，未知 BrokerID 按 CTP 语义拒登录。多 broker **共享同一路回放行情与虚拟时钟**——同一场景下不同经纪商的成交差异只来自费率/保证金/合约目录，这对多券商对比测试恰是有用属性。需要硬隔离（故障域/版本/管理边界）时可一个 broker 部署一个核心实例，两者只是运维选择、不动架构；下游单进程连多个柜台依赖 §5.3 的按实例端点解析；
+- **BrokerID 策略：单进程托管多 Broker**：broker 是核心内的一等实体（共享合约目录，按 `(broker_id, instrument_id)` 覆盖保证金/手续费规则，账户空间按 BrokerID 隔离），默认 BrokerID 为 **8888**（不与 SimNow 的 9999 及主流实盘券商号冲突，金融俗惯例里的吉利号，`--broker-id` 可改，也可传逗号分隔清单）。AUTH 按核心的 broker 清单强校验，未知 BrokerID 按 CTP 语义拒登录。多 broker **共享同一路回放行情与虚拟时钟**——同一场景下不同经纪商的成交差异来自各自费率/保证金规则，这对多券商对比测试恰是有用属性。需要硬隔离（故障域/版本/管理边界）时可一个 broker 部署一个核心实例，两者只是运维选择、不动架构；下游单进程连多个柜台依赖 §5.3 的按实例端点解析；
 - **订阅时机与可靠性**：Shim 在 AUTH 成功后订阅 `td/{broker}/{investor}`。注意 ZMQ PUB/SUB 两个特性：① 慢订阅者在 HWM 打满时被静默丢帧——核心与 Shim 均设大 HWM（本地 IPC/loopback 实际碰不到，团队远程模式才需留意）；② slow joiner 订阅建立瞬间可能丢头几帧。对策统一为：登录成功后核心主动补发一版快照（订单/持仓/成交/资金），与 CTP 下游"登录后先查一遍"的既有习惯天然对齐，不依赖订阅建立时刻；
 - **断链语义**：ZMQ 无持久化无重投。Shim 检测到与核心断开即以 `OnFrontDisconnected` 回调下游——这是刻意的设计，下游可借此测试自身重连逻辑。核心重启后 Shim 重新 AUTH 即恢复；
 - **身份边界**：显式 ReqAuthenticate 成功后，Shim 保存 BrokerID/UserID；ReqUserLogin 必须与该身份一致，Core 对连接认证绑定再次校验，拒绝 Auth A -> Login B。认证仅做身份绑定，不伪造 AuthCode/AppID 授权校验。

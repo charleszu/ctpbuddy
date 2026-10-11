@@ -62,6 +62,36 @@ fn margin_falls_back_to_exchange_rate_when_no_broker_rate() {
 }
 
 #[test]
+fn broker_specific_rates_override_neutral_rows_without_colliding() {
+    let mut rd = RefData::new();
+    rd.insert_instrument(rb());
+    let mut neutral = rate(0.10);
+    neutral.broker_id.clear();
+    rd.insert_margin_rate(neutral);
+    let mut broker = rate(0.20);
+    broker.broker_id = "B2".into();
+    rd.insert_margin_rate(broker);
+
+    let neutral_value = rd.margin_for(
+        "B1",
+        "rb2601",
+        Direction::Buy,
+        MarginPrice::PreSettlement(3500.0),
+        1,
+    );
+    let broker_value = rd.margin_for(
+        "B2",
+        "rb2601",
+        Direction::Buy,
+        MarginPrice::PreSettlement(3500.0),
+        1,
+    );
+    assert!((neutral_value - 3500.0 * 10.0 * 0.10).abs() < 1e-9);
+    assert!((broker_value - 3500.0 * 10.0 * 0.20).abs() < 1e-9);
+    assert_eq!(rd.margin_rate_rows_sorted().len(), 2);
+}
+
+#[test]
 fn commission_sums_by_money_and_by_volume() {
     let mut c = CommissionRate::default();
     c.instrument_id = "rb2601".into();

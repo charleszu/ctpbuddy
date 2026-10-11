@@ -622,13 +622,15 @@ impl Ledger {
             // 今仓保证金 follows `MarginPriceType`; the fill price is the
             // 开仓价 leg of that choice (notes/04 C2).
             let price = catalog.margin_price_for(true, pos.pre_settlement_price, fill.price);
-            let margin_actual = Money::from_f64(catalog.margin(
+            let margin_actual = Money::from_f64(catalog.margin_for(
+                &cstr(&fill.broker_id),
                 &fill.instrument_id,
                 fill.direction,
                 price,
                 fill.volume,
             ));
-            let commission = Money::from_f64(catalog.commission(
+            let commission = Money::from_f64(catalog.commission_for(
+                &cstr(&fill.broker_id),
                 &fill.instrument_id,
                 CommissionKind::Open,
                 fill.price,
@@ -778,13 +780,15 @@ impl Ledger {
                 } else {
                     (today_take, yd_take)
                 };
-            let comm_today = Money::from_f64(catalog.commission(
+            let comm_today = Money::from_f64(catalog.commission_for(
+                &cstr(&fill.broker_id),
                 &fill.instrument_id,
                 CommissionKind::CloseToday,
                 fill.price,
                 fee_today,
             ));
-            let comm_yd = Money::from_f64(catalog.commission(
+            let comm_yd = Money::from_f64(catalog.commission_for(
+                &cstr(&fill.broker_id),
                 &fill.instrument_id,
                 CommissionKind::CloseYesterday,
                 fill.price,
