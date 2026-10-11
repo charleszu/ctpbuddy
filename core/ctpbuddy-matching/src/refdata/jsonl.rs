@@ -23,6 +23,23 @@ enum Scalar {
 }
 
 impl JsonRow {
+    pub(super) fn number(&self, key: &str) -> Result<Option<f64>, ()> {
+        self.0
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| match v {
+                Scalar::Num(n) if n.is_finite() => Ok(*n),
+                Scalar::Str(s) => s
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|n| n.is_finite())
+                    .ok_or(()),
+                Scalar::Num(_) | Scalar::Bool(_) => Err(()),
+            })
+            .transpose()
+    }
+
     pub(super) fn num(&self, key: &str) -> Option<f64> {
         self.0
             .iter()

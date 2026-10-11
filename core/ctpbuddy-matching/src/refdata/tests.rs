@@ -142,6 +142,27 @@ fn flat_parser_handles_escapes_and_rejects_bad_literals() {
     assert!(parse_flat_object(r#"{"a":"\q"}"#).is_err());
 }
 
+#[test]
+fn numeric_refdata_fields_fail_closed() {
+    let row = parse_flat_object(r#"{"price_tick":"nan","volume_multiple":true}"#).unwrap();
+    assert!(row.number("price_tick").is_err());
+    assert!(row.number("volume_multiple").is_err());
+    assert!(row.number("missing").unwrap().is_none());
+    let dir = std::env::temp_dir().join(format!(
+        "ctpbuddy-refdata-invalid-number-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("instruments.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"price_tick\":\"nan\"}\n",
+    )
+    .unwrap();
+    let err = RefData::load_jsonl_dir(dir.to_str().unwrap()).unwrap_err();
+    assert!(err.contains("price_tick"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Write one `instruments.jsonl` row into a fresh temp dir and load it.
 fn load_one_row(tag: &str, row: &str) -> RefData {
     let dir = std::env::temp_dir().join(format!("ctpbuddy-refdata-{tag}-{}", std::process::id()));

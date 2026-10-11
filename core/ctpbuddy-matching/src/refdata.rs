@@ -45,7 +45,7 @@
 use std::collections::HashMap;
 
 mod jsonl;
-use jsonl::read_jsonl;
+use jsonl::{read_jsonl, JsonRow};
 
 use ctpbuddy_wire::generated::{
     set_cstr, CThostFtdcBrokerTradingParamsField, CThostFtdcInstrumentCommissionRateField,
@@ -713,6 +713,24 @@ impl RefData {
     pub fn load_jsonl_dir(dir: &str) -> Result<Self, String> {
         let mut rd = RefData::new();
         let instruments = read_jsonl(&format!("{dir}/instruments.jsonl"))?;
+        validate_numeric_fields(
+            &instruments,
+            "instruments.jsonl",
+            &[
+                "delivery_year",
+                "delivery_month",
+                "volume_multiple",
+                "price_tick",
+                "min_limit_order_volume",
+                "max_limit_order_volume",
+                "min_market_order_volume",
+                "max_market_order_volume",
+                "long_margin_ratio",
+                "short_margin_ratio",
+                "underlying_multiple",
+                "is_trading",
+            ],
+        )?;
         if instruments.is_empty() {
             return Err(format!(
                 "{dir}/instruments.jsonl 为空（instruments 表是必填的）"
@@ -837,10 +855,19 @@ impl RefData {
             }
             rd.insert_instrument(inst);
         }
-        for (n, row) in read_jsonl(&format!("{dir}/margin_rates.jsonl"))?
-            .iter()
-            .enumerate()
-        {
+        let margin_rates = read_jsonl(&format!("{dir}/margin_rates.jsonl"))?;
+        validate_numeric_fields(
+            &margin_rates,
+            "margin_rates.jsonl",
+            &[
+                "is_relative",
+                "long_margin_ratio_by_money",
+                "long_margin_ratio_by_volume",
+                "short_margin_ratio_by_money",
+                "short_margin_ratio_by_volume",
+            ],
+        )?;
+        for (n, row) in margin_rates.iter().enumerate() {
             let mut r = MarginRate {
                 hedge_flag: HEDGE_FLAG_SPECULATION,
                 ..Default::default()
@@ -880,10 +907,20 @@ impl RefData {
             r.short_margin_ratio_by_volume = row.num("short_margin_ratio_by_volume").unwrap_or(0.0);
             rd.insert_margin_rate(r);
         }
-        for (n, row) in read_jsonl(&format!("{dir}/commission_rates.jsonl"))?
-            .iter()
-            .enumerate()
-        {
+        let commission_rates = read_jsonl(&format!("{dir}/commission_rates.jsonl"))?;
+        validate_numeric_fields(
+            &commission_rates,
+            "commission_rates.jsonl",
+            &[
+                "open_ratio_by_money",
+                "open_ratio_by_volume",
+                "close_ratio_by_money",
+                "close_ratio_by_volume",
+                "close_today_ratio_by_money",
+                "close_today_ratio_by_volume",
+            ],
+        )?;
+        for (n, row) in commission_rates.iter().enumerate() {
             let mut r = CommissionRate::default();
             r.broker_id = row.str("broker_id").unwrap_or_default();
             r.investor_id = row.str("investor_id").unwrap_or_default();
@@ -919,10 +956,18 @@ impl RefData {
             r.close_today_ratio_by_volume = row.num("close_today_ratio_by_volume").unwrap_or(0.0);
             rd.insert_commission_rate(r);
         }
-        for (n, row) in read_jsonl(&format!("{dir}/order_comm_rates.jsonl"))?
-            .iter()
-            .enumerate()
-        {
+        let order_comm_rates = read_jsonl(&format!("{dir}/order_comm_rates.jsonl"))?;
+        validate_numeric_fields(
+            &order_comm_rates,
+            "order_comm_rates.jsonl",
+            &[
+                "order_comm_by_volume",
+                "order_action_comm_by_volume",
+                "order_comm_by_trade",
+                "order_action_comm_by_trade",
+            ],
+        )?;
+        for (n, row) in order_comm_rates.iter().enumerate() {
             let mut r = OrderCommRate {
                 hedge_flag: HEDGE_FLAG_SPECULATION,
                 ..Default::default()
@@ -1000,6 +1045,17 @@ impl RefData {
         }
         Ok(rd)
     }
+}
+
+fn validate_numeric_fields(rows: &[JsonRow], table: &str, fields: &[&str]) -> Result<(), String> {
+    for (line, row) in rows.iter().enumerate() {
+        for field in fields {
+            if row.number(field).is_err() {
+                return Err(format!("{table} line {}: {field} 不是有限数字", line + 1));
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---- shared contract-code parsing ------------------------------------------
