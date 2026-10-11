@@ -23,6 +23,10 @@ enum Scalar {
 }
 
 impl JsonRow {
+    pub(super) fn keys(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|(key, _)| key.as_str())
+    }
+
     /// Contract versions are JSON numbers, never coerced booleans or strings.
     pub(super) fn literal_number(&self, key: &str) -> Option<f64> {
         self.0.iter().find(|(k, _)| k == key).and_then(|(_, v)| {

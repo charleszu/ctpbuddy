@@ -1402,6 +1402,48 @@ def test_refdata_manifest() -> None:
     print("[ok] refdata: canonical manifest is emitted and validated")
 
 
+def test_refdata_contract_artifact() -> None:
+    from ctpbuddy import refdata
+
+    artifact = refdata.CONTRACT_ARTIFACT
+    assert artifact["schema"] == "ctpbuddy.refdata-contract/v1"
+    assert artifact["contract"] == refdata.CONTRACT
+    assert artifact["contract_version"] == refdata.CONTRACT_VERSION
+    assert artifact["format_version"] == refdata.FORMAT_VERSION
+    assert artifact["tables"]["instruments"]["fields"] == refdata.INSTRUMENT_FIELDS
+    assert artifact["tables"]["margin_rates"]["fields"] == refdata.MARGIN_RATE_FIELDS
+    assert artifact["tables"]["commission_rates"]["fields"] == refdata.COMMISSION_RATE_FIELDS
+    assert artifact["tables"]["order_comm_rates"]["fields"] == refdata.ORDER_COMM_RATE_FIELDS
+    assert artifact["tables"]["trading_params"]["fields"] == refdata.TRADING_PARAM_FIELDS
+    assert set(artifact["numeric_fields"]) == refdata._NUMERIC
+    assert artifact["defaults"]["margin_price_type"] == refdata.DEFAULT_MARGIN_PRICE_TYPE
+    bad = refdata.DictProvider(instruments=[{"instrument_id": "rb2601", "unknown_field": 1}])
+    assert any("未知字段" in problem for problem in refdata.validate(bad))
+    print("[ok] refdata: shared cross-language contract artifact")
+
+
+def test_refdata_contract_vectors() -> None:
+    from ctpbuddy import refdata
+
+    path = os.path.join(REPO, "py", "ctpbuddy", "contracts", "refdata_contract_vectors.fixture")
+    with open(path, encoding="utf-8") as fh:
+        vectors = [json.loads(line) for line in fh if line.strip()]
+    for vector in vectors:
+        case = vector["case"]
+        if case == "defaults":
+            assert refdata.DEFAULT_MARGIN_PRICE_TYPE == vector["margin_price_type"]
+            assert refdata.DEFAULT_BROKER_ID == vector["broker_id"]
+            assert refdata.DEFAULT_INVESTOR_ID == vector["investor_id"]
+            assert refdata.HEDGE_FLAG_SPECULATION == vector["hedge_flag"]
+            continue
+        row = json.loads(vector.get("row", "{}"))
+        rows = [json.loads(item) for item in vector.get("rows", "").splitlines()] if "rows" in vector else [row]
+        provider = refdata.DictProvider(instruments=rows)
+        problems = refdata.validate(provider)
+        assert any(vector["expected"] in problem for problem in problems), (case, problems)
+    print("[ok] refdata: shared contract vectors cover missing/unknown/numeric/default/duplicate")
+
+
 def test_cross_margin_refdata_contract() -> None:
     from ctpbuddy import refdata
 
@@ -1651,6 +1693,8 @@ def main() -> int:
     test_sdk_subscribe()
     test_refdata_numeric()
     test_refdata_manifest()
+    test_refdata_contract_artifact()
+    test_refdata_contract_vectors()
     test_cross_margin_refdata_contract()
     test_replay_admin_inputs()
     test_journal_contract()

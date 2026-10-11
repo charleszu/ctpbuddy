@@ -1,0 +1,54 @@
+{
+  "schema": "ctpbuddy.refdata-contract/v1",
+  "contract": "ctpbuddy.refdata",
+  "contract_version": 1,
+  "format_version": 1,
+  "tables": {
+    "instruments": {
+      "file": "instruments.jsonl",
+      "required": true,
+      "required_fields": ["instrument_id"],
+      "fields": ["instrument_id", "exchange_id", "exchange_inst_id", "instrument_name", "product_id", "product_class", "delivery_year", "delivery_month", "create_date", "open_date", "expire_date", "start_deliv_date", "end_deliv_date", "inst_life_phase", "is_trading", "position_type", "position_date_type", "volume_multiple", "price_tick", "min_limit_order_volume", "max_limit_order_volume", "min_market_order_volume", "max_market_order_volume", "long_margin_ratio", "short_margin_ratio", "max_margin_side_algorithm", "options_type", "underlying_multiple", "combination_type"]
+    },
+    "margin_rates": {
+      "file": "margin_rates.jsonl",
+      "required": false,
+      "required_fields": ["instrument_id"],
+      "fields": ["broker_id", "investor_id", "hedge_flag", "exchange_id", "instrument_id", "invest_unit_id", "investor_range", "is_relative", "long_margin_ratio_by_money", "long_margin_ratio_by_volume", "short_margin_ratio_by_money", "short_margin_ratio_by_volume"]
+    },
+    "commission_rates": {
+      "file": "commission_rates.jsonl",
+      "required": false,
+      "required_fields": ["instrument_id"],
+      "fields": ["broker_id", "investor_id", "exchange_id", "instrument_id", "invest_unit_id", "investor_range", "biz_type", "open_ratio_by_money", "open_ratio_by_volume", "close_ratio_by_money", "close_ratio_by_volume", "close_today_ratio_by_money", "close_today_ratio_by_volume"]
+    },
+    "order_comm_rates": {
+      "file": "order_comm_rates.jsonl",
+      "required": false,
+      "required_fields": ["instrument_id"],
+      "fields": ["broker_id", "investor_id", "hedge_flag", "exchange_id", "instrument_id", "invest_unit_id", "investor_range", "order_comm_by_volume", "order_action_comm_by_volume", "order_comm_by_trade", "order_action_comm_by_trade"]
+    },
+    "trading_params": {
+      "file": "trading_params.jsonl",
+      "required": false,
+      "required_fields": [],
+      "fields": ["broker_id", "investor_id", "account_id", "currency_id", "margin_price_type", "algorithm", "avail_include_close_profit", "option_royalty_price_type"]
+    },
+    "cross_margin_rules": {
+      "file": "cross_margin_rules.jsonl",
+      "required": false,
+      "required_fields": ["rule_id", "long_instrument_id", "short_instrument_id", "offset_ratio"],
+      "fields": ["broker_id", "rule_id", "long_instrument_id", "short_instrument_id", "offset_ratio"]
+    }
+  },
+  "numeric_fields": ["delivery_year", "delivery_month", "volume_multiple", "min_limit_order_volume", "max_limit_order_volume", "min_market_order_volume", "max_market_order_volume", "price_tick", "long_margin_ratio", "short_margin_ratio", "underlying_multiple", "is_relative", "is_trading", "long_margin_ratio_by_money", "long_margin_ratio_by_volume", "short_margin_ratio_by_money", "short_margin_ratio_by_volume", "open_ratio_by_money", "open_ratio_by_volume", "close_ratio_by_money", "close_ratio_by_volume", "close_today_ratio_by_money", "close_today_ratio_by_volume", "order_comm_by_volume", "order_action_comm_by_volume", "order_comm_by_trade", "order_action_comm_by_trade", "offset_ratio"],
+  "defaults": {
+    "margin_price_type": "1",
+    "broker_id": "9999",
+    "investor_id": "001",
+    "hedge_flag": "1"
+  },
+  "enums": {
+    "margin_price_type": {"1": "pre_settlement", "2": "last", "3": "average", "4": "open"}
+  }
+}

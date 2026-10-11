@@ -56,6 +56,11 @@ use ctpbuddy_wire::generated::{
 
 use crate::Direction;
 
+#[allow(dead_code)]
+mod contract {
+    include!(concat!(env!("OUT_DIR"), "/refdata_contract.rs"));
+}
+
 /// `MarginPriceType` — which price today's margin is computed against
 /// (notes/04 C2). Yesterday's positions **always** use the previous
 /// settlement price regardless of this setting; only 今仓 follows it.
@@ -66,9 +71,9 @@ pub const MPT_OPEN_PRICE: u8 = b'4';
 
 /// `THOST_FTDC_HF_Speculation` — the default hedge flag for rate lookups.
 pub const HEDGE_FLAG_SPECULATION: u8 = b'1';
-pub const REFDATA_CONTRACT: &str = "ctpbuddy.refdata";
-pub const REFDATA_CONTRACT_VERSION: i32 = 1;
-pub const REFDATA_FORMAT_VERSION: i32 = 1;
+pub const REFDATA_CONTRACT: &str = contract::CONTRACT;
+pub const REFDATA_CONTRACT_VERSION: i32 = contract::CONTRACT_VERSION;
+pub const REFDATA_FORMAT_VERSION: i32 = contract::FORMAT_VERSION;
 
 /// The reason a margin number is what it is. Kept as an explicit input rather
 /// than than a `f64` so the price-type rule (notes/04 C2) is a type-level
@@ -491,7 +496,11 @@ impl Default for TradingParams {
             currency_id: "CNY".to_string(),
             // 昨结算价: today's margin then does not move with the market,
             // which is the least surprising default for a test counter.
-            margin_price_type: MPT_PRE_SETTLEMENT,
+            margin_price_type: contract::DEFAULT_MARGIN_PRICE_TYPE
+                .as_bytes()
+                .first()
+                .copied()
+                .unwrap_or(MPT_PRE_SETTLEMENT),
             algorithm: b'1',
             avail_include_close_profit: b'1',
             option_royalty_price_type: b'1',
@@ -849,6 +858,7 @@ impl RefData {
             return Err(format!("{dir}/manifest.jsonl 缺失或必须只有一行"));
         }
         let manifest = &manifest[0];
+        validate_known_fields(std::slice::from_ref(manifest), "manifest.jsonl")?;
         if manifest.str("contract").as_deref() != Some(REFDATA_CONTRACT)
             || manifest.literal_number("contract_version") != Some(REFDATA_CONTRACT_VERSION as f64)
             || manifest.literal_number("format_version") != Some(REFDATA_FORMAT_VERSION as f64)
@@ -856,24 +866,8 @@ impl RefData {
             return Err(format!("{dir}/manifest.jsonl contract/version 不匹配"));
         }
         let instruments = read_jsonl(&format!("{dir}/instruments.jsonl"))?;
-        validate_numeric_fields(
-            &instruments,
-            "instruments.jsonl",
-            &[
-                "delivery_year",
-                "delivery_month",
-                "volume_multiple",
-                "price_tick",
-                "min_limit_order_volume",
-                "max_limit_order_volume",
-                "min_market_order_volume",
-                "max_market_order_volume",
-                "long_margin_ratio",
-                "short_margin_ratio",
-                "underlying_multiple",
-                "is_trading",
-            ],
-        )?;
+        validate_known_fields(&instruments, "instruments.jsonl")?;
+        validate_numeric_fields(&instruments, "instruments.jsonl")?;
         if instruments.is_empty() {
             return Err(format!(
                 "{dir}/instruments.jsonl 为空（instruments 表是必填的）"
@@ -999,17 +993,8 @@ impl RefData {
             rd.insert_instrument(inst);
         }
         let margin_rates = read_jsonl(&format!("{dir}/margin_rates.jsonl"))?;
-        validate_numeric_fields(
-            &margin_rates,
-            "margin_rates.jsonl",
-            &[
-                "is_relative",
-                "long_margin_ratio_by_money",
-                "long_margin_ratio_by_volume",
-                "short_margin_ratio_by_money",
-                "short_margin_ratio_by_volume",
-            ],
-        )?;
+        validate_known_fields(&margin_rates, "margin_rates.jsonl")?;
+        validate_numeric_fields(&margin_rates, "margin_rates.jsonl")?;
         for (n, row) in margin_rates.iter().enumerate() {
             let mut r = MarginRate {
                 hedge_flag: HEDGE_FLAG_SPECULATION,
@@ -1057,18 +1042,8 @@ impl RefData {
             rd.insert_margin_rate(r);
         }
         let commission_rates = read_jsonl(&format!("{dir}/commission_rates.jsonl"))?;
-        validate_numeric_fields(
-            &commission_rates,
-            "commission_rates.jsonl",
-            &[
-                "open_ratio_by_money",
-                "open_ratio_by_volume",
-                "close_ratio_by_money",
-                "close_ratio_by_volume",
-                "close_today_ratio_by_money",
-                "close_today_ratio_by_volume",
-            ],
-        )?;
+        validate_known_fields(&commission_rates, "commission_rates.jsonl")?;
+        validate_numeric_fields(&commission_rates, "commission_rates.jsonl")?;
         for (n, row) in commission_rates.iter().enumerate() {
             let mut r = CommissionRate::default();
             r.broker_id = row.str("broker_id").unwrap_or_default();
@@ -1112,16 +1087,8 @@ impl RefData {
             rd.insert_commission_rate(r);
         }
         let order_comm_rates = read_jsonl(&format!("{dir}/order_comm_rates.jsonl"))?;
-        validate_numeric_fields(
-            &order_comm_rates,
-            "order_comm_rates.jsonl",
-            &[
-                "order_comm_by_volume",
-                "order_action_comm_by_volume",
-                "order_comm_by_trade",
-                "order_action_comm_by_trade",
-            ],
-        )?;
+        validate_known_fields(&order_comm_rates, "order_comm_rates.jsonl")?;
+        validate_numeric_fields(&order_comm_rates, "order_comm_rates.jsonl")?;
         for (n, row) in order_comm_rates.iter().enumerate() {
             let mut r = OrderCommRate {
                 hedge_flag: HEDGE_FLAG_SPECULATION,
@@ -1166,11 +1133,8 @@ impl RefData {
             rd.insert_order_comm_rate(r);
         }
         let cross_margin_rules = read_jsonl(&format!("{dir}/cross_margin_rules.jsonl"))?;
-        validate_numeric_fields(
-            &cross_margin_rules,
-            "cross_margin_rules.jsonl",
-            &["offset_ratio"],
-        )?;
+        validate_known_fields(&cross_margin_rules, "cross_margin_rules.jsonl")?;
+        validate_numeric_fields(&cross_margin_rules, "cross_margin_rules.jsonl")?;
         for (n, row) in cross_margin_rules.iter().enumerate() {
             let rule = CrossMarginRule {
                 broker_id: row.str("broker_id").unwrap_or_default(),
@@ -1201,10 +1165,9 @@ impl RefData {
             }
             rd.insert_cross_margin_rule(rule)?;
         }
-        if let Some(row) = read_jsonl(&format!("{dir}/trading_params.jsonl"))?
-            .into_iter()
-            .next()
-        {
+        let trading_params = read_jsonl(&format!("{dir}/trading_params.jsonl"))?;
+        validate_known_fields(&trading_params, "trading_params.jsonl")?;
+        if let Some(row) = trading_params.into_iter().next() {
             let mut p = TradingParams {
                 broker_id: row.str("broker_id").unwrap_or_default(),
                 investor_id: row.str("investor_id").unwrap_or_default(),
@@ -1244,11 +1207,61 @@ impl RefData {
     }
 }
 
-fn validate_numeric_fields(rows: &[JsonRow], table: &str, fields: &[&str]) -> Result<(), String> {
+fn contract_fields(table: &str) -> &'static [&'static str] {
+    match table {
+        "instruments.jsonl" => contract::INSTRUMENT_FIELDS,
+        "margin_rates.jsonl" => contract::MARGIN_RATE_FIELDS,
+        "commission_rates.jsonl" => contract::COMMISSION_RATE_FIELDS,
+        "order_comm_rates.jsonl" => contract::ORDER_COMM_RATE_FIELDS,
+        "trading_params.jsonl" => contract::TRADING_PARAM_FIELDS,
+        "cross_margin_rules.jsonl" => contract::CROSS_MARGIN_RULE_FIELDS,
+        "manifest.jsonl" => &["contract", "contract_version", "format_version"],
+        _ => &[],
+    }
+}
+
+fn required_fields(table: &str) -> &'static [&'static str] {
+    match table {
+        "instruments.jsonl" => contract::INSTRUMENT_REQUIRED_FIELDS,
+        "margin_rates.jsonl" => contract::MARGIN_RATE_REQUIRED_FIELDS,
+        "commission_rates.jsonl" => contract::COMMISSION_RATE_REQUIRED_FIELDS,
+        "order_comm_rates.jsonl" => contract::ORDER_COMM_RATE_REQUIRED_FIELDS,
+        "trading_params.jsonl" => contract::TRADING_PARAM_REQUIRED_FIELDS,
+        "cross_margin_rules.jsonl" => contract::CROSS_MARGIN_RULE_REQUIRED_FIELDS,
+        "manifest.jsonl" => &["contract", "contract_version", "format_version"],
+        _ => &[],
+    }
+}
+
+fn validate_numeric_fields(rows: &[JsonRow], table: &str) -> Result<(), String> {
     for (line, row) in rows.iter().enumerate() {
-        for field in fields {
-            if row.number(field).is_err() {
+        for field in row.keys() {
+            if contract::NUMERIC_FIELDS.contains(&field) && row.number(field).is_err() {
                 return Err(format!("{table} line {}: {field} 不是有限数字", line + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_known_fields(rows: &[JsonRow], table: &str) -> Result<(), String> {
+    let fields = contract_fields(table);
+    let required = required_fields(table);
+    for (line, row) in rows.iter().enumerate() {
+        for key in row.keys() {
+            if !fields.contains(&key) {
+                return Err(format!(
+                    "{table} line {}: 未知字段 {key:?}（refdata contract）",
+                    line + 1
+                ));
+            }
+        }
+        for key in required {
+            if row.str(key).is_none() {
+                return Err(format!(
+                    "{table} line {}: 缺 {key}（refdata contract）",
+                    line + 1
+                ));
             }
         }
     }

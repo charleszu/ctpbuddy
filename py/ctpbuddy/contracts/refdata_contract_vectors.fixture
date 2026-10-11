@@ -1,0 +1,5 @@
+{"case":"missing_instrument_id","table":"instruments.jsonl","row":"{\"exchange_id\":\"SHFE\"}","expected":"instrument_id"}
+{"case":"unknown_field","table":"instruments.jsonl","row":"{\"instrument_id\":\"rb2601\",\"future_field\":1}","expected":"future_field"}
+{"case":"nonfinite_numeric","table":"instruments.jsonl","row":"{\"instrument_id\":\"rb2601\",\"price_tick\":\"nan\"}","expected":"price_tick"}
+{"case":"duplicate_primary_key","table":"instruments.jsonl","rows":"{\"instrument_id\":\"rb2601\"}\n{\"instrument_id\":\"rb2601\"}","expected":"rb2601"}
+{"case":"defaults","margin_price_type":"1","broker_id":"9999","investor_id":"001","hedge_flag":"1"}

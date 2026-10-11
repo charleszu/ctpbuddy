@@ -25,6 +25,7 @@ version = "0.1.0"
 dependencies = [
  "ctpbuddy-market",
  "ctpbuddy-wire",
+ "serde_json",
 ]
 
 [[package]]

@@ -271,6 +271,69 @@ fn manifest_versions_fail_closed_before_loading_tables() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[test]
+fn unknown_refdata_fields_fail_closed_against_contract() {
+    let dir = std::env::temp_dir().join(format!(
+        "ctpbuddy-refdata-unknown-field-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("manifest.jsonl"),
+        "{\"contract\":\"ctpbuddy.refdata\",\"contract_version\":1,\"format_version\":1}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("instruments.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"exchange_id\":\"SHFE\",\"future_field\":1}\n",
+    )
+    .unwrap();
+    let error = RefData::load_jsonl_dir(dir.to_str().unwrap()).unwrap_err();
+    assert!(error.contains("未知字段"), "{error}");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn shared_contract_vectors_match_rust_loader() {
+    const VECTORS: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../py/ctpbuddy/contracts/refdata_contract_vectors.fixture"
+    ));
+    for (index, line) in VECTORS
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .enumerate()
+    {
+        let vector = parse_flat_object(line).unwrap();
+        let case = vector.str("case").unwrap();
+        if case == "defaults" {
+            assert_eq!(contract::DEFAULT_MARGIN_PRICE_TYPE, "1");
+            assert_eq!(contract::DEFAULT_BROKER_ID, "9999");
+            assert_eq!(contract::DEFAULT_INVESTOR_ID, "001");
+            assert_eq!(contract::DEFAULT_HEDGE_FLAG, "1");
+            continue;
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "ctpbuddy-refdata-vector-{}-{index}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("manifest.jsonl"),
+            "{\"contract\":\"ctpbuddy.refdata\",\"contract_version\":1,\"format_version\":1}\n",
+        )
+        .unwrap();
+        let rows = vector.str("rows").or_else(|| vector.str("row")).unwrap();
+        std::fs::write(dir.join("instruments.jsonl"), format!("{rows}\n")).unwrap();
+        let error = RefData::load_jsonl_dir(dir.to_str().unwrap()).unwrap_err();
+        assert!(
+            error.contains(&vector.str("expected").unwrap()),
+            "{case}: {error}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 /// Write one `instruments.jsonl` row into a fresh temp dir and load it.
 fn load_one_row(tag: &str, row: &str) -> RefData {
     let dir = std::env::temp_dir().join(format!("ctpbuddy-refdata-{tag}-{}", std::process::id()));

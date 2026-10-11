@@ -56,6 +56,51 @@ import math
 import os
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
+
+def _load_contract_artifact() -> Dict[str, Any]:
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "contracts", "refdata_contract.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = json.load(f)
+    except (OSError, ValueError) as e:
+        raise RuntimeError("无法读取共享 refdata contract: %s" % path) from e
+    if value.get("schema") != "ctpbuddy.refdata-contract/v1":
+        raise RuntimeError("共享 refdata contract schema 不匹配")
+    if value.get("contract") != "ctpbuddy.refdata":
+        raise RuntimeError("共享 refdata contract contract 不匹配")
+    if type(value.get("contract_version")) is not int or type(value.get("format_version")) is not int:
+        raise RuntimeError("共享 refdata contract version 必须是整数")
+    tables = value.get("tables")
+    if not isinstance(tables, dict) or set(tables) != {
+        "instruments", "margin_rates", "commission_rates", "order_comm_rates",
+        "trading_params", "cross_margin_rules",
+    }:
+        raise RuntimeError("共享 refdata contract tables 不完整")
+    for name, table in tables.items():
+        if (
+            not isinstance(table, dict)
+            or not isinstance(table.get("file"), str)
+            or not isinstance(table.get("fields"), list)
+            or not isinstance(table.get("required_fields"), list)
+            or not set(table["required_fields"]).issubset(table["fields"])
+        ):
+            raise RuntimeError("共享 refdata contract table %s 无效" % name)
+        if len(table["fields"]) != len(set(table["fields"])):
+            raise RuntimeError("共享 refdata contract table %s 含重复字段" % name)
+    all_fields = {field for table in tables.values() for field in table["fields"]}
+    numeric_fields = value.get("numeric_fields")
+    if not isinstance(numeric_fields, list) or len(numeric_fields) != len(set(numeric_fields)) or not set(numeric_fields).issubset(all_fields):
+        raise RuntimeError("共享 refdata contract numeric_fields 无效")
+    defaults = value.get("defaults")
+    enums = value.get("enums")
+    if not isinstance(defaults, dict) or not isinstance(enums, dict) or not isinstance(enums.get("margin_price_type"), dict):
+        raise RuntimeError("共享 refdata contract defaults/enums 无效")
+    return value
+
+
+_CONTRACT_ARTIFACT = _load_contract_artifact()
+CONTRACT_ARTIFACT = _CONTRACT_ARTIFACT
+
 # --- canonical table names (one JSONL file per table) ------------------------
 INSTRUMENTS = "instruments.jsonl"
 MARGIN_RATES = "margin_rates.jsonl"
@@ -64,9 +109,9 @@ ORDER_COMM_RATES = "order_comm_rates.jsonl"
 TRADING_PARAMS = "trading_params.jsonl"
 CROSS_MARGIN_RULES = "cross_margin_rules.jsonl"
 MANIFEST = "manifest.jsonl"
-CONTRACT = "ctpbuddy.refdata"
-CONTRACT_VERSION = 1
-FORMAT_VERSION = 1
+CONTRACT = _CONTRACT_ARTIFACT["contract"]
+CONTRACT_VERSION = _CONTRACT_ARTIFACT["contract_version"]
+FORMAT_VERSION = _CONTRACT_ARTIFACT["format_version"]
 
 
 def _json_pairs(pairs):
@@ -76,15 +121,6 @@ def _json_pairs(pairs):
             raise ValueError("JSON 重复字段: %s" % key)
         result[key] = value
     return result
-
-ALL_TABLES = (
-    INSTRUMENTS,
-    MARGIN_RATES,
-    COMMISSION_RATES,
-    ORDER_COMM_RATES,
-    TRADING_PARAMS,
-    CROSS_MARGIN_RULES,
-)
 
 # --- field orders (also the CSV header order) -------------------------------
 # Mirrors the CTP response structs field-by-field, in struct order, so the
@@ -185,25 +221,53 @@ TRADING_PARAM_FIELDS = [
     "option_royalty_price_type",   # OptionRoyaltyPriceType
 ]
 
-#: MarginPriceType 合法值（notes/04 C2）。昨仓恒用昨结算价，只有今仓受它影响。
-MARGIN_PRICE_TYPES = {
-    "1": "昨结算价",
-    "2": "最新价",
-    "3": "成交均价",
-    "4": "开仓价",
+# The checked-in artifact is the cross-language source of truth.  Keep the
+# names above as readable documentation beside the CTP fields, then replace
+# the runtime values with the artifact and fail fast if either side drifts.
+_EXPECTED_TABLE_FIELDS = {
+    "instruments": INSTRUMENT_FIELDS,
+    "margin_rates": MARGIN_RATE_FIELDS,
+    "commission_rates": COMMISSION_RATE_FIELDS,
+    "order_comm_rates": ORDER_COMM_RATE_FIELDS,
+    "trading_params": TRADING_PARAM_FIELDS,
+    "cross_margin_rules": ["broker_id", "rule_id", "long_instrument_id", "short_instrument_id", "offset_ratio"],
 }
+_EXPECTED_TABLE_FILES = {
+    "instruments": INSTRUMENTS,
+    "margin_rates": MARGIN_RATES,
+    "commission_rates": COMMISSION_RATES,
+    "order_comm_rates": ORDER_COMM_RATES,
+    "trading_params": TRADING_PARAMS,
+    "cross_margin_rules": CROSS_MARGIN_RULES,
+}
+for _name, _fields in _EXPECTED_TABLE_FIELDS.items():
+    _artifact_fields = _CONTRACT_ARTIFACT["tables"][_name]["fields"]
+    if _CONTRACT_ARTIFACT["tables"][_name]["file"] != _EXPECTED_TABLE_FILES[_name]:
+        raise RuntimeError("refdata contract 文件漂移: %s" % _name)
+    if _fields != _artifact_fields:
+        raise RuntimeError("refdata contract 字段漂移: %s" % _name)
+    _EXPECTED_TABLE_FIELDS[_name] = list(_artifact_fields)
+INSTRUMENT_FIELDS = _EXPECTED_TABLE_FIELDS["instruments"]
+MARGIN_RATE_FIELDS = _EXPECTED_TABLE_FIELDS["margin_rates"]
+COMMISSION_RATE_FIELDS = _EXPECTED_TABLE_FIELDS["commission_rates"]
+ORDER_COMM_RATE_FIELDS = _EXPECTED_TABLE_FIELDS["order_comm_rates"]
+TRADING_PARAM_FIELDS = _EXPECTED_TABLE_FIELDS["trading_params"]
+ALL_TABLES = tuple(_CONTRACT_ARTIFACT["tables"][name]["file"] for name in _EXPECTED_TABLE_FIELDS)
+
+#: MarginPriceType 合法值（notes/04 C2）。昨仓恒用昨结算价，只有今仓受它影响。
+MARGIN_PRICE_TYPES = dict(_CONTRACT_ARTIFACT["enums"]["margin_price_type"])
 
 #: 默认值：官方口径的昨结算价（'1'）——与「昨仓恒用昨结算价」自洽，且在
 #: 最新价波动时不产生今仓保证金抖动，是最不容易让下游误判的缺省。
-DEFAULT_MARGIN_PRICE_TYPE = "1"
+DEFAULT_MARGIN_PRICE_TYPE = _CONTRACT_ARTIFACT["defaults"]["margin_price_type"]
 
 #: 默认的 broker / investor 填值。真实 CTP 的费率查询要求 BrokerID +
 #: InvestorID (+ HedgeFlag) 必填，"不填的话返回值就为空"（notes/04 G1）。
-DEFAULT_BROKER_ID = "9999"
-DEFAULT_INVESTOR_ID = "001"
+DEFAULT_BROKER_ID = _CONTRACT_ARTIFACT["defaults"]["broker_id"]
+DEFAULT_INVESTOR_ID = _CONTRACT_ARTIFACT["defaults"]["investor_id"]
 
 #: 投机标志 THOST_FTDC_HF_Speculation —— 费率查询的必填 HedgeFlag。
-HEDGE_FLAG_SPECULATION = "1"
+HEDGE_FLAG_SPECULATION = _CONTRACT_ARTIFACT["defaults"]["hedge_flag"]
 
 
 class RefDataProvider:
@@ -453,9 +517,17 @@ def _call_flexible(target: Any, opts: Dict[str, Any]) -> RefDataProvider:
 def _check_rows(rows: Iterable[Dict[str, Any]], fields: List[str], table: str) -> List[str]:
     problems: List[str] = []
     seen = set()
+    contract_table = next(
+        (value for value in _CONTRACT_ARTIFACT["tables"].values() if value["file"] == table),
+        None,
+    )
+    required_fields = set(contract_table["required_fields"]) if contract_table else set()
     for i, row in enumerate(rows, start=1):
-        for key in ("instrument_id",):
-            if key in fields and not str(row.get(key, "")).strip():
+        for key in row:
+            if key not in fields:
+                problems.append("%s line %d: 未知字段 %s" % (table, i, key))
+        for key in required_fields:
+            if not str(row.get(key, "")).strip():
                 problems.append("%s line %d: 缺少 %s" % (table, i, key))
         iid = str(row.get("instrument_id", "")).strip()
         if iid and iid in seen:
@@ -501,6 +573,8 @@ def validate(provider: RefDataProvider) -> List[str]:
         if not isinstance(value, dict):
             problems.append("manifest.jsonl 缺失或必须只有一行")
         else:
+            unknown = set(value) - {"contract", "contract_version", "format_version"}
+            problems.extend("manifest.jsonl 未知字段 %s" % key for key in sorted(unknown))
             if value.get("contract") != CONTRACT:
                 problems.append("manifest.jsonl contract 不匹配")
             if type(value.get("contract_version")) not in (int, float) or value["contract_version"] != CONTRACT_VERSION:
@@ -590,21 +664,7 @@ def write_jsonl(provider: RefDataProvider, out_dir: str) -> List[str]:
     return written
 
 
-_NUMERIC = {
-    "delivery_year", "delivery_month", "volume_multiple",
-    "min_limit_order_volume", "max_limit_order_volume",
-    "min_market_order_volume", "max_market_order_volume",
-    "price_tick", "long_margin_ratio", "short_margin_ratio",
-    "underlying_multiple", "is_relative", "is_trading",
-    "long_margin_ratio_by_money", "long_margin_ratio_by_volume",
-    "short_margin_ratio_by_money", "short_margin_ratio_by_volume",
-    "open_ratio_by_money", "open_ratio_by_volume",
-    "close_ratio_by_money", "close_ratio_by_volume",
-    "close_today_ratio_by_money", "close_today_ratio_by_volume",
-    "order_comm_by_volume", "order_action_comm_by_volume",
-    "order_comm_by_trade", "order_action_comm_by_trade",
-    "offset_ratio",
-}
+_NUMERIC = set(_CONTRACT_ARTIFACT["numeric_fields"])
 
 
 def _is_blank(v: Any) -> bool:
