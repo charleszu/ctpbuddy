@@ -722,6 +722,12 @@ impl RefData {
             let iid = row
                 .str("instrument_id")
                 .ok_or_else(|| format!("instruments.jsonl line {}: 缺 instrument_id", n + 1))?;
+            if rd.instrument(&iid).is_some() {
+                return Err(format!(
+                    "instruments.jsonl line {}: instrument_id 重复 {iid:?}",
+                    n + 1
+                ));
+            }
             let exch = row.str("exchange_id").unwrap_or_default();
             let mut inst = Instrument::new(&iid, &exch);
             if let Some(v) = row.str("instrument_name") {
@@ -845,7 +851,29 @@ impl RefData {
             r.instrument_id = row
                 .str("instrument_id")
                 .ok_or_else(|| format!("margin_rates.jsonl line {}: 缺 instrument_id", n + 1))?;
+            if rd.margin_rate(&r.instrument_id).is_some() {
+                return Err(format!(
+                    "margin_rates.jsonl line {}: instrument_id 重复 {:?}",
+                    n + 1,
+                    r.instrument_id
+                ));
+            }
             r.invest_unit_id = row.str("invest_unit_id").unwrap_or_default();
+            if let Some(v) = row
+                .str("hedge_flag")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                r.hedge_flag = v;
+            }
+            if let Some(v) = row
+                .str("investor_range")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                r.investor_range = v;
+            }
+            if let Some(v) = row.int("is_relative") {
+                r.is_relative = v;
+            }
             r.long_margin_ratio_by_money = row.num("long_margin_ratio_by_money").unwrap_or(0.0);
             r.long_margin_ratio_by_volume = row.num("long_margin_ratio_by_volume").unwrap_or(0.0);
             r.short_margin_ratio_by_money = row.num("short_margin_ratio_by_money").unwrap_or(0.0);
@@ -863,7 +891,26 @@ impl RefData {
             r.instrument_id = row.str("instrument_id").ok_or_else(|| {
                 format!("commission_rates.jsonl line {}: 缺 instrument_id", n + 1)
             })?;
+            if rd.commission_rate(&r.instrument_id).is_some() {
+                return Err(format!(
+                    "commission_rates.jsonl line {}: instrument_id 重复 {:?}",
+                    n + 1,
+                    r.instrument_id
+                ));
+            }
             r.invest_unit_id = row.str("invest_unit_id").unwrap_or_default();
+            if let Some(v) = row
+                .str("investor_range")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                r.investor_range = v;
+            }
+            if let Some(v) = row
+                .str("biz_type")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                r.biz_type = v;
+            }
             r.open_ratio_by_money = row.num("open_ratio_by_money").unwrap_or(0.0);
             r.open_ratio_by_volume = row.num("open_ratio_by_volume").unwrap_or(0.0);
             r.close_ratio_by_money = row.num("close_ratio_by_money").unwrap_or(0.0);
@@ -886,7 +933,26 @@ impl RefData {
             r.instrument_id = row.str("instrument_id").ok_or_else(|| {
                 format!("order_comm_rates.jsonl line {}: 缺 instrument_id", n + 1)
             })?;
+            if rd.order_comm_rate(&r.instrument_id).is_some() {
+                return Err(format!(
+                    "order_comm_rates.jsonl line {}: instrument_id 重复 {:?}",
+                    n + 1,
+                    r.instrument_id
+                ));
+            }
             r.invest_unit_id = row.str("invest_unit_id").unwrap_or_default();
+            if let Some(v) = row
+                .str("hedge_flag")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                r.hedge_flag = v;
+            }
+            if let Some(v) = row
+                .str("investor_range")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                r.investor_range = v;
+            }
             r.order_comm_by_volume = row.num("order_comm_by_volume").unwrap_or(0.0);
             r.order_action_comm_by_volume = row.num("order_action_comm_by_volume").unwrap_or(0.0);
             r.order_comm_by_trade = row.num("order_comm_by_trade").unwrap_or(0.0);
@@ -911,6 +977,24 @@ impl RefData {
                 .and_then(|s| s.as_bytes().first().copied())
             {
                 p.margin_price_type = t;
+            }
+            if let Some(v) = row
+                .str("algorithm")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                p.algorithm = v;
+            }
+            if let Some(v) = row
+                .str("avail_include_close_profit")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                p.avail_include_close_profit = v;
+            }
+            if let Some(v) = row
+                .str("option_royalty_price_type")
+                .and_then(|s| s.as_bytes().first().copied())
+            {
+                p.option_royalty_price_type = v;
             }
             rd.set_params(p);
         }

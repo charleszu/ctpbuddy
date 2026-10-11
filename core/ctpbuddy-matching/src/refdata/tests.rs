@@ -203,6 +203,65 @@ fn is_trading_and_product_class_are_read_from_jsonl() {
 }
 
 #[test]
+fn rate_query_fields_and_duplicate_rows_are_preserved_or_rejected() {
+    let dir = std::env::temp_dir().join(format!(
+        "ctpbuddy-refdata-rates-{}-{}",
+        std::process::id(),
+        1
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("instruments.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"exchange_id\":\"SHFE\"}\n{\"instrument_id\":\"rb2601\",\"exchange_id\":\"SHFE\"}\n",
+    )
+    .unwrap();
+    let duplicate = RefData::load_jsonl_dir(dir.to_str().unwrap()).unwrap_err();
+    assert!(duplicate.contains("instrument_id"));
+    std::fs::write(
+        dir.join("instruments.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"exchange_id\":\"SHFE\"}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("margin_rates.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"hedge_flag\":\"2\",\"investor_range\":\"2\",\"is_relative\":1}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("commission_rates.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"investor_range\":\"2\",\"biz_type\":\"3\"}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("order_comm_rates.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"hedge_flag\":\"2\",\"investor_range\":\"2\"}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("trading_params.jsonl"),
+        "{\"margin_price_type\":\"2\",\"algorithm\":\"2\",\"avail_include_close_profit\":\"0\",\"option_royalty_price_type\":\"2\"}\n",
+    )
+    .unwrap();
+    let rd = RefData::load_jsonl_dir(dir.to_str().unwrap()).unwrap();
+    let margin = rd.margin_rate("rb2601").unwrap();
+    assert_eq!(
+        (margin.hedge_flag, margin.investor_range, margin.is_relative),
+        (b'2', b'2', 1)
+    );
+    let commission = rd.commission_rate("rb2601").unwrap();
+    assert_eq!(
+        (commission.investor_range, commission.biz_type),
+        (b'2', b'3')
+    );
+    let order = rd.order_comm_rate("rb2601").unwrap();
+    assert_eq!((order.hedge_flag, order.investor_range), (b'2', b'2'));
+    assert_eq!(rd.params().algorithm, b'2');
+    assert_eq!(rd.params().avail_include_close_profit, b'0');
+    assert_eq!(rd.params().option_royalty_price_type, b'2');
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn bundled_refdata_loads_real_contracts() {
     let dir = crate::catalog::bundled_refdata_dir();
     let rd = RefData::load_jsonl_dir(dir).expect("bundled ref data must load");
