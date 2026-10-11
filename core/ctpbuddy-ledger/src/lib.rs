@@ -459,25 +459,35 @@ impl Ledger {
     /// consumes the smaller booked margin of its long/short pair, so a rule
     /// cannot create negative margin and absent provider data has no effect.
     fn cross_margin_relief(&self, key: &AccountKey, catalog: &Catalog) -> Money {
-        catalog
-            .cross_margin_rules_for(&key.broker_id)
-            .into_iter()
-            .filter_map(|rule| {
-                let long = self.positions.get(&(
-                    key.clone(),
-                    rule.long_instrument_id.clone(),
-                    PositionSide::Long,
-                ))?;
-                let short = self.positions.get(&(
-                    key.clone(),
-                    rule.short_instrument_id.clone(),
-                    PositionSide::Short,
-                ))?;
-                Some(Money::from_f64(
-                    long.margin.to_f64().min(short.margin.to_f64()) * rule.offset_ratio,
-                ))
-            })
-            .sum()
+        // A leg may participate in several provider-defined combinations. Its
+        // booked margin is consumed once, in stable rule-id order, so two
+        // overlapping rows cannot create more relief than the leg carries.
+        let mut available: std::collections::BTreeMap<(String, PositionSide), Money> = self
+            .positions
+            .iter()
+            .filter(|((position_key, _, _), _)| position_key == key)
+            .map(|((_, instrument, side), position)| ((instrument.clone(), *side), position.margin))
+            .collect();
+        let mut rules = catalog.cross_margin_rules_for(&key.broker_id);
+        rules.sort_by(|left, right| left.rule_id.cmp(&right.rule_id));
+        let mut relief = Money::ZERO;
+        for rule in rules {
+            let long_key = (rule.long_instrument_id.clone(), PositionSide::Long);
+            let short_key = (rule.short_instrument_id.clone(), PositionSide::Short);
+            let Some(long) = available.get(&long_key).copied() else {
+                continue;
+            };
+            let Some(short) = available.get(&short_key).copied() else {
+                continue;
+            };
+            let amount = Money::from_f64(long.to_f64().min(short.to_f64()) * rule.offset_ratio);
+            if amount.is_positive() {
+                available.insert(long_key, long - amount);
+                available.insert(short_key, short - amount);
+                relief += amount;
+            }
+        }
+        relief
     }
 
     /// Reserve closeable volume for a close order.

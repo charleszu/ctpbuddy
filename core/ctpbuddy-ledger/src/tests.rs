@@ -81,6 +81,51 @@ fn explicit_cross_margin_rule_reliefs_only_the_paired_legs() {
 }
 
 #[test]
+fn overlapping_cross_margin_rules_cannot_consume_one_leg_twice() {
+    let mut catalog = fixture(false);
+    for (rule_id, short) in [("a-b", "TESTB01"), ("a-c", "TESTA02")] {
+        catalog
+            .insert_cross_margin_rule(CrossMarginRule {
+                broker_id: "TEST".into(),
+                rule_id: rule_id.into(),
+                long_instrument_id: "TESTA01".into(),
+                short_instrument_id: short.into(),
+                offset_ratio: 1.0,
+            })
+            .unwrap();
+    }
+    let mut ledger = Ledger::new(10_000.0);
+    ledger.ensure_account("TEST", "alice");
+    for id in ["TESTA01", "TESTB01", "TESTA02"] {
+        ledger.on_fill(
+            &fill(
+                id,
+                if id == "TESTA01" {
+                    Direction::Buy
+                } else {
+                    Direction::Sell
+                },
+                OffsetFlag::Open,
+                1,
+            ),
+            &catalog,
+            10.0,
+            "20261003",
+        );
+    }
+    // Base margin = 100 + 150 + 150. The TESTA01 long leg has only 100
+    // margin, so the two overlapping rows together may relieve at most 100.
+    assert_eq!(
+        ledger
+            .account("TEST", "alice")
+            .unwrap()
+            .used_margin
+            .to_f64(),
+        300.0
+    );
+}
+
+#[test]
 fn explicit_settlement_carries_today_to_yesterday_and_rolls_account() {
     let catalog = fixture(true);
     let mut ledger = Ledger::new(10_000.0);
