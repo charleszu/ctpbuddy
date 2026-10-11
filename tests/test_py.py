@@ -967,6 +967,21 @@ def test_web_replay() -> None:
             except urllib.error.HTTPError as exc:
                 assert exc.code == 403
             assert [name for name, _ in FakeAdmin.calls] == ["pause", "step", "set_speed", "loop"]
+            deposit = json.loads(request(
+                "/api/admin/deposit",
+                {"confirmed": True, "broker": "8888", "investor": "web1", "amount": 1000.0},
+                "POST",
+            ).read())
+            withdraw = json.loads(request(
+                "/api/admin/withdraw",
+                {"confirmed": True, "broker": "8888", "investor": "web1", "amount": 10.0},
+                "POST",
+            ).read())
+            assert deposit["cmd"] == "deposit" and withdraw["cmd"] == "withdraw"
+            assert FakeAdmin.calls[-2:] == [
+                ("deposit", {"broker": "8888", "investor": "web1", "amount": 1000.0}),
+                ("withdraw", {"broker": "8888", "investor": "web1", "amount": 10.0}),
+            ]
             def rejected(path, data, expected, extra=None):
                 count = len(FakeAdmin.calls)
                 try:
@@ -977,6 +992,13 @@ def test_web_replay() -> None:
                 assert len(FakeAdmin.calls) == count
             for extra in ({"Host": "evil.invalid"}, {"Origin": "http://evil.invalid"}, {"Origin": "null"}, {"Sec-Fetch-Site": "cross-site"}, {"X-CSRF-Token": "wrong"}):
                 rejected("/api/replay", {"cmd": "pause"}, 403, extra)
+            for bad_cash in (
+                {"confirmed": False, "broker": "8888", "investor": "web1", "amount": 1.0},
+                {"confirmed": True, "broker": "8888", "investor": "web1", "amount": 0.0},
+                {"confirmed": True, "broker": "8888", "investor": "web1", "amount": 1e13},
+                {"confirmed": True, "broker": "8888", "investor": "web1"},
+            ):
+                rejected("/api/admin/deposit", bad_cash, 400)
             rejected("/api/replay/status", None, 403, {"Host": "evil.invalid"})
             rejected("/api/replay/status?cmd=shutdown", None, 400)
             rejected("/api/replay?cmd=pause", {"cmd": "pause"}, 404)

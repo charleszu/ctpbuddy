@@ -23,6 +23,7 @@ WEB_PROJECTION_TABLES = {"account", "position_snapshot", "account_snapshot", "or
 MAX_PLAYBACK_SPEED = 1000.0
 MAX_SETTLEMENT_REPORTS = 16
 MAX_SETTLEMENT_CONTENT = 512 * 1024
+MAX_CASH_AMOUNT = 1_000_000_000_000.0
 
 
 def _strict_object(pairs):
@@ -214,7 +215,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             if not self.valid_source(write=True):
                 return self.reply(403, {"error": "同源或 CSRF 校验失败"})
             route = urlsplit(self.path).path
-            if self.path != route or route not in ("/api/settings", "/api/replay", "/api/scenario/load", "/api/admin/settlement_report", "/api/admin/settle_day"):
+            if self.path != route or route not in ("/api/settings", "/api/replay", "/api/scenario/load", "/api/admin/settlement_report", "/api/admin/settle_day", "/api/admin/deposit", "/api/admin/withdraw"):
                 return self.reply(404, {"error": "路径不存在"})
             if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                 return self.reply(400, {"error": "需要单一 Content-Length"})
@@ -241,6 +242,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                         raise ValueError("仅允许 patch 对象")
                 elif self.path == "/api/admin/settlement_report":
                     self.validate_settlement_report(value)
+                elif route in ("/api/admin/deposit", "/api/admin/withdraw"):
+                    self.validate_cash_transfer(value)
                 else:
                     self.validate_settle_day(value)
             except (ValueError, UnicodeError, OSError, ScenarioError, TypeError) as e:
@@ -259,6 +262,15 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                     item["content_bytes"] = list(content.encode("gbk", "strict"))
                     reports.append(item)
                 self.invoke(admin_cmd="settlement_report", admin_args={"reports": reports})
+            elif route in ("/api/admin/deposit", "/api/admin/withdraw"):
+                self.invoke(
+                    admin_cmd=route.rsplit("/", 1)[-1],
+                    admin_args={
+                        "broker": value["broker"],
+                        "investor": value["investor"],
+                        "amount": value["amount"],
+                    },
+                )
             else:
                 self.invoke(admin_cmd="settle_day", admin_args={"settlement_prices": value["settlement_prices"], "next_trading_day": value["next_trading_day"]})
 
@@ -290,6 +302,15 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             for instrument, price in prices.items():
                 if not isinstance(instrument, str) or not instrument or len(instrument) > 31 or not isinstance(price, (int, float)) or isinstance(price, bool) or not math.isfinite(price) or price <= 0:
                     raise ValueError("日结结算价无效")
+
+        def validate_cash_transfer(self, value):
+            if not isinstance(value, dict) or set(value) != {"confirmed", "broker", "investor", "amount"} or value["confirmed"] is not True:
+                raise ValueError("出入金写入必须明确 confirmed=true，并提供 broker/investor/amount")
+            if not all(isinstance(value.get(k), str) and value[k] for k in ("broker", "investor")):
+                raise ValueError("出入金身份字段无效")
+            amount = value["amount"]
+            if type(amount) not in (int, float) or not math.isfinite(amount) or not 0 < amount <= MAX_CASH_AMOUNT:
+                raise ValueError("出入金金额必须为有限正数且不超过 1e12")
 
         def validate_scenario_load(self, value):
             if not isinstance(value, dict) or set(value) != {"path", "confirmed"} or value["confirmed"] is not True:

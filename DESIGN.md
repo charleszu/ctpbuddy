@@ -771,7 +771,7 @@ report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
 
 ### 9.4 内部 ADMIN API
 
-当前 Web 仅将限定回放 API 转发至真实 ADMIN `status`、`pause`、`resume`、`step`、`set_speed`、`loop`，并提供 SQLite 投影的账户、持仓/资金快照、订单、成交、审计、结算报告只读浏览。投影明确标记为 journal rebuild 快照、非实时，数据缺失时不补造；查询表和参数采用白名单，前端表格使用 `textContent`。写入口仅为 `settlement_report` 与 `settle_day`，要求同源/CSRF、确认字段、严格参数校验并由核心 journal 审计；不提供任意 ADMIN proxy、reset、shutdown、任意 admin 命令或任意 SQL。`seek`、`start_scenario` 等仍不暴露。
+当前 Web 仅将限定回放 API 转发至真实 ADMIN `status`、`pause`、`resume`、`step`、`set_speed`、`loop`，并提供 SQLite 投影的账户、持仓/资金快照、订单、成交、审计、结算报告只读浏览。投影明确标记为 journal rebuild 快照、非实时，数据缺失时不补造；查询表和参数采用白名单，前端表格使用 `textContent`。写入口为 `settlement_report`、`settle_day`、`deposit` 与 `withdraw`，要求同源/CSRF、确认字段、严格参数校验并由核心 journal 审计；不提供任意 ADMIN proxy、reset、shutdown、任意 admin 命令或任意 SQL。`seek`、`start_scenario` 等仍不暴露。
 
 ---
 
