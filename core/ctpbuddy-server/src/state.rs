@@ -17,6 +17,8 @@ use serde_json::{json, Value};
 pub const RECOVER_ENV: &str = "CTPBUDDY_RECOVER";
 const FILE_VERSION: u64 = 1;
 
+type RecoverySnapshot = (String, Ledger, Value, Option<u64>);
+
 pub fn state_path(data_dir: &str) -> PathBuf {
     Path::new(data_dir).join("state").join("ledger.json")
 }
@@ -87,9 +89,7 @@ pub fn read_with_flow(data_dir: &str) -> Result<Option<(String, Ledger, Value)>,
     Ok(read_with_flow_meta(data_dir)?.map(|(day, ledger, flow, _)| (day, ledger, flow)))
 }
 
-pub fn read_with_flow_meta(
-    data_dir: &str,
-) -> Result<Option<(String, Ledger, Value, Option<u64>)>, String> {
+pub fn read_with_flow_meta(data_dir: &str) -> Result<Option<RecoverySnapshot>, String> {
     let path = state_path(data_dir);
     let text = match fs::read_to_string(&path) {
         Ok(t) => t,
