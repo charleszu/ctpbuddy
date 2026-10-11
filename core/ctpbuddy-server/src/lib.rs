@@ -1214,60 +1214,63 @@ impl World {
     /// Route an engine event: ledger settles first, then the wire push.
     fn dispatch_event(&mut self, ev: EngineEvent) {
         match ev {
-            EngineEvent::Order(field) => {
-                // A terminal '5' (client cancel or IOC/FOK/FAK auto-cancel)
-                // releases whatever is still frozen for the order — §8.3:
-                // 撤单按 VolumeTotal（未成交量）解冻. `unfreeze_order` is a
-                // no-op when the freeze was already fully released by fills.
-                if field.OrderStatus == b'5' {
-                    let key = format!(
-                        "{}/{}/{}",
-                        field.FrontID,
-                        field.SessionID,
-                        cstr(&field.OrderRef)
-                    );
-                    self.ledger.unfreeze_order(&key, self.engine.catalog());
-                }
-                self.private_seq.push((false, self.orders_today.len()));
-                self.orders_today.push(field);
-                let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
-                let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
-                let targets = self.investor_conns(&b, &i);
-                self.mark_delivered(&b, &i, !targets.is_empty());
-                for id in targets {
-                    self.send_frame(id, frame.clone());
-                }
-                let day = self.vt_trading_day.clone();
-                let now = self.vt_now_ms;
-                self.journal_record_order_update(&day, now, &field);
-            }
-            EngineEvent::Trade { field, fill } => {
-                let pre_settle = self
-                    .engine
-                    .pre_settlement(&fill.instrument_id)
-                    .unwrap_or(0.0);
-                self.ledger.on_fill(
-                    &fill,
-                    self.engine.catalog(),
-                    pre_settle,
-                    &self.vt_trading_day,
-                );
-                self.private_seq.push((true, self.trades_today.len()));
-                self.trades_today.push(field);
-                let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
-                let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
-                let targets = self.investor_conns(&b, &i);
-                self.mark_delivered(&b, &i, !targets.is_empty());
-                for id in targets {
-                    self.send_frame(id, frame.clone());
-                }
-                let day = self.vt_trading_day.clone();
-                let now = self.vt_now_ms;
-                self.journal_record_fill(&day, now, &fill);
-            }
+            EngineEvent::Order(field) => self.dispatch_order_event(field),
+            EngineEvent::Trade { field, fill } => self.dispatch_trade_event(field, fill),
         }
     }
 
+    fn dispatch_order_event(&mut self, field: CThostFtdcOrderField) {
+        if field.OrderStatus == b'5' {
+            let key = format!(
+                "{}/{}/{}",
+                field.FrontID,
+                field.SessionID,
+                cstr(&field.OrderRef)
+            );
+            self.ledger.unfreeze_order(&key, self.engine.catalog());
+        }
+        self.private_seq.push((false, self.orders_today.len()));
+        self.orders_today.push(field);
+        let field = self.orders_today.last().expect("order just appended");
+        let field = *field;
+        let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
+        let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
+        let targets = self.investor_conns(&b, &i);
+        self.mark_delivered(&b, &i, !targets.is_empty());
+        for id in targets {
+            self.send_frame(id, frame.clone());
+        }
+        let day = self.vt_trading_day.clone();
+        let now = self.vt_now_ms;
+        self.journal_record_order_update(&day, now, &field);
+    }
+
+    fn dispatch_trade_event(&mut self, field: CThostFtdcTradeField, fill: ctpbuddy_matching::Fill) {
+        let pre_settle = self
+            .engine
+            .pre_settlement(&fill.instrument_id)
+            .unwrap_or(0.0);
+        self.ledger.on_fill(
+            &fill,
+            self.engine.catalog(),
+            pre_settle,
+            &self.vt_trading_day,
+        );
+        self.private_seq.push((true, self.trades_today.len()));
+        self.trades_today.push(field);
+        let field = self.trades_today.last().expect("trade just appended");
+        let field = *field;
+        let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
+        let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
+        let targets = self.investor_conns(&b, &i);
+        self.mark_delivered(&b, &i, !targets.is_empty());
+        for id in targets {
+            self.send_frame(id, frame.clone());
+        }
+        let day = self.vt_trading_day.clone();
+        let now = self.vt_now_ms;
+        self.journal_record_fill(&day, now, &fill);
+    }
     fn on_conn_opened(&mut self, id: u64, writer: Sender<Frame>, is_admin: bool) {
         self.conns.insert(
             id,
