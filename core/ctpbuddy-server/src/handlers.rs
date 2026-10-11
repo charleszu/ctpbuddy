@@ -27,8 +27,8 @@ use std::time::{Duration, Instant};
 
 use ctpbuddy_ledger::{PositionSide, ERR_FUNDS, ERR_NO_CLOSE_TODAY_LEDGER, ERR_NO_CLOSE_YD_LEDGER};
 use ctpbuddy_matching::{
-    CancelQuery, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome, ERR_BAD_FIELD,
-    ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
+    CancelQuery, Catalog, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome,
+    ERR_BAD_FIELD, ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
     ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ, HEDGE_FLAG_SPECULATION,
 };
 use ctpbuddy_wire::generated::{

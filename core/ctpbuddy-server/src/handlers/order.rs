@@ -2,6 +2,22 @@
 
 use super::*;
 
+#[derive(Debug)]
+struct OrderInsertCommand {
+    input: CThostFtdcInputOrderField,
+    intent: OrderIntent,
+    broker: String,
+    investor: String,
+    order_ref: String,
+    order_key: String,
+    instrument: String,
+    exchange: String,
+    direction: Direction,
+    offset: OffsetFlag,
+    time_condition: u8,
+    volume_condition: u8,
+}
+
 impl World {
     /// Rejection surface split for an engine (exchange-side) insert rejection
     /// (notes/01 §B, 知识库 §5.1; #42 / DESIGN §8.12). Real CTP answers
@@ -45,120 +61,37 @@ impl World {
             Some(v) => v,
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let input: CThostFtdcInputOrderField = match struct_from_bytes(&frame.payload) {
-            Some(f) => f,
-            None => return self.send_error(conn_id, frame.req_id, -2, "报单字段长度错误"),
-        };
-        if cstr(&input.BrokerID) != broker || cstr(&input.InvestorID) != investor {
-            return self.send_error(
-                conn_id,
-                frame.req_id,
-                3,
-                "报单 BrokerID/InvestorID 与登录会话不一致",
-            );
-        }
-        let direction = match Direction::from_ctp(input.Direction) {
-            Some(d) => d,
-            None => {
-                return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误")
-            }
-        };
-        if !input.LimitPrice.is_finite() || !input.StopPrice.is_finite() {
-            return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误");
-        }
-        let offset = match OffsetFlag::from_ctp(input.CombOffsetFlag[0]) {
-            Some(o) => o,
-            None => {
-                return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误")
-            }
-        };
-        let instrument = cstr(&input.InstrumentID);
-        let mut exchange = cstr(&input.ExchangeID);
-        if instrument.is_empty() {
-            return self.send_error(conn_id, frame.req_id, ERR_BAD_FIELD, "CTP:报单字段有误");
-        }
-        if let Some(info) = self.engine.catalog().get(&instrument) {
-            if exchange.is_empty() {
-                // backfill from the catalog: the per-exchange rule tables
-                // (DCE self-completion, 平今归一化, ...) key off ExchangeID,
-                // so a client that leaves it empty must not disable them
-                exchange = info.exchange_id.clone();
-            } else if info.exchange_id != exchange {
-                return self.send_error(
-                    conn_id,
-                    frame.req_id,
-                    ERR_EXCHANGE_ID_INVALID,
-                    "CTP:无效的ExchangeID字段，请填入正确的ExchangeID",
-                );
-            }
-        }
-        let (tc, vc) = match normalize_conditions(
-            input.OrderPriceType,
-            input.TimeCondition,
-            input.VolumeCondition,
-            input.ContingentCondition,
+        let next_order_local = self
+            .conns
+            .get(&conn_id)
+            .map(|c| c.order_local_seq + 1)
+            .unwrap_or(1);
+        let command = match decode_order_insert(
+            &frame.payload,
+            (broker, investor, user_id, front_id, session_id),
+            self.engine.catalog(),
+            next_order_local,
         ) {
-            Ok(v) => v,
+            Ok(command) => command,
             Err((code, msg)) => return self.send_error(conn_id, frame.req_id, code, &msg),
         };
-
-        let (order_ref, order_local) = {
-            let c = self.conns.get_mut(&conn_id).unwrap();
-            c.order_local_seq += 1;
-            let local = c.order_local_seq;
-            let r = if cstr(&input.OrderRef).is_empty() {
-                local.to_string()
-            } else {
-                cstr(&input.OrderRef)
-            };
-            (r, local.to_string())
-        };
-        let order_key = format!("{front_id}/{session_id}/{order_ref}");
-
-        let intent = OrderIntent {
-            broker_id: {
-                let mut b = [0u8; 11];
-                set_cstr(&mut b, &broker);
-                b
-            },
-            investor_id: {
-                let mut i = [0u8; 13];
-                set_cstr(&mut i, &investor);
-                i
-            },
-            user_id,
-            order_ref: {
-                let mut r = [0u8; 13];
-                set_cstr(&mut r, &order_ref);
-                r
-            },
-            order_local_id: {
-                let mut l = [0u8; 13];
-                set_cstr(&mut l, &order_local);
-                l
-            },
-            instrument_id: instrument.clone(),
-            exchange_id: exchange.clone(),
+        if let Some(conn) = self.conns.get_mut(&conn_id) {
+            conn.order_local_seq = next_order_local;
+        }
+        let OrderInsertCommand {
+            input,
+            intent,
+            broker,
+            investor,
+            order_ref,
+            order_key,
+            instrument,
+            exchange,
             direction,
             offset,
-            hedge_flag: if input.CombHedgeFlag[0] == 0 {
-                b'1'
-            } else {
-                input.CombHedgeFlag[0]
-            },
-            price_type: input.OrderPriceType,
-            limit_price: input.LimitPrice,
-            volume: input.VolumeTotalOriginal,
             time_condition: tc,
             volume_condition: vc,
-            min_volume: input.MinVolume,
-            contingent_condition: input.ContingentCondition,
-            stop_price: input.StopPrice,
-            force_close_reason: input.ForceCloseReason,
-            request_id: input.RequestID,
-            front_id,
-            session_id,
-        };
+        } = command;
 
         if self.cfg.settlement_required
             && self
@@ -553,6 +486,113 @@ impl World {
     }
 }
 
+fn decode_order_insert(
+    payload: &[u8],
+    (broker, investor, user_id, front_id, session_id): (String, String, [u8; 16], i32, i32),
+    catalog: &Catalog,
+    order_local: u32,
+) -> Result<OrderInsertCommand, (i32, String)> {
+    let input: CThostFtdcInputOrderField =
+        struct_from_bytes(payload).ok_or((-2, "报单字段长度错误".to_string()))?;
+    if cstr(&input.BrokerID) != broker || cstr(&input.InvestorID) != investor {
+        return Err((3, "报单 BrokerID/InvestorID 与登录会话不一致".to_string()));
+    }
+    let direction = Direction::from_ctp(input.Direction)
+        .ok_or((ERR_BAD_FIELD, "CTP:报单字段有误".to_string()))?;
+    if !input.LimitPrice.is_finite() || !input.StopPrice.is_finite() {
+        return Err((ERR_BAD_FIELD, "CTP:报单字段有误".to_string()));
+    }
+    let offset = OffsetFlag::from_ctp(input.CombOffsetFlag[0])
+        .ok_or((ERR_BAD_FIELD, "CTP:报单字段有误".to_string()))?;
+    let instrument = cstr(&input.InstrumentID);
+    let mut exchange = cstr(&input.ExchangeID);
+    if instrument.is_empty() {
+        return Err((ERR_BAD_FIELD, "CTP:报单字段有误".to_string()));
+    }
+    if let Some(info) = catalog.get(&instrument) {
+        if exchange.is_empty() {
+            // Backfill from the catalog so exchange-specific rules remain active.
+            exchange = info.exchange_id.clone();
+        } else if info.exchange_id != exchange {
+            return Err((
+                ERR_EXCHANGE_ID_INVALID,
+                "CTP:无效的ExchangeID字段，请填入正确的ExchangeID".to_string(),
+            ));
+        }
+    }
+    let (time_condition, volume_condition) = normalize_conditions(
+        input.OrderPriceType,
+        input.TimeCondition,
+        input.VolumeCondition,
+        input.ContingentCondition,
+    )?;
+    let order_ref = if cstr(&input.OrderRef).is_empty() {
+        order_local.to_string()
+    } else {
+        cstr(&input.OrderRef)
+    };
+    let order_local_id = order_local.to_string();
+    let order_key = format!("{front_id}/{session_id}/{order_ref}");
+    let intent = OrderIntent {
+        broker_id: {
+            let mut value = [0u8; 11];
+            set_cstr(&mut value, &broker);
+            value
+        },
+        investor_id: {
+            let mut value = [0u8; 13];
+            set_cstr(&mut value, &investor);
+            value
+        },
+        user_id,
+        order_ref: {
+            let mut value = [0u8; 13];
+            set_cstr(&mut value, &order_ref);
+            value
+        },
+        order_local_id: {
+            let mut value = [0u8; 13];
+            set_cstr(&mut value, &order_local_id);
+            value
+        },
+        instrument_id: instrument.clone(),
+        exchange_id: exchange.clone(),
+        direction,
+        offset,
+        hedge_flag: if input.CombHedgeFlag[0] == 0 {
+            b'1'
+        } else {
+            input.CombHedgeFlag[0]
+        },
+        price_type: input.OrderPriceType,
+        limit_price: input.LimitPrice,
+        volume: input.VolumeTotalOriginal,
+        time_condition,
+        volume_condition,
+        min_volume: input.MinVolume,
+        contingent_condition: input.ContingentCondition,
+        stop_price: input.StopPrice,
+        force_close_reason: input.ForceCloseReason,
+        request_id: input.RequestID,
+        front_id,
+        session_id,
+    };
+    Ok(OrderInsertCommand {
+        input,
+        intent,
+        broker,
+        investor,
+        order_ref,
+        order_key,
+        instrument,
+        exchange,
+        direction,
+        offset,
+        time_condition,
+        volume_condition,
+    })
+}
+
 /// Normalize CTP order conditions to the engine matrix (DESIGN §8.2/§8.4),
 /// using the **official** encodings from `ThostFtdcUserApiDataType.h`:
 /// TC_IOC='1', TC_GFS='2', TC_GFD='3', TC_GTD='4', TC_GTC='5';
@@ -624,5 +664,62 @@ fn close_reject_msg(code: i32) -> &'static str {
         ERR_NO_CLOSE_TODAY_LEDGER => "CTP:平今仓位不足",
         ERR_NO_CLOSE_YD_LEDGER => "CTP:平昨仓位不足",
         _ => "CTP:平仓量超过持仓量",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_order_insert_is_a_pure_command_seam() {
+        let mut input = CThostFtdcInputOrderField::zeroed();
+        set_cstr(&mut input.BrokerID, "8888");
+        set_cstr(&mut input.InvestorID, "u1");
+        set_cstr(&mut input.InstrumentID, "rb2601");
+        input.OrderPriceType = b'2';
+        input.Direction = b'0';
+        input.CombOffsetFlag[0] = b'0';
+        input.CombHedgeFlag[0] = b'1';
+        input.TimeCondition = b'3';
+        input.VolumeCondition = b'1';
+        input.ContingentCondition = b'1';
+        input.LimitPrice = 3_500.0;
+        input.StopPrice = 0.0;
+        input.VolumeTotalOriginal = 2;
+        input.MinVolume = 1;
+
+        let mut catalog = Catalog::new();
+        catalog.insert(ctpbuddy_matching::Instrument::new("rb2601", "SHFE"));
+        let command = decode_order_insert(
+            &struct_to_bytes(&input),
+            ("8888".into(), "u1".into(), [0; 16], 4, 5),
+            &catalog,
+            7,
+        )
+        .unwrap();
+
+        assert_eq!(command.order_ref, "7");
+        assert_eq!(command.order_key, "4/5/7");
+        assert_eq!(command.exchange, "SHFE");
+        assert_eq!(
+            String::from_utf8_lossy(&command.intent.order_local_id).trim_end_matches('\0'),
+            "7"
+        );
+        assert_eq!(command.intent.time_condition, b'3');
+        assert_eq!(command.intent.volume_condition, b'1');
+    }
+
+    #[test]
+    fn decode_order_insert_rejects_wire_shape_before_world_side_effects() {
+        let error = decode_order_insert(
+            &[0, 1, 2],
+            ("8888".into(), "u1".into(), [0; 16], 1, 1),
+            &Catalog::new(),
+            1,
+        )
+        .unwrap_err();
+        assert_eq!(error.0, -2);
+        assert_eq!(error.1, "报单字段长度错误");
     }
 }
