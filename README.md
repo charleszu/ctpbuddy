@@ -126,6 +126,8 @@ provider 是鸭子类型的：实现任意子集表方法即可，**没实现的
 
 取用优先级：`--refdata` / `CTPBUDDY_REFDATA` > `<scenario>/refdata/` > 随包快照。口径详见 DESIGN §8.6.1。
 
+JSONL 数据目录必须包含一条 `manifest.jsonl` 记录：`{"contract":"ctpbuddy.refdata","contract_version":1,"format_version":1}`。两侧均拒绝缺失、不支持或类型错误的版本，表数据仍可使用带引号的数值。`refdata export` 和 Python `write_jsonl()` 自动生成 manifest；旧目录需先按上述格式补齐 manifest，再运行 `ctpbuddy refdata show DIR` 校验。
+
 ## 期货交易日历（Python，离线）
 
 `ctpbuddy.calendar.TradingCalendar` 只读取用户提供的 JSON 快照，运行时不访问网络、不安装第三方依赖。快照必须带固定 `version`、`source`、`scope: futures` 和 `days`；GitHub 项目只能作为人工/离线生成快照的数据源，不能把股票交易所日历直接当作期货日历。

@@ -476,9 +476,9 @@ def validate(provider: RefDataProvider) -> List[str]:
         else:
             if value.get("contract") != CONTRACT:
                 problems.append("manifest.jsonl contract 不匹配")
-            if value.get("contract_version") != CONTRACT_VERSION:
+            if type(value.get("contract_version")) not in (int, float) or value["contract_version"] != CONTRACT_VERSION:
                 problems.append("manifest.jsonl contract_version 不匹配")
-            if value.get("format_version") != FORMAT_VERSION:
+            if type(value.get("format_version")) not in (int, float) or value["format_version"] != FORMAT_VERSION:
                 problems.append("manifest.jsonl format_version 不匹配")
     instruments = _table(provider, "instruments")
     if not instruments:

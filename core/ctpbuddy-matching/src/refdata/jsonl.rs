@@ -23,6 +23,17 @@ enum Scalar {
 }
 
 impl JsonRow {
+    /// Contract versions are JSON numbers, never coerced booleans or strings.
+    pub(super) fn literal_number(&self, key: &str) -> Option<f64> {
+        self.0.iter().find(|(k, _)| k == key).and_then(|(_, v)| {
+            if let Scalar::Num(n) = v {
+                Some(*n)
+            } else {
+                None
+            }
+        })
+    }
+
     pub(super) fn number(&self, key: &str) -> Result<Option<f64>, ()> {
         self.0
             .iter()

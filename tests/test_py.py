@@ -1320,6 +1320,19 @@ def test_refdata_manifest() -> None:
         with open(os.path.join(d, refdata.MANIFEST), "w", encoding="utf-8") as fh:
             fh.write('{"contract":"wrong","contract_version":1,"format_version":1}\n')
         assert any("contract 不匹配" in problem for problem in refdata.validate(refdata.jsonl_dir(d)))
+        path = os.path.join(d, refdata.MANIFEST)
+        for key in ("contract_version", "format_version"):
+            for bad in (True, "1", 1.9, 2, None):
+                value = dict(manifest, **{key: bad})
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(json.dumps(value) + "\n")
+                assert any(key in problem for problem in refdata.validate(refdata.jsonl_dir(d))), value
+        for text in ("", "{}\n", "[]\n", "broken\n", json.dumps(manifest) + "\n" + json.dumps(manifest) + "\n"):
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            assert refdata.validate(refdata.jsonl_dir(d)), text
+        os.unlink(path)
+        assert refdata.validate(refdata.jsonl_dir(d))
     print("[ok] refdata: canonical manifest is emitted and validated")
 
 

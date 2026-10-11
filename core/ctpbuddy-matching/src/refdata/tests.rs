@@ -168,6 +168,49 @@ fn numeric_refdata_fields_fail_closed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn manifest_versions_fail_closed_before_loading_tables() {
+    let dir = std::env::temp_dir().join(format!("ctpbuddy-manifest-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("instruments.jsonl"),
+        "{\"instrument_id\":\"rb2601\",\"exchange_id\":\"SHFE\"}\n",
+    )
+    .unwrap();
+    let path = dir.join("manifest.jsonl");
+    let _ = std::fs::remove_file(&path);
+    assert!(RefData::load_jsonl_dir(dir.to_str().unwrap())
+        .unwrap_err()
+        .contains("manifest"));
+    for key in ["contract_version", "format_version"] {
+        for bad in ["true", "\"1\"", "1.9", "2", "null"] {
+            let other = if key == "contract_version" {
+                "format_version"
+            } else {
+                "contract_version"
+            };
+            let row =
+                format!("{{\"contract\":\"ctpbuddy.refdata\",\"{key}\":{bad},\"{other}\":1}}\n");
+            std::fs::write(&path, &row).unwrap();
+            let error = RefData::load_jsonl_dir(dir.to_str().unwrap()).unwrap_err();
+            assert!(error.contains("manifest"), "{row}: {error}");
+        }
+    }
+    for row in ["", "{}\n", "[]\n", "broken\n"] {
+        std::fs::write(&path, row).unwrap();
+        assert!(RefData::load_jsonl_dir(dir.to_str().unwrap())
+            .unwrap_err()
+            .contains("manifest"));
+    }
+    std::fs::write(
+        &path,
+        "{\"contract\":\"ctpbuddy.refdata\",\"contract_version\":1,\"format_version\":1}\n",
+    )
+    .unwrap();
+    assert!(RefData::load_jsonl_dir(dir.to_str().unwrap()).is_ok());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Write one `instruments.jsonl` row into a fresh temp dir and load it.
 fn load_one_row(tag: &str, row: &str) -> RefData {
     let dir = std::env::temp_dir().join(format!("ctpbuddy-refdata-{tag}-{}", std::process::id()));

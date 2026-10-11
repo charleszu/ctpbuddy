@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 """虚构 fixture 的真实 CTPBuddy TCP 服务器大单边保证金回归。"""
 from __future__ import annotations
-import json
 import os
 import subprocess
 import sys
@@ -14,6 +13,7 @@ sys.path.insert(0, os.path.join(REPO, "py"))
 from ctpbuddy.sdk import Admin, Client, CTPError
 from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical
 from ctpbuddy import generated
+from ctpbuddy.refdata import DictProvider, write_jsonl
 from ctpbuddy.wire import REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN, RSP_QRY_INVESTOR_PRODUCT_GROUP_MARGIN
 
 # 合约、费率、初始资金全部是明确虚构的测试输入，不使用生产默认费率。
@@ -43,11 +43,8 @@ def fixture(root):
         ticks.append(row)
     changed = dict(ticks[0], update_time="09:00:06", last_price="200", bid1="200", ask1="200", average="200")
     ticks.append(changed)
-    for name, rows in [("instruments", instruments), ("margin_rates", rates),
-                       ("trading_params", [dict(margin_price_type="2")])]:
-        with open(os.path.join(ref, name + ".jsonl"), "w", encoding="utf-8") as f:
-            for row in rows:
-                f.write(json.dumps(row) + "\n")
+    write_jsonl(DictProvider(instruments=instruments, margin_rates=rates,
+                            trading_params=dict(margin_price_type="2")), ref)
     write_canonical(scenario, ticks)
     return ref, scenario
 

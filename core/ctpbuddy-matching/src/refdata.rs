@@ -721,8 +721,8 @@ impl RefData {
         }
         let manifest = &manifest[0];
         if manifest.str("contract").as_deref() != Some(REFDATA_CONTRACT)
-            || manifest.int("contract_version") != Some(REFDATA_CONTRACT_VERSION)
-            || manifest.int("format_version") != Some(REFDATA_FORMAT_VERSION)
+            || manifest.literal_number("contract_version") != Some(REFDATA_CONTRACT_VERSION as f64)
+            || manifest.literal_number("format_version") != Some(REFDATA_FORMAT_VERSION as f64)
         {
             return Err(format!("{dir}/manifest.jsonl contract/version 不匹配"));
         }
