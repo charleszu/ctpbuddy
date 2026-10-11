@@ -572,7 +572,7 @@ assertions:             # 可选：场景内断言（CI 用）
 
 **验证**：Rust 全工作区 **30/30**（原 24 + 6 账本回归）；服务器/真实 shim e2e **11/11**（原 10 + `tests/e2e/m3_margin.py`）。新 fixture 明确虚构，覆盖跨合约、异品种/账户/交易所隔离、规则关闭/混合、非对称、部分成交/累计挂单/撤单、平仓切边、四种价格模式及 CurrMargin 一致；新 e2e 通过 `wait_idx` 同步 tick。真实 shim demo 验证新查询 SPI 回调。全量回归同时修正 `m2_book` 的旧双边冻结和成交价基数断言；跨日日志目录按事件 seq 读取，`m2_journal` 不再假定单文件。
 
-DESIGN §8.6 与知识库 §6.3 一直写着"优惠（品种内大单边、跨品种大单边、套利取高）按规则表配置"，**这句话被误读成已实现**。复核发现：核心只把 `MaxMarginSideAlgorithm` 建模为合约字段并原样回 `ReqQryInstrument`，账本 `used_margin` 是**逐笔明细直接相加**（`ctpbuddy-ledger` 无任何抵消步骤），`ReqQryInvestorProductGroupMargin` 也未接线。
+这段历史复核记录的是早期缺口：当时核心只把 `MaxMarginSideAlgorithm` 建模为合约字段，账本 `used_margin` 逐笔相加，`ReqQryInvestorProductGroupMargin` 也未接线。当前实现已补上品种内大单边、产品组查询和显式 `cross_margin_rules.jsonl` pairwise relief；仍未凭品种名推断复杂套利关系，也未实现仓单折抵。
 
 真实数据证明这不是边角场景，而是**主流场景**：
 
