@@ -37,6 +37,14 @@ struct InvestorPositionDetailQuery {
     instrument_id: String,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InstrumentRateQuery {
+    broker_id: String,
+    investor_id: String,
+    instrument_id: String,
+    hedge_flag: u8,
+}
+
 fn decode_order_query(payload: &[u8]) -> OrderQuery {
     let q: CThostFtdcQryOrderField =
         struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
@@ -97,6 +105,106 @@ fn decode_investor_position_detail_query(payload: &[u8]) -> InvestorPositionDeta
     InvestorPositionDetailQuery {
         instrument_id: cstr(&q.InstrumentID),
     }
+}
+
+fn decode_instrument_margin_rate_query(payload: &[u8]) -> InstrumentRateQuery {
+    let q: CThostFtdcQryInstrumentMarginRateField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryInstrumentMarginRateField::zeroed);
+    InstrumentRateQuery {
+        broker_id: cstr(&q.BrokerID),
+        investor_id: cstr(&q.InvestorID),
+        instrument_id: cstr(&q.InstrumentID),
+        hedge_flag: if q.HedgeFlag == 0 {
+            HEDGE_FLAG_SPECULATION
+        } else {
+            q.HedgeFlag
+        },
+    }
+}
+
+fn decode_instrument_commission_rate_query(payload: &[u8]) -> InstrumentRateQuery {
+    let q: CThostFtdcQryInstrumentCommissionRateField = struct_from_bytes(payload)
+        .unwrap_or_else(CThostFtdcQryInstrumentCommissionRateField::zeroed);
+    InstrumentRateQuery {
+        broker_id: cstr(&q.BrokerID),
+        investor_id: cstr(&q.InvestorID),
+        instrument_id: cstr(&q.InstrumentID),
+        hedge_flag: 0,
+    }
+}
+
+fn decode_instrument_order_comm_rate_query(payload: &[u8]) -> InstrumentRateQuery {
+    let q: CThostFtdcQryInstrumentOrderCommRateField = struct_from_bytes(payload)
+        .unwrap_or_else(CThostFtdcQryInstrumentOrderCommRateField::zeroed);
+    InstrumentRateQuery {
+        broker_id: cstr(&q.BrokerID),
+        investor_id: cstr(&q.InvestorID),
+        instrument_id: cstr(&q.InstrumentID),
+        hedge_flag: 0,
+    }
+}
+
+fn rate_query_has_required_identity(query: &InstrumentRateQuery) -> bool {
+    !query.broker_id.is_empty() && !query.investor_id.is_empty()
+}
+
+fn project_instrument_margin_rates(
+    catalog: &Catalog,
+    scope: &[String],
+    broker: &str,
+    investor: &str,
+    hedge_flag: u8,
+) -> Vec<CThostFtdcInstrumentMarginRateField> {
+    scope
+        .iter()
+        .filter_map(|id| catalog.margin_rate(id))
+        .map(|rate| {
+            let mut field = rate.to_field();
+            set_cstr(&mut field.BrokerID, broker);
+            set_cstr(&mut field.InvestorID, investor);
+            set_cstr(&mut field.InstrumentID, &rate.instrument_id);
+            field.HedgeFlag = hedge_flag;
+            field
+        })
+        .collect()
+}
+
+fn project_instrument_commission_rates(
+    catalog: &Catalog,
+    scope: &[String],
+    broker: &str,
+    investor: &str,
+) -> Vec<CThostFtdcInstrumentCommissionRateField> {
+    scope
+        .iter()
+        .filter_map(|id| catalog.commission_rate(id))
+        .map(|rate| {
+            let mut field = rate.to_field();
+            set_cstr(&mut field.BrokerID, broker);
+            set_cstr(&mut field.InvestorID, investor);
+            set_cstr(&mut field.InstrumentID, &rate.instrument_id);
+            field
+        })
+        .collect()
+}
+
+fn project_instrument_order_comm_rates(
+    catalog: &Catalog,
+    scope: &[String],
+    broker: &str,
+    investor: &str,
+) -> Vec<CThostFtdcInstrumentOrderCommRateField> {
+    scope
+        .iter()
+        .filter_map(|id| catalog.order_comm_rate(id))
+        .map(|rate| {
+            let mut field = rate.to_field();
+            set_cstr(&mut field.BrokerID, broker);
+            set_cstr(&mut field.InvestorID, investor);
+            set_cstr(&mut field.InstrumentID, &rate.instrument_id);
+            field
+        })
+        .collect()
 }
 
 fn project_investor_positions(
@@ -623,34 +731,21 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryInstrumentMarginRateField = struct_from_bytes(&frame.payload)
-            .unwrap_or_else(CThostFtdcQryInstrumentMarginRateField::zeroed);
+        let query = decode_instrument_margin_rate_query(&frame.payload);
         // (2) mandatory fields empty → empty result, not an error.
-        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
+        if !rate_query_has_required_identity(&query) {
             return self.send_qry_empty(conn_id, frame.req_id);
         }
-        let filter = cstr(&q.InstrumentID);
-        let hedge = if q.HedgeFlag == 0 {
-            HEDGE_FLAG_SPECULATION
-        } else {
-            q.HedgeFlag
-        };
-        let scope = self.rate_query_scope(&broker, &investor, &filter);
-        let catalog = self.engine.catalog();
-        let rows: Vec<_> = scope
-            .iter()
-            .filter_map(|id| catalog.margin_rate(id))
-            .map(|r| {
-                let mut f = r.to_field();
-                // Echo the session's identity and the requested hedge flag:
-                // the client asked with its own account, not ours.
-                set_cstr(&mut f.BrokerID, &broker);
-                set_cstr(&mut f.InvestorID, &investor);
-                set_cstr(&mut f.InstrumentID, &r.instrument_id);
-                f.HedgeFlag = hedge;
-                f
-            })
-            .collect();
+        let scope = self.rate_query_scope(&broker, &investor, &query.instrument_id);
+        // Echo the session's identity and the requested hedge flag: the client
+        // asked with its own account, not ours.
+        let rows = project_instrument_margin_rates(
+            self.engine.catalog(),
+            &scope,
+            &broker,
+            &investor,
+            query.hedge_flag,
+        );
         self.send_rate_rows(
             conn_id,
             frame.req_id,
@@ -667,25 +762,13 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryInstrumentCommissionRateField = struct_from_bytes(&frame.payload)
-            .unwrap_or_else(CThostFtdcQryInstrumentCommissionRateField::zeroed);
-        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
+        let query = decode_instrument_commission_rate_query(&frame.payload);
+        if !rate_query_has_required_identity(&query) {
             return self.send_qry_empty(conn_id, frame.req_id);
         }
-        let filter = cstr(&q.InstrumentID);
-        let scope = self.rate_query_scope(&broker, &investor, &filter);
-        let catalog = self.engine.catalog();
-        let rows: Vec<_> = scope
-            .iter()
-            .filter_map(|id| catalog.commission_rate(id))
-            .map(|r| {
-                let mut f = r.to_field();
-                set_cstr(&mut f.BrokerID, &broker);
-                set_cstr(&mut f.InvestorID, &investor);
-                set_cstr(&mut f.InstrumentID, &r.instrument_id);
-                f
-            })
-            .collect();
+        let scope = self.rate_query_scope(&broker, &investor, &query.instrument_id);
+        let rows =
+            project_instrument_commission_rates(self.engine.catalog(), &scope, &broker, &investor);
         self.send_rate_rows(
             conn_id,
             frame.req_id,
@@ -702,31 +785,19 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryInstrumentOrderCommRateField = struct_from_bytes(&frame.payload)
-            .unwrap_or_else(CThostFtdcQryInstrumentOrderCommRateField::zeroed);
-        if cstr(&q.BrokerID).is_empty() || cstr(&q.InvestorID).is_empty() {
+        let query = decode_instrument_order_comm_rate_query(&frame.payload);
+        if !rate_query_has_required_identity(&query) {
             return self.send_qry_empty(conn_id, frame.req_id);
         }
-        let filter = cstr(&q.InstrumentID);
-        let scope = self.rate_query_scope(&broker, &investor, &filter);
-        let catalog = self.engine.catalog();
         // 申报费 (报单 + 撤单各一笔). P4 calls it 中金所特有, but the rule
         // here is deliberately **not** an exchange whitelist: a row exists
         // exactly when the supplied `order_comm_rates.jsonl` has one for that
         // instrument. So a desk that does charge 申报费 on SHFE gets SHFE
         // rows, and one that doesn't gets an empty stream — both correct.
         // An empty result is a real answer here, not "unimplemented".
-        let rows: Vec<_> = scope
-            .iter()
-            .filter_map(|id| catalog.order_comm_rate(id))
-            .map(|r| {
-                let mut f = r.to_field();
-                set_cstr(&mut f.BrokerID, &broker);
-                set_cstr(&mut f.InvestorID, &investor);
-                set_cstr(&mut f.InstrumentID, &r.instrument_id);
-                f
-            })
-            .collect();
+        let scope = self.rate_query_scope(&broker, &investor, &query.instrument_id);
+        let rows =
+            project_instrument_order_comm_rates(self.engine.catalog(), &scope, &broker, &investor);
         self.send_rate_rows(
             conn_id,
             frame.req_id,
@@ -1060,5 +1131,58 @@ mod order_trade_query_tests {
         );
         assert_eq!(rows.len(), 1);
         assert_eq!(cstr(&rows[0].InstrumentID), "ag");
+    }
+
+    #[test]
+    fn instrument_rate_queries_decode_identity_and_project_session_rows() {
+        let empty_margin = decode_instrument_margin_rate_query(&[]);
+        assert_eq!(empty_margin.broker_id, "");
+        assert_eq!(empty_margin.investor_id, "");
+        assert_eq!(empty_margin.hedge_flag, HEDGE_FLAG_SPECULATION);
+        assert!(!rate_query_has_required_identity(&empty_margin));
+
+        let mut margin_query = CThostFtdcQryInstrumentMarginRateField::zeroed();
+        set_cstr(&mut margin_query.BrokerID, "B");
+        set_cstr(&mut margin_query.InvestorID, "I");
+        set_cstr(&mut margin_query.InstrumentID, "rb");
+        margin_query.HedgeFlag = b'2';
+        let margin_query = decode_instrument_margin_rate_query(&struct_to_bytes(&margin_query));
+        assert_eq!(margin_query.instrument_id, "rb");
+        assert_eq!(margin_query.hedge_flag, b'2');
+        assert!(rate_query_has_required_identity(&margin_query));
+
+        let mut commission_query = CThostFtdcQryInstrumentCommissionRateField::zeroed();
+        set_cstr(&mut commission_query.BrokerID, "B");
+        set_cstr(&mut commission_query.InvestorID, "I");
+        let commission_query =
+            decode_instrument_commission_rate_query(&struct_to_bytes(&commission_query));
+        assert!(rate_query_has_required_identity(&commission_query));
+        assert_eq!(commission_query.instrument_id, "");
+
+        let mut catalog = Catalog::new();
+        let mut margin = ctpbuddy_matching::MarginRate::default();
+        margin.instrument_id = "rb".into();
+        catalog.insert_margin_rate(margin);
+        let mut commission = ctpbuddy_matching::CommissionRate::default();
+        commission.instrument_id = "rb".into();
+        catalog.insert_commission_rate(commission);
+        let mut order_comm = ctpbuddy_matching::OrderCommRate::default();
+        order_comm.instrument_id = "rb".into();
+        catalog.insert_order_comm_rate(order_comm);
+        let scope = vec![String::from("rb")];
+
+        let margin_rows = project_instrument_margin_rates(&catalog, &scope, "B", "I", b'2');
+        assert_eq!(margin_rows.len(), 1);
+        assert_eq!(cstr(&margin_rows[0].BrokerID), "B");
+        assert_eq!(cstr(&margin_rows[0].InstrumentID), "rb");
+        assert_eq!(margin_rows[0].HedgeFlag, b'2');
+
+        let commission_rows = project_instrument_commission_rates(&catalog, &scope, "B", "I");
+        assert_eq!(commission_rows.len(), 1);
+        assert_eq!(cstr(&commission_rows[0].InvestorID), "I");
+
+        let order_rows = project_instrument_order_comm_rates(&catalog, &scope, "B", "I");
+        assert_eq!(order_rows.len(), 1);
+        assert_eq!(cstr(&order_rows[0].InstrumentID), "rb");
     }
 }
