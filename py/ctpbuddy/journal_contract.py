@@ -149,6 +149,9 @@ PROJECTION_TYPES: Dict[str, FrozenSet[str]] = {
 }
 SETTLEMENT_TYPES: FrozenSet[str] = PROJECTION_TYPES.get("position_snapshot", frozenset())
 SETTLEMENT_REPORT_TYPES: FrozenSet[str] = PROJECTION_TYPES.get("settlement_report", frozenset())
+TRADE_RECORD_TYPES: FrozenSet[str] = PROJECTION_TYPES.get("trade_record", frozenset())
+POSITION_CHANGE_TYPES: FrozenSet[str] = PROJECTION_TYPES.get("position_change", frozenset())
+ACCOUNT_SNAPSHOT_TYPES: FrozenSet[str] = PROJECTION_TYPES.get("account_snapshot", frozenset())
 
 
 def event_spec(event_type: str) -> Dict[str, Any]:

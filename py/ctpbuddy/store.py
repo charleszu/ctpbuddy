@@ -16,7 +16,14 @@ from .journal import (
     load_events,
     verify_events,
 )
-from .journal_contract import CONTRACT_SHA256, CONTRACT_VERSION, SETTLEMENT_REPORT_TYPES
+from .journal_contract import (
+    ACCOUNT_SNAPSHOT_TYPES,
+    CONTRACT_SHA256,
+    CONTRACT_VERSION,
+    POSITION_CHANGE_TYPES,
+    SETTLEMENT_REPORT_TYPES,
+    TRADE_RECORD_TYPES,
+)
 
 SCHEMA_VERSION = 2
 APPLICATION_ID = 0x43545042
@@ -119,16 +126,18 @@ def _project(conn, events):
                 None, None, None, d.get("submit_status"), outcome.get("accepted"),
                 outcome.get("error_id"), outcome.get("msg"), None, raw))
             inserts.append((e, sys_id))
-        elif t == "fill":
+        elif t in TRADE_RECORD_TYPES or t in POSITION_CHANGE_TYPES:
             direction, offset = _code(d.get("direction")), _code(d.get("offset"))
-            conn.execute("INSERT INTO trade_record VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (
-                s, day, b, i, d.get("trade_id"), d.get("order_sys_id"), d.get("order_ref"),
-                d.get("instrument"), direction, offset, d.get("price"), d.get("volume"), raw))
             side = ("long" if direction == "0" else "short") if offset == "0" else ("short" if direction == "0" else "long")
             delta = d.get("volume")
             if delta is not None and offset != "0":
                 delta = -delta
-            conn.execute("INSERT INTO position_change VALUES (?,?,?,?,?,?,?,?,?)", (s, day, b, i, d.get("instrument"), side, offset, delta, raw))
+            if t in TRADE_RECORD_TYPES:
+                conn.execute("INSERT INTO trade_record VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                    s, day, b, i, d.get("trade_id"), d.get("order_sys_id"), d.get("order_ref"),
+                    d.get("instrument"), direction, offset, d.get("price"), d.get("volume"), raw))
+            if t in POSITION_CHANGE_TYPES:
+                conn.execute("INSERT INTO position_change VALUES (?,?,?,?,?,?,?,?,?)", (s, day, b, i, d.get("instrument"), side, offset, delta, raw))
         if t in SETTLEMENT_REPORT_TYPES:
             content_bytes = d.get("content_bytes", [])
             conn.execute("INSERT INTO settlement_report VALUES (?,?,?,?,?,?,?,?,?,?)", (
@@ -138,7 +147,7 @@ def _project(conn, events):
         if t in AUDIT_TYPES:
             conn.execute("INSERT INTO audit_log VALUES (?,?,?,?,?,?,?,?)", (
                 s, day, b, i, e["ts_wall"], d.get("actor", d.get("operator")), t, raw))
-        if t == "assertion" and d.get("metric") in {
+        if t in ACCOUNT_SNAPSHOT_TYPES and d.get("metric") in {
             "balance", "available", "close_profit", "commission", "position_profit",
             "used_margin", "frozen_margin"}:
             conn.execute("INSERT INTO account_snapshot VALUES (?,?,?,?,?,?,?,?)", (s, 0, day, b, i, d["metric"], d.get("actual"), raw))

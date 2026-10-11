@@ -1290,8 +1290,9 @@ def test_journal_contract() -> None:
         CANONICAL_OMIT_FIELDS, CONTRACT_VERSION, CORE_NOISE_TYPES,
         ENVELOPE_REQUIRED, KNOWN_TYPES, SESSION_FRONT_ID_TYPES,
         REPLAYABLE_ADMIN_TYPES, REPLAYABLE_TYPES,
-        UNREPLAYABLE_ADMIN_TYPES, PROJECTION_TYPES, SETTLEMENT_REPORT_TYPES,
-        SETTLEMENT_TYPES, event_spec,
+        UNREPLAYABLE_ADMIN_TYPES, ACCOUNT_SNAPSHOT_TYPES, POSITION_CHANGE_TYPES,
+        PROJECTION_TYPES, SETTLEMENT_REPORT_TYPES, SETTLEMENT_TYPES,
+        TRADE_RECORD_TYPES, event_spec,
         validate_event_contract,
     )
     assert CONTRACT_VERSION == 1
@@ -1306,6 +1307,8 @@ def test_journal_contract() -> None:
     assert "settlement" in SETTLEMENT_TYPES
     assert SETTLEMENT_REPORT_TYPES == PROJECTION_TYPES["settlement_report"]
     assert "settlement_report" in SETTLEMENT_REPORT_TYPES
+    assert TRADE_RECORD_TYPES == POSITION_CHANGE_TYPES == {"fill"}
+    assert "assertion" in ACCOUNT_SNAPSHOT_TYPES
     assert event_spec("server_start")["hash"] == "noise"
     assert validate_event_contract({"seq": 1, "ts_wall": "x", "trading_day": "20261003", "vt_ms": 1,
                                    "type": "server_start", "data": None}) == []
