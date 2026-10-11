@@ -362,7 +362,7 @@ impl World {
         };
         let mut reports = Vec::new();
         for item in items {
-            match crate::settlement::Report::parse(item, &self.cfg.broker_id) {
+            match crate::settlement::Report::parse(item, self.cfg.primary_broker()) {
                 Ok(r) => reports.push(r),
                 Err(e) => return self.admin_error(conn_id, req_id, &e),
             }
@@ -536,7 +536,8 @@ impl World {
         self.ledger = staged_ledger;
         self.engine = staged_engine;
         self.playback = staged_playback;
-        self.journal_record_json("settlement", &self.cfg.broker_id.clone(), "", event);
+        let broker = self.cfg.primary_broker().to_string();
+        self.journal_record_json("settlement", &broker, "", event);
         self.clear_day_flow();
         self.settlement_confirmed.clear();
         self.vt_trading_day = next_day.clone();
@@ -567,7 +568,7 @@ impl World {
 
     fn admin_reset_account(&mut self, conn_id: u64, req_id: u32, v: &Value) {
         let investor = v.get_str("investor").unwrap_or_default();
-        let broker = self.cfg.broker_id.clone();
+        let broker = self.cfg.primary_broker().to_string();
         // Same gate as `settle_day` / `start_scenario`: the ledger is wiped
         // but the engine books are not, so a later fill against a resting
         // close order would hit a position the ledger no longer knows.

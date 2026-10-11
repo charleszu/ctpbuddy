@@ -191,6 +191,10 @@ impl Config {
             .filter(|id| !id.is_empty())
             .collect()
     }
+
+    pub fn primary_broker(&self) -> &str {
+        self.broker_ids().into_iter().next().unwrap_or("")
+    }
 }
 
 /// Bind transports and run the world loop until an admin `shutdown`.
@@ -704,7 +708,7 @@ impl World {
                 &vt_day,
                 vt_ms,
                 "server_start",
-                &cfg.broker_id,
+                cfg.primary_broker(),
                 "",
                 json::obj_sorted(start_data),
             );
@@ -731,7 +735,7 @@ impl World {
             assertions,
             order_freq_windows: HashMap::new(),
             settlement_confirmed: HashMap::new(),
-            settlement_reports: settlement::load_reports(&cfg.data_dir, &cfg.broker_id)
+            settlement_reports: settlement::load_reports(&cfg.data_dir, cfg.primary_broker())
                 .unwrap_or_else(|e| {
                     eprintln!("[ctpbuddy] settlement reports disabled: {e}");
                     Vec::new()
@@ -790,7 +794,7 @@ impl World {
         }
         let day = world.vt_trading_day.clone();
         let accounts = startup_accounts;
-        let broker = world.cfg.broker_id.clone();
+        let broker = world.cfg.primary_broker().to_string();
         Self::bootstrap_accounts(
             &mut world.ledger,
             world.engine.catalog(),
@@ -916,7 +920,7 @@ impl World {
         Self::bootstrap_accounts(
             &mut staged_ledger,
             &catalog,
-            &self.cfg.broker_id,
+            self.cfg.primary_broker(),
             spec.map(|s| s.accounts.as_slice()).unwrap_or(&[]),
             &day,
         )?;
@@ -1064,7 +1068,7 @@ impl World {
         }
         let vt = self.vt_now_ms;
         let t0 = self.scenario_t0_ms.unwrap_or(vt);
-        let broker = self.cfg.broker_id.clone();
+        let broker = self.cfg.primary_broker().to_string();
         let due: Vec<usize> = self
             .assertions
             .iter()
