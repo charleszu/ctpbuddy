@@ -71,6 +71,10 @@ def validate_scenario(scenario_dir: str) -> List[str]:
                 if len(problems) > 5:
                     break
                 continue
+            if len(row) > len(CANONICAL_COLUMNS):
+                problems.append("ticks.csv line %d: %d columns, want at most %d" % (lineno, len(row), len(CANONICAL_COLUMNS)))
+                if len(problems) > 5:
+                    break
             try:
                 float(row[5])
                 int(row[6])
@@ -103,6 +107,8 @@ def iter_ticks(scenario_dir: str) -> Iterator[Dict[str, Any]]:
         for lineno, row in enumerate(csv.reader(f), start=1):
             if not row or (lineno == 1 and row[0] == "instrument") or row[0].startswith("#"):
                 continue
+            if len(row) > len(CANONICAL_COLUMNS):
+                raise ValueError("ticks.csv line %d: too many columns" % lineno)
             row = row + [""] * (len(CANONICAL_COLUMNS) - len(row))
             yield dict(zip(CANONICAL_COLUMNS, (c.strip() for c in row)))
 

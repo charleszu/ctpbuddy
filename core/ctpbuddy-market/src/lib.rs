@@ -240,6 +240,17 @@ impl CsvSource {
                     ),
                 ));
             }
+            if c.len() > CSV_COLUMNS.len() + 1 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "csv line {}: expected at most {} columns, got {}",
+                        i + 1,
+                        CSV_COLUMNS.len() + 1,
+                        c.len()
+                    ),
+                ));
+            }
             let num = |idx: usize| -> std::io::Result<f64> {
                 let s = c[idx].trim();
                 if s.is_empty() {

@@ -136,6 +136,15 @@ def test_scenario() -> None:
             fh.write("rb2601,SHFE,20261002,09:30:01,0\n")
         problems = validate_scenario(d)
         assert problems and "columns" in problems[0], problems
+        with open(os.path.join(d, "ticks.csv"), "a", encoding="utf-8") as fh:
+            fh.write(",".join(["rb2601", "SHFE", "20261002", "09:30:02", "0"] + [""] * len(CANONICAL_COLUMNS)) + "\n")
+        problems = validate_scenario(d)
+        assert any("at most" in problem for problem in problems), problems
+        try:
+            list(iter_ticks(d))
+            raise AssertionError("超过 canonical 列数的 ticks.csv 应拒绝")
+        except ValueError as exc:
+            assert "too many columns" in str(exc), str(exc)
     print("[ok] scenario: write/validate/iter + broken-case rejection")
 
 
@@ -386,6 +395,7 @@ def test_calendar() -> None:
     assert cal.next_trading_day("20261002") == "20261005"
     padded = TradingCalendar.from_json(dict(snapshot, version=" fixture-2026-10-r1 "))
     assert padded.metadata["version"] == "fixture-2026-10-r1"
+    assert padded.sha256 == cal.sha256
     for floating in (" latest ", "head", " main ", "master"):
         try:
             TradingCalendar.from_json(dict(snapshot, version=floating))
@@ -745,6 +755,7 @@ def test_journal_projection() -> None:
 
 
 def test_projection_calendar_metadata() -> None:
+    from ctpbuddy.journal import JournalError
     from ctpbuddy.store import Projection, ReadModelMetadata, rebuild
 
     with tempfile.TemporaryDirectory() as d:
@@ -777,8 +788,8 @@ def test_projection_calendar_metadata() -> None:
         try:
             ReadModelMetadata.from_admin_status({"playback": {}, "contract_version": "99"})
             raise AssertionError("ADMIN contract version mismatch must fail")
-        except Exception as exc:
-            assert "contract/version" in str(exc)
+        except JournalError as exc:
+            assert str(exc) == "ADMIN read-model metadata contract/version 不匹配"
     print("[ok] projection calendar metadata: server_start provenance survives rebuild")
 
 
@@ -1352,6 +1363,9 @@ def test_refdata_manifest() -> None:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(text)
             assert refdata.validate(refdata.jsonl_dir(d)), text
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write('{"contract":"ctpbuddy.refdata","contract_version":1,"contract_version":99,"format_version":1}\n')
+        assert refdata.validate(refdata.jsonl_dir(d))
         os.unlink(path)
         assert refdata.validate(refdata.jsonl_dir(d))
     print("[ok] refdata: canonical manifest is emitted and validated")

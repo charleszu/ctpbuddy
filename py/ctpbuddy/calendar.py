@@ -141,7 +141,9 @@ class TradingCalendar:
                 action = _date(night.get("night_action_day"), "night_action_day")
                 _date(night.get("night_trading_day"), "night_trading_day", True)
                 self._nights[(date, exchange)] = CalendarDay(date, opened, trading, night["night_trading_day"], action.replace("-", ""), exchange, status)
-        self._json = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        normalized = dict(snapshot)
+        normalized["version"] = version
+        self._json = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
         self.sha256 = hashlib.sha256(self._json.encode("utf-8")).hexdigest()
         self.metadata = MappingProxyType({"schema": self.SCHEMA, "version": version, "source": MappingProxyType(dict(source)), "sha256": self.sha256})
 

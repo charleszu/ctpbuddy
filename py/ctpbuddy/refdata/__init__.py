@@ -66,6 +66,15 @@ CONTRACT = "ctpbuddy.refdata"
 CONTRACT_VERSION = 1
 FORMAT_VERSION = 1
 
+
+def _json_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("JSON 重复字段: %s" % key)
+        result[key] = value
+    return result
+
 ALL_TABLES = (
     INSTRUMENTS,
     MARGIN_RATES,
@@ -280,7 +289,7 @@ class JsonlDirProvider(RefDataProvider):
                 if not line or line.startswith("#"):
                     continue
                 try:
-                    rows.append(json.loads(line))
+                    rows.append(json.loads(line, object_pairs_hook=_json_pairs))
                 except ValueError as e:
                     raise ValueError("%s line %d: %s" % (full, lineno, e)) from None
         return rows

@@ -121,6 +121,11 @@ pub(super) fn parse_flat_object(text: &str) -> Result<JsonRow, String> {
     let mut row = JsonRow::default();
     skip_ws(&chars, &mut pos);
     if chars.get(pos) == Some(&'}') {
+        pos += 1;
+        skip_ws(&chars, &mut pos);
+        if pos != chars.len() {
+            return Err("对象结束后存在额外内容".into());
+        }
         return Ok(row);
     }
     loop {
@@ -133,11 +138,21 @@ pub(super) fn parse_flat_object(text: &str) -> Result<JsonRow, String> {
         pos += 1;
         skip_ws(&chars, &mut pos);
         let val = parse_scalar(&chars, &mut pos)?;
+        if row.0.iter().any(|(existing, _)| existing == &key) {
+            return Err(format!("重复字段 {key:?}"));
+        }
         row.0.push((key, val));
         skip_ws(&chars, &mut pos);
         match chars.get(pos) {
             Some(',') => pos += 1,
-            Some('}') => return Ok(row),
+            Some('}') => {
+                pos += 1;
+                skip_ws(&chars, &mut pos);
+                if pos != chars.len() {
+                    return Err("对象结束后存在额外内容".into());
+                }
+                return Ok(row);
+            }
             _ => return Err(format!("缺 ',' 或 '}}'（位置 {pos}）")),
         }
     }

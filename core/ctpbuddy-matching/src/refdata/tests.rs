@@ -140,6 +140,8 @@ fn flat_parser_handles_escapes_and_rejects_bad_literals() {
     assert!(row.str("x").is_none());
     assert!(parse_flat_object(r#"{"a":tru}"#).is_err());
     assert!(parse_flat_object(r#"{"a":"\q"}"#).is_err());
+    assert!(parse_flat_object(r#"{"a":1} trailing"#).is_err());
+    assert!(parse_flat_object(r#"{"a":1,"a":2}"#).is_err());
 }
 
 #[test]
