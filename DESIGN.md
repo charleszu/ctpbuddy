@@ -26,7 +26,7 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | Shim 只解析 `tcp://<IPv4>:<port>` 字面地址 | 下游需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」暂不成立 |
 | §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单与私有流按 BrokerID 隔离；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 场景 bootstrap、ADMIN 日结与 settlement report 仍以首个 BrokerID 为默认命名空间；跨 Broker 的批量日结编排尚未抽成独立命令 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
-| §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，snapshot 前先 flush journal，`--recover` 在同一交易日恢复后可继续 RESTART/RESUME；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；完整 journal crash replay 与未进入最近 snapshot 的尾部仍是恢复边界 |
+| §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，snapshot 前先 flush journal；`--recover` 会读取上一轮归档 journal，并把快照之后的 `fill`、`order_update`、`reset_account` 尾部应用到账本和私有流；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；结算/设置等无法从当前事件完整重建的尾部会 fail closed，待补齐对应输入契约 |
 | §5 Shim DLL/so | Windows DLL（`shim/build_msvc.py`）与 Linux `.so`（`shim/build_linux.py`，g++/WSL 已通过 `m1_shim_e2e`）；`CTPBUDDY_ADDR` 环境变量可整体重定向前置，前置地址支持主机名 | 前置别名表 `ctpbuddy.ini` 仍未实现；ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | 暂不纳入当前实现范围 |
 | §8.6 / §8.7 昨仓保证金按昨结算价计 | 已实现：`settle_trading_day` 在推进交易日时按供给结算价重算每个存续明细的保证金，并更新 `last_settlement_price`；`MarginPriceType=Last` 仅对今仓按最新价做盘中重估，昨仓仍固定昨结算价；可选 `cross_margin_rules.jsonl` 以显式多空腿和 `offset_ratio` 计算跨品种 relief | 真实柜台的组合保证金、复杂套利取高和仓单折抵仍取决于 provider 提供的正式关系/算法；核心不会根据品种名自行推断 |
@@ -437,7 +437,7 @@ assertions:             # 可选：场景内断言（CI 用）
 
 ### 8.1 事件循环
 
-核心是**单线程世界循环**：MD tick、客户端请求、定时器（结算）、admin 指令全部入队串行处理。当前 journal 用于独立实验录制与重放；复用数据目录重启时，旧 journal 归档到 `journal-run-<时间戳>-<进程号>/journal/`，当前 `journal/` 从序号 1 开始，不混合不同账本实例。定期快照及崩溃后自动恢复仍是目标能力，不是现有启动行为。撮合为将来并行保留调度切换点。
+核心是**单线程世界循环**：MD tick、客户端请求、定时器（结算）、admin 指令全部入队串行处理。复用数据目录重启时，旧 journal 归档到 `journal-run-<时间戳>-<进程号>/journal/`，当前 `journal/` 从序号 1 开始，不混合不同账本实例；`--recover` 以快照为基线读取最新归档的 durable tail，崩溃留下的最后半行会丢弃，完整行按序号断链则 fail closed。撮合为将来并行保留调度切换点。
 
 ### 8.2 订单指令矩阵（v1）
 
@@ -814,7 +814,7 @@ report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
   - `reset_account` 等 admin 输入按 admin 命令重放；`settle_confirm` / 连接关闭不 journal、不重放。
 - **系统侧确定性前提**（M2-3 实测修复）：① 世界循环的脉冲是**真定时器**（每 PULSE 到期必触发，不被请求流量饿死——否则高频 status 轮询会拖死 tick 释放与 md_watermark 落账）；② 场景时钟启动前 vt 归零（`server_start` 等前置事件不得带墙上时钟）。
 - **`step` 不是计数器（#43 顺带修复的既有缺陷）**：`Playback::step()` 只置 `step_once` **标志**，由下一个世界循环脉冲清除——不是计数。因此两条 `step` 命令若跨过脉冲边界会释放**两个** tick。`_step_until` 原先「轮询间隔 15ms > 脉冲 10ms，多发一条也无害」的假设只在两条命令落在同一脉冲窗口内成立；跨边界时第二条会被下一脉冲消费而**越过目标**（实测：请求 idx 3 落到 4）。更糟的是随后的水位事件因 `cur != target - 1` 被误判成「后跳 seek」，回退到同一 vt 再释放一次，产生**重复的 `md_watermark`**（`m2_journal` 间歇失败，core hash 一致但事件数多 1，比例约 1/4~1/8）。修法两处：`_step_until` 用 `last_seen` 记住已为哪个 idx 发出过命令，**只在 idx 真的前进后才发下一条**；`on_watermark` 的分支条件由 `target == cur + 1` 放宽为 `target <= cur + 1`（`cur == target` 是「已就位」，再 step 会越过、误判 seek 会重复释放）。修复后 20 次重放诊断 0 失配、`m2_journal` 连跑 6 次全绿。
-- **崩溃恢复**（规划）：定期快照 + journal 增量重放尚未实现。当前批量刷新 journal，崩溃可能丢失未刷新尾部；重启归档旧录制，不自动恢复账本。完整录制可独立重放并重建 SQLite 投影，不承诺输入零丢失。
+- **崩溃恢复**：快照前先 flush journal；重启时从上一轮归档读取快照序号之后的完整 durable tail，并恢复 `fill`、`order_update`、`reset_account`。工作撮合簿不恢复，在途挂单作废。`settlement`、`settings_updated` 和外部资金类事件仍无法仅凭当前 payload 重建，遇到这些尾部会拒绝启动恢复，避免静默账实不符；未 flush 的尾部以及崩溃半行不承诺零丢失。
 
 ### 11.3 表结构（v1 定稿）
 

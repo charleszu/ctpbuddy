@@ -43,8 +43,9 @@ pub fn write_with_flow(
 }
 
 /// Atomically replace the recovery snapshot and record the journal prefix it
-/// covers. The sequence is metadata only for now; full journal replay remains
-/// a separate recovery phase.
+/// covers. Recovery uses this sequence to select the previous run's durable
+/// journal tail; transitions not yet represented fully by that contract fail
+/// closed during the tail-replay phase.
 pub fn write_with_flow_meta(
     data_dir: &str,
     trading_day: &str,

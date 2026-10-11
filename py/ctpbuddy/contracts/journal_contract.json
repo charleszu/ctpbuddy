@@ -9,6 +9,7 @@
   "events": {
     "server_start": {"category": "operational", "replay": "none", "hash": "noise", "projection": []},
     "server_stop": {"category": "operational", "replay": "none", "hash": "noise", "projection": []},
+    "ledger_recovered": {"category": "operational", "replay": "none", "hash": "noise", "projection": [], "data_required": ["trading_day", "working_orders_voided", "reason", "snapshot_journal_seq"], "data_types": {"trading_day": "string", "working_orders_voided": "boolean", "reason": "string", "snapshot_journal_seq": "number_or_null"}},
     "scenario_loaded": {"category": "operational", "replay": "reissue", "hash": "noise", "projection": ["audit_log"], "data_required": ["path", "name", "ticks", "paused", "speed", "transforms", "accounts", "bootstrap_positions", "assertions"], "data_types": {"path": "string", "name": "string", "ticks": "number", "paused": "boolean", "speed": "number", "transforms": "number", "accounts": "number", "bootstrap_positions": "number", "assertions": "number"}},
     "session_auth": {"category": "session_input", "replay": "reissue", "hash": "semantic", "normalize": ["front_id_rank"], "projection": [], "data_required": ["front_id", "app_id"], "data_types": {"front_id": "number", "app_id": "string"}},
     "session_login": {"category": "session_input", "replay": "reissue", "hash": "semantic", "normalize": ["front_id_rank"], "projection": [], "data_required": ["front_id", "session_id"], "data_types": {"front_id": "number", "session_id": "number"}},

@@ -26,9 +26,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use ctpbuddy_ledger::Ledger;
+use ctpbuddy_ledger::{Ledger, PositionSide};
 use ctpbuddy_market::{format_hhmmss, CsvSource, Playback, Tick};
-use ctpbuddy_matching::{Catalog, EngineEvent, MarginPrice, MatchingEngine};
+use ctpbuddy_matching::{
+    Catalog, Direction, EngineEvent, Fill, MarginPrice, MatchingEngine, OffsetFlag,
+};
 use ctpbuddy_wire::frame::Frame;
 use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcOrderField, CThostFtdcTradeField};
 use ctpbuddy_wire::msgs;
@@ -771,6 +773,12 @@ impl World {
                             eprintln!("[ctpbuddy] private-flow recovery skipped: {e}");
                         }
                     }
+                    if let Some(seq) = journal_seq {
+                        let data_dir = world.cfg.data_dir.clone();
+                        world
+                            .replay_archived_tail(&data_dir, seq)
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    }
                     // accounts and initial positions are already in the snapshot
                     startup_accounts.clear();
                     world.journal_record_json(
@@ -1185,6 +1193,195 @@ impl World {
         self.persist_ledger();
     }
 
+    /// Apply the durable portion of the previous run that was written after
+    /// the recovery snapshot. Output events are used as facts because working
+    /// orders and the matching book are intentionally not part of a snapshot.
+    fn replay_archived_tail(&mut self, data_dir: &str, snapshot_seq: u64) -> Result<(), String> {
+        for event in journal::read_archived_tail(data_dir, snapshot_seq)? {
+            if !journal_contract::validate_event(&event) {
+                return Err(
+                    "journal tail contains an event that violates the canonical contract".into(),
+                );
+            }
+            let event_type = event
+                .get_str("type")
+                .ok_or_else(|| "recovery journal event missing type".to_string())?;
+            match event_type.as_str() {
+                "fill" => self.replay_fill_event(&event)?,
+                "order_update" => self.replay_order_update_event(&event)?,
+                "reset_account" => {
+                    let broker = event.get_str("broker").unwrap_or_default();
+                    let all = event
+                        .get("data")
+                        .and_then(|data| data.get_bool("all"))
+                        .unwrap_or(false);
+                    if all {
+                        let investors: Vec<String> = self
+                            .ledger
+                            .accounts()
+                            .filter(|account| account.broker_id == broker)
+                            .map(|account| account.investor_id.clone())
+                            .collect();
+                        for investor in investors {
+                            self.ledger.reset_account(&broker, &investor);
+                        }
+                    } else if let Some(investor) = event.get_str("investor") {
+                        self.ledger.reset_account(&broker, &investor);
+                    } else {
+                        return Err("reset_account recovery event missing investor".into());
+                    }
+                }
+                "server_start" | "server_stop" | "scenario_loaded" | "session_auth"
+                | "session_login" | "session_logout" | "md_watermark" | "assertion"
+                | "order_insert" | "order_cancel" | "settlement_report" | "ledger_recovered" => {}
+                "settlement" | "settings_updated" | "deposit" | "withdraw" | "settle" | "admin" => {
+                    return Err(format!(
+                        "journal tail event '{event_type}' cannot be reconstructed from the snapshot"
+                    ));
+                }
+                other => return Err(format!("unknown recovery event '{other}'")),
+            }
+        }
+        Ok(())
+    }
+
+    fn replay_fill_event(&mut self, event: &Value) -> Result<(), String> {
+        let broker = event.get_str("broker").unwrap_or_default();
+        let investor = event.get_str("investor").unwrap_or_default();
+        let data = event
+            .get("data")
+            .ok_or_else(|| "fill recovery event missing data".to_string())?;
+        let instrument = data
+            .get_str("instrument")
+            .ok_or_else(|| "fill recovery event missing instrument".to_string())?;
+        let direction = Direction::from_ctp(
+            data.get_num("direction")
+                .ok_or_else(|| "fill recovery event missing direction".to_string())?
+                as u8,
+        )
+        .ok_or_else(|| "fill recovery event has invalid direction".to_string())?;
+        let offset = OffsetFlag::from_ctp(
+            data.get_num("offset")
+                .ok_or_else(|| "fill recovery event missing offset".to_string())? as u8,
+        )
+        .ok_or_else(|| "fill recovery event has invalid offset".to_string())?;
+        let price = data
+            .get_num("price")
+            .filter(|value| value.is_finite())
+            .ok_or_else(|| "fill recovery event has invalid price".to_string())?;
+        let volume = data
+            .get_num("volume")
+            .filter(|value| value.is_finite() && value.fract() == 0.0 && *value > 0.0)
+            .map(|value| value as i32)
+            .ok_or_else(|| "fill recovery event has invalid volume".to_string())?;
+        let trade_id = data
+            .get_str("trade_id")
+            .ok_or_else(|| "fill recovery event missing trade_id".to_string())?;
+        let order_sys_id = data.get_str("order_sys_id").unwrap_or_default();
+        let order_ref = data.get_str("order_ref").unwrap_or_default();
+        let exchange = self
+            .engine
+            .catalog()
+            .get(&instrument)
+            .map(|item| item.exchange_id.clone())
+            .ok_or_else(|| format!("fill recovery instrument '{instrument}' is unknown"))?;
+        self.ledger.ensure_account(&broker, &investor);
+        let side = if offset == OffsetFlag::Open {
+            PositionSide::of(direction)
+        } else {
+            PositionSide::of(direction).opposite()
+        };
+        let pre_settlement = data
+            .get_num("pre_settlement")
+            .filter(|value| value.is_finite())
+            .or_else(|| {
+                self.ledger
+                    .position(&broker, &investor, &instrument, side)
+                    .map(|position| position.pre_settlement_price)
+            })
+            .unwrap_or(0.0);
+        let mut fill = Fill {
+            broker_id: [0; 11],
+            investor_id: [0; 13],
+            user_id: [0; 16],
+            instrument_id: instrument.clone(),
+            exchange_id: exchange,
+            direction,
+            offset,
+            hedge_flag: b'1',
+            price,
+            volume,
+            volume_total_original: data
+                .get_num("volume_total_original")
+                .filter(|value| {
+                    value.is_finite() && value.fract() == 0.0 && *value >= volume as f64
+                })
+                .map(|value| value as i32)
+                .unwrap_or(volume),
+            order_sys_id: [0; 21],
+            order_ref: [0; 13],
+            trade_id: [0; 21],
+            order_key: String::new(),
+        };
+        set_cstr(&mut fill.broker_id, &broker);
+        set_cstr(&mut fill.investor_id, &investor);
+        set_cstr(&mut fill.order_sys_id, &order_sys_id);
+        set_cstr(&mut fill.order_ref, &order_ref);
+        set_cstr(&mut fill.trade_id, &trade_id);
+        self.ledger.on_fill(
+            &fill,
+            self.engine.catalog(),
+            pre_settlement,
+            &self.vt_trading_day,
+        );
+        let mut field = CThostFtdcTradeField::zeroed();
+        set_cstr(&mut field.BrokerID, &broker);
+        set_cstr(&mut field.InvestorID, &investor);
+        set_cstr(&mut field.OrderRef, &order_ref);
+        set_cstr(&mut field.OrderSysID, &order_sys_id);
+        set_cstr(&mut field.InstrumentID, &instrument);
+        set_cstr(&mut field.ExchangeID, &fill.exchange_id);
+        set_cstr(&mut field.TradeID, &trade_id);
+        field.Direction = direction.as_ctp();
+        field.OffsetFlag = offset.as_ctp();
+        field.Price = price;
+        field.Volume = volume;
+        self.private_seq.push((true, self.trades_today.len()));
+        self.trades_today.push(field);
+        Ok(())
+    }
+
+    fn replay_order_update_event(&mut self, event: &Value) -> Result<(), String> {
+        let broker = event.get_str("broker").unwrap_or_default();
+        let investor = event.get_str("investor").unwrap_or_default();
+        let data = event
+            .get("data")
+            .ok_or_else(|| "order_update recovery event missing data".to_string())?;
+        let instrument = data
+            .get_str("instrument")
+            .ok_or_else(|| "order_update recovery event missing instrument".to_string())?;
+        let order_ref = data.get_str("order_ref").unwrap_or_default();
+        let order_sys_id = data.get_str("order_sys_id").unwrap_or_default();
+        let status = data
+            .get_str("status")
+            .and_then(|value| value.as_bytes().first().copied())
+            .ok_or_else(|| "order_update recovery event missing status".to_string())?;
+        let mut field = CThostFtdcOrderField::zeroed();
+        set_cstr(&mut field.BrokerID, &broker);
+        set_cstr(&mut field.InvestorID, &investor);
+        set_cstr(&mut field.InstrumentID, &instrument);
+        set_cstr(&mut field.OrderRef, &order_ref);
+        set_cstr(&mut field.OrderSysID, &order_sys_id);
+        let update_time = data.get_str("update_time").unwrap_or_default();
+        set_cstr(&mut field.UpdateTime, &update_time);
+        field.OrderStatus = status;
+        field.VolumeTraded = data.get_num("volume_traded").unwrap_or(0.0) as i32;
+        field.VolumeTotal = data.get_num("volume_total").unwrap_or(0.0) as i32;
+        self.private_seq.push((false, self.orders_today.len()));
+        self.orders_today.push(field);
+        Ok(())
+    }
+
     /// Write the recovery snapshot if the ledger changed since the last one.
     pub(crate) fn persist_ledger(&mut self) {
         if self.cfg.data_dir.is_empty() {
@@ -1363,7 +1560,7 @@ impl World {
         let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
-        self.journal_record_fill(&day, now, &fill);
+        self.journal_record_fill(&day, now, &fill, pre_settle);
         PrivateNotification {
             broker: b,
             investor: i,
@@ -1490,7 +1687,13 @@ impl World {
         }
     }
 
-    fn journal_record_fill(&mut self, day: &str, ms: f64, fill: &ctpbuddy_matching::Fill) {
+    fn journal_record_fill(
+        &mut self,
+        day: &str,
+        ms: f64,
+        fill: &ctpbuddy_matching::Fill,
+        pre_settlement: f64,
+    ) {
         let data = json::obj_sorted(vec![
             ("trade_id".into(), json::s(&cstr(&fill.trade_id))),
             ("order_sys_id".into(), json::s(&cstr(&fill.order_sys_id))),
@@ -1500,6 +1703,11 @@ impl World {
             ("offset".into(), json::n(fill.offset.as_ctp() as f64)),
             ("price".into(), json::n(fill.price)),
             ("volume".into(), json::n(fill.volume as f64)),
+            (
+                "volume_total_original".into(),
+                json::n(fill.volume_total_original as f64),
+            ),
+            ("pre_settlement".into(), json::n(pre_settlement)),
         ]);
         if let Some(j) = self.journal.as_mut() {
             j.record(
@@ -1764,5 +1972,56 @@ mod tests {
         );
         assert_eq!(value.get_str("calendar_sha256"), Some("b".repeat(64)));
         assert_eq!(value.get_str("contract_version"), Some("1".into()));
+    }
+
+    #[test]
+    fn recovery_replays_fill_into_ledger_and_private_flow() {
+        let mut world = World::new(Config::default()).expect("world");
+        let event = json::parse(
+            r#"{"type":"fill","broker":"9999","investor":"u","data":{"trade_id":"T1","order_sys_id":"S1","order_ref":"1","instrument":"sc2603","direction":48,"offset":48,"price":700.0,"volume":1,"volume_total_original":1,"pre_settlement":690.0}}"#,
+        )
+        .unwrap();
+        world.replay_fill_event(&event).unwrap();
+        let position = world
+            .ledger
+            .position("9999", "u", "sc2603", PositionSide::Long)
+            .expect("replayed position");
+        assert_eq!(position.today_position, 1);
+        assert_eq!(world.trades_today.len(), 1);
+        assert_eq!(world.private_seq, vec![(true, 0)]);
+    }
+
+    #[test]
+    fn recover_startup_applies_tail_from_previous_archived_run() {
+        let dir =
+            std::env::temp_dir().join(format!("ctpbuddy-recover-tail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut first_cfg = Config::default();
+        first_cfg.data_dir = dir.to_string_lossy().into_owned();
+        let mut first = World::new(first_cfg).expect("first world");
+        first.journal_record_json(
+            "fill",
+            "9999",
+            "u",
+            json::parse(
+                r#"{"trade_id":"T1","order_sys_id":"S1","order_ref":"1","instrument":"sc2603","direction":48,"offset":48,"price":700.0,"volume":1,"volume_total_original":1,"pre_settlement":690.0}"#,
+            )
+            .unwrap(),
+        );
+        drop(first);
+
+        let mut second_cfg = Config::default();
+        second_cfg.data_dir = dir.to_string_lossy().into_owned();
+        second_cfg.recover = true;
+        let second = World::new(second_cfg).expect("recovered world");
+        assert_eq!(
+            second
+                .ledger
+                .position("9999", "u", "sc2603", PositionSide::Long)
+                .map(|position| position.today_position),
+            Some(1)
+        );
+        assert_eq!(second.trades_today.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

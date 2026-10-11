@@ -8,7 +8,7 @@
 
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::dtime::now_wall;
@@ -19,6 +19,93 @@ const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Env var selecting the journal durability level.
 pub const SYNC_ENV: &str = "CTPBUDDY_JOURNAL_SYNC";
+
+/// Read the durable journal tail that belongs to the snapshot sequence.
+///
+/// `Journal::new` archives the previous run before opening a new writer, so
+/// recovery must look in the newest `journal-run-*` directory. A crash can
+/// leave an unterminated final line; that line is deliberately ignored while
+/// every complete line remains fail-closed.
+pub fn read_archived_tail(
+    data_dir: &str,
+    after_seq: u64,
+) -> Result<Vec<crate::json::Value>, String> {
+    let root = Path::new(data_dir);
+    let mut archives: Vec<PathBuf> = std::fs::read_dir(root)
+        .map_err(|e| format!("{}: {e}", root.display()))?
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let name = path.file_name()?.to_str()?;
+            (name.starts_with("journal-run-") && path.is_dir()).then_some(path)
+        })
+        .collect();
+    archives.sort();
+    let Some(journal_dir) = archives.last().map(|archive| archive.join("journal")) else {
+        return if after_seq == 0 {
+            Ok(Vec::new())
+        } else {
+            Err(format!(
+                "{}: no archived journal covers snapshot seq {after_seq}",
+                root.display()
+            ))
+        };
+    };
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&journal_dir)
+        .map_err(|e| format!("{}: {e}", journal_dir.display()))?
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")).then_some(path)
+        })
+        .collect();
+    files.sort();
+    let mut parsed = Vec::new();
+    for path in files {
+        let text =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let complete = text.ends_with('\n');
+        let lines: Vec<&str> = text.split('\n').collect();
+        for (index, line) in lines.iter().enumerate() {
+            if line.is_empty() || (!complete && index + 1 == lines.len()) {
+                continue;
+            }
+            let event = crate::json::parse(line)
+                .map_err(|e| format!("{}:{}: {e}", path.display(), index + 1))?;
+            let seq = event
+                .get_num("seq")
+                .filter(|value| value.is_finite() && value.fract() == 0.0 && *value >= 0.0)
+                .map(|value| value as u64)
+                .ok_or_else(|| {
+                    format!("{}:{}: seq must be an integer", path.display(), index + 1)
+                })?;
+            parsed.push((seq, path.clone(), index + 1, event));
+        }
+    }
+    parsed.sort_by_key(|(seq, _, _, _)| *seq);
+    let max_seq = parsed.last().map(|(seq, _, _, _)| *seq).unwrap_or(0);
+    if max_seq < after_seq {
+        return Err(format!(
+            "{}: archived journal ends at seq {max_seq}, below snapshot seq {after_seq}",
+            root.display()
+        ));
+    }
+    let mut events = Vec::new();
+    let mut expected = after_seq + 1;
+    for (seq, path, line, event) in parsed {
+        if seq <= after_seq {
+            continue;
+        }
+        if seq != expected {
+            return Err(format!(
+                "{}:{}: journal seq {seq} breaks recovery tail (expected {expected})",
+                path.display(),
+                line
+            ));
+        }
+        expected += 1;
+        events.push(event);
+    }
+    Ok(events)
+}
 
 /// How hard the journal tries to reach stable storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -310,6 +397,39 @@ mod tests {
         j.record("20261005", 0.0, "server_start", "", "", Value::Null);
         assert_eq!(j.seq(), 0);
         drop(j);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn archived_tail_keeps_complete_lines_and_drops_crash_fragment() {
+        let dir =
+            std::env::temp_dir().join(format!("ctpbuddy-journal-tail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut first = Journal::new(dir.to_str().unwrap()).unwrap();
+        first.sync = SyncMode::Always;
+        first.record("20261005", 0.0, "server_start", "", "", Value::Null);
+        first.record("20261005", 1.0, "server_stop", "", "", Value::Null);
+        drop(first);
+
+        let second = Journal::new(dir.to_str().unwrap()).unwrap();
+        drop(second);
+        let archive = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let name = path.file_name()?.to_str()?.to_string();
+                name.starts_with("journal-run-").then_some(path)
+            })
+            .next()
+            .unwrap();
+        let file = archive.join("journal").join("20261005.jsonl");
+        let mut text = std::fs::read_to_string(&file).unwrap();
+        text.push_str("{\"seq\":3");
+        std::fs::write(&file, text).unwrap();
+
+        let tail = read_archived_tail(dir.to_str().unwrap(), 1).unwrap();
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].get_num("seq"), Some(2.0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
