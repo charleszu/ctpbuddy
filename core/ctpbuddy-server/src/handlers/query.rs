@@ -32,6 +32,11 @@ struct InvestorPositionQuery {
     instrument_id: String,
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct InvestorPositionDetailQuery {
+    instrument_id: String,
+}
+
 fn decode_order_query(payload: &[u8]) -> OrderQuery {
     let q: CThostFtdcQryOrderField =
         struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
@@ -86,6 +91,14 @@ fn decode_investor_position_query(payload: &[u8]) -> InvestorPositionQuery {
     }
 }
 
+fn decode_investor_position_detail_query(payload: &[u8]) -> InvestorPositionDetailQuery {
+    let q: CThostFtdcQryInvestorPositionDetailField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryInvestorPositionDetailField::zeroed);
+    InvestorPositionDetailQuery {
+        instrument_id: cstr(&q.InstrumentID),
+    }
+}
+
 fn project_investor_positions(
     positions: Vec<&Position>,
     broker: &str,
@@ -116,6 +129,47 @@ fn project_investor_positions(
                 .map(|instrument| instrument.volume_multiple)
                 .unwrap_or(1);
             position.to_query_fields(broker, investor, exchange_id, day, multiple)
+        })
+        .collect()
+}
+
+fn project_investor_position_details(
+    positions: Vec<(&Position, &PositionDetail)>,
+    broker: &str,
+    investor: &str,
+    day: &str,
+    catalog: &Catalog,
+    last_prices: &HashMap<String, f64>,
+    query: &InvestorPositionDetailQuery,
+) -> Vec<CThostFtdcInvestorPositionDetailField> {
+    positions
+        .into_iter()
+        .filter(|(position, _)| {
+            query.instrument_id.is_empty() || position.instrument_id == query.instrument_id
+        })
+        .map(|(position, detail)| {
+            let instrument = catalog.get(&position.instrument_id);
+            let exchange_id = instrument
+                .map(|instrument| instrument.exchange_id.as_str())
+                .unwrap_or_default();
+            let multiple = instrument
+                .map(|instrument| instrument.volume_multiple)
+                .unwrap_or(1);
+            let last = last_prices
+                .get(&position.instrument_id)
+                .copied()
+                .unwrap_or(position.settlement_price);
+            detail.to_field(
+                broker,
+                investor,
+                exchange_id,
+                day,
+                position.side,
+                &position.instrument_id,
+                position.settlement_price,
+                last,
+                multiple,
+            )
         })
         .collect()
 }
@@ -425,37 +479,17 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryInvestorPositionDetailField = struct_from_bytes(&frame.payload)
-            .unwrap_or_else(CThostFtdcQryInvestorPositionDetailField::zeroed);
-        let filter = cstr(&q.InstrumentID);
+        let query = decode_investor_position_detail_query(&frame.payload);
         let day = self.vt_day();
-        let catalog = self.engine.catalog();
-        let rows: Vec<_> = self
-            .ledger
-            .positions_of_ordered(&broker, &investor)
-            .into_iter()
-            .filter(|(p, _)| filter.is_empty() || p.instrument_id == filter)
-            .map(|(p, d)| {
-                let inst = catalog.get(&p.instrument_id);
-                let ex = inst.map(|i| i.exchange_id.clone()).unwrap_or_default();
-                let mult = inst.map(|i| i.volume_multiple).unwrap_or(1);
-                let last = self
-                    .engine
-                    .last_price(&p.instrument_id)
-                    .unwrap_or(p.settlement_price);
-                d.to_field(
-                    &broker,
-                    &investor,
-                    &ex,
-                    &day,
-                    p.side,
-                    &p.instrument_id,
-                    p.settlement_price,
-                    last,
-                    mult,
-                )
-            })
-            .collect();
+        let rows = project_investor_position_details(
+            self.ledger.positions_of_ordered(&broker, &investor),
+            &broker,
+            &investor,
+            &day,
+            self.engine.catalog(),
+            &self.engine.last_prices(),
+            &query,
+        );
         for f in &rows {
             self.send_frame(
                 conn_id,
@@ -964,6 +998,66 @@ mod order_trade_query_tests {
 
         let rows =
             project_investor_positions(vec![&rb, &ag], "B", "I", "20261011", &catalog, &query);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(cstr(&rows[0].InstrumentID), "ag");
+    }
+
+    #[test]
+    fn investor_position_detail_projection_keeps_order_and_filter() {
+        assert_eq!(
+            decode_investor_position_detail_query(&[]),
+            InvestorPositionDetailQuery::default()
+        );
+
+        let mut query = CThostFtdcQryInvestorPositionDetailField::zeroed();
+        set_cstr(&mut query.InstrumentID, "ag");
+        let query = decode_investor_position_detail_query(&struct_to_bytes(&query));
+        assert_eq!(query.instrument_id, "ag");
+
+        let mut catalog = Catalog::new();
+        catalog.insert(ctpbuddy_matching::Instrument::new("ag", "SHFE"));
+        catalog.insert(ctpbuddy_matching::Instrument::new("rb", "SHFE"));
+        let mut ag = Position::new("ag", PositionSide::Long);
+        ag.add_detail(
+            "20261011",
+            "T-ag",
+            10.0,
+            1,
+            ctpbuddy_ledger::Money::ZERO,
+            10.0,
+        );
+        let mut rb = Position::new("rb", PositionSide::Short);
+        rb.add_detail(
+            "20261011",
+            "T-rb",
+            20.0,
+            1,
+            ctpbuddy_ledger::Money::ZERO,
+            20.0,
+        );
+        let last_prices = HashMap::from([(String::from("ag"), 11.0)]);
+        let rows = project_investor_position_details(
+            vec![(&ag, &ag.details[0]), (&rb, &rb.details[0])],
+            "B",
+            "I",
+            "20261011",
+            &catalog,
+            &last_prices,
+            &InvestorPositionDetailQuery::default(),
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(cstr(&rows[0].InstrumentID), "ag");
+        assert_eq!(cstr(&rows[1].InstrumentID), "rb");
+
+        let rows = project_investor_position_details(
+            vec![(&ag, &ag.details[0]), (&rb, &rb.details[0])],
+            "B",
+            "I",
+            "20261011",
+            &catalog,
+            &last_prices,
+            &query,
+        );
         assert_eq!(rows.len(), 1);
         assert_eq!(cstr(&rows[0].InstrumentID), "ag");
     }

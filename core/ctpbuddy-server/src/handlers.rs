@@ -26,7 +26,8 @@ use std::mem::size_of;
 use std::time::{Duration, Instant};
 
 use ctpbuddy_ledger::{
-    Position, PositionSide, ERR_FUNDS, ERR_NO_CLOSE_TODAY_LEDGER, ERR_NO_CLOSE_YD_LEDGER,
+    Position, PositionDetail, PositionSide, ERR_FUNDS, ERR_NO_CLOSE_TODAY_LEDGER,
+    ERR_NO_CLOSE_YD_LEDGER,
 };
 use ctpbuddy_matching::{
     CancelQuery, Catalog, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome,
@@ -35,15 +36,16 @@ use ctpbuddy_matching::{
 };
 use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
-    CThostFtdcInstrumentField, CThostFtdcInvestorPositionField, CThostFtdcOrderField,
-    CThostFtdcQryBrokerTradingParamsField, CThostFtdcQryInstrumentCommissionRateField,
-    CThostFtdcQryInstrumentField, CThostFtdcQryInstrumentMarginRateField,
-    CThostFtdcQryInstrumentOrderCommRateField, CThostFtdcQryInvestorPositionDetailField,
-    CThostFtdcQryInvestorPositionField, CThostFtdcQryInvestorProductGroupMarginField,
-    CThostFtdcQryOrderField, CThostFtdcQrySettlementInfoField, CThostFtdcQryTradeField,
-    CThostFtdcQryTradingAccountField, CThostFtdcReqUserLoginField, CThostFtdcRspUserLoginField,
-    CThostFtdcSettlementInfoConfirmField, CThostFtdcSettlementInfoField,
-    CThostFtdcSpecificInstrumentField, CThostFtdcTradeField, CThostFtdcUserLogoutField,
+    CThostFtdcInstrumentField, CThostFtdcInvestorPositionDetailField,
+    CThostFtdcInvestorPositionField, CThostFtdcOrderField, CThostFtdcQryBrokerTradingParamsField,
+    CThostFtdcQryInstrumentCommissionRateField, CThostFtdcQryInstrumentField,
+    CThostFtdcQryInstrumentMarginRateField, CThostFtdcQryInstrumentOrderCommRateField,
+    CThostFtdcQryInvestorPositionDetailField, CThostFtdcQryInvestorPositionField,
+    CThostFtdcQryInvestorProductGroupMarginField, CThostFtdcQryOrderField,
+    CThostFtdcQrySettlementInfoField, CThostFtdcQryTradeField, CThostFtdcQryTradingAccountField,
+    CThostFtdcReqUserLoginField, CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
+    CThostFtdcSettlementInfoField, CThostFtdcSpecificInstrumentField, CThostFtdcTradeField,
+    CThostFtdcUserLogoutField,
 };
 use ctpbuddy_wire::msgs;
 use ctpbuddy_wire::{struct_from_bytes, struct_to_bytes};
