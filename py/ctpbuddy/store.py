@@ -40,6 +40,16 @@ READ_MODEL_METADATA_FIELDS = (
 )
 
 
+def _calendar_metadata_pair(version, sha256, source):
+    if version is None and sha256 is None:
+        return None
+    if (not isinstance(version, str) or not version.strip() or
+            not isinstance(sha256, str) or len(sha256) != 64 or
+            any(char not in "0123456789abcdefABCDEF" for char in sha256)):
+        raise JournalError("%s calendar metadata 无效" % source)
+    return version, sha256.lower()
+
+
 @dataclass(frozen=True)
 class ReadModelMetadata:
     """Stable provenance shared by live and journal-backed read models.
@@ -94,22 +104,14 @@ class ReadModelMetadata:
             raise JournalError("SQLite 投影 read-model schema/version 不匹配，请 journal rebuild")
         last_seq = number("last_seq")
         event_count = number("event_count")
-        calendar_version = metadata.get("calendar_version")
-        calendar_sha256 = metadata.get("calendar_sha256")
-        if (calendar_version is None) != (calendar_sha256 is None):
-            raise JournalError("SQLite 投影 calendar metadata 不完整")
-        if calendar_version is not None:
-            if not isinstance(calendar_version, str) or not calendar_version.strip():
-                raise JournalError("SQLite 投影 calendar_version 无效")
-            if (not isinstance(calendar_sha256, str) or len(calendar_sha256) != 64 or
-                    any(char not in "0123456789abcdef" for char in calendar_sha256)):
-                raise JournalError("SQLite 投影 calendar_sha256 无效")
+        calendar = _calendar_metadata_pair(
+            metadata.get("calendar_version"), metadata.get("calendar_sha256"), "SQLite 投影")
         return cls(
             source_kind="sqlite_projection",
             journal_seq=last_seq,
             journal_hash=metadata["journal_sha256"],
-            calendar_version=calendar_version,
-            calendar_sha256=calendar_sha256,
+            calendar_version=calendar[0] if calendar else None,
+            calendar_sha256=calendar[1] if calendar else None,
             schema_version=metadata["schema_version"],
             contract_version=metadata["contract_version"],
             contract_sha256=metadata["contract_sha256"],
@@ -141,13 +143,15 @@ class ReadModelMetadata:
                 raise JournalError("ADMIN read-model metadata %s 无效" % key)
             return value
 
+        calendar = _calendar_metadata_pair(
+            status.get("calendar_version"), status.get("calendar_sha256"), "ADMIN")
         return cls(
             source_kind="admin_live",
             journal_seq=journal_seq,
             virtual_time=virtual_time,
             core_hash=text("core_hash"),
-            calendar_version=text("calendar_version"),
-            calendar_sha256=text("calendar_sha256"),
+            calendar_version=calendar[0] if calendar else None,
+            calendar_sha256=calendar[1] if calendar else None,
         )
 SCHEMA = """
 CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -344,10 +348,8 @@ def rebuild(journal, database):
                     raise JournalError("journal 含冲突的 calendar metadata")
                 if calendar_rows:
                     calendar_version, calendar_sha256 = next(iter(calendar_rows))
-                    if (not isinstance(calendar_version, str) or not calendar_version.strip() or
-                            not isinstance(calendar_sha256, str) or len(calendar_sha256) != 64 or
-                            any(char not in "0123456789abcdef" for char in calendar_sha256)):
-                        raise JournalError("journal 的 calendar metadata 不完整")
+                    calendar_version, calendar_sha256 = _calendar_metadata_pair(
+                        calendar_version, calendar_sha256, "journal")
                     metadata_rows.extend([
                         ("calendar_version", calendar_version),
                         ("calendar_sha256", calendar_sha256),

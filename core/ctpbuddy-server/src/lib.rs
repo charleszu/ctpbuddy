@@ -69,7 +69,7 @@ pub fn calendar_metadata(
                 && sha256.bytes().all(|b| b.is_ascii_hexdigit()) =>
         {
             Ok(Some(CalendarMetadata {
-                version: version.trim().to_string(),
+                version,
                 sha256: sha256.to_ascii_lowercase(),
             }))
         }
@@ -1605,7 +1605,7 @@ mod tests {
         assert_eq!(
             calendar_metadata(Some(" fixture-r1 ".into()), Some(hash)).unwrap(),
             Some(CalendarMetadata {
-                version: "fixture-r1".into(),
+                version: " fixture-r1 ".into(),
                 sha256: "a".repeat(64),
             })
         );
@@ -1618,5 +1618,26 @@ mod tests {
             assert!(calendar_metadata(version, sha256).is_err());
         }
         assert!(calendar_metadata(None, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn admin_status_exposes_explicit_calendar_provenance() {
+        let mut cfg = Config::default();
+        cfg.calendar = calendar_metadata(Some("fixture-r1".into()), Some("b".repeat(64))).unwrap();
+        let mut world = World::new(cfg).unwrap();
+        let (tx, rx) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, tx, true);
+        world.on_frame(
+            1,
+            Frame::new(msgs::ADMIN_REQ, 7, br#"{"cmd":"status"}"#.to_vec()),
+        );
+        let response = rx.try_iter().next().expect("ADMIN status response");
+        let payload = String::from_utf8(response.payload).unwrap();
+        let value = json::parse(&payload).unwrap();
+        assert_eq!(
+            value.get_str("calendar_version").as_deref(),
+            Some("fixture-r1")
+        );
+        assert_eq!(value.get_str("calendar_sha256"), Some("b".repeat(64)));
     }
 }

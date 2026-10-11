@@ -54,11 +54,10 @@ class Admin:
     def status(self) -> Dict[str, Any]:
         status = self.cmd("status")
         if self.calendar is not None:
-            # Keep the Rust ADMIN wire response unchanged while making the
-            # Python control-plane adapter explicit about its time authority.
-            status = dict(status)
-            status["calendar_version"] = self.calendar.metadata["version"]
-            status["calendar_sha256"] = self.calendar.sha256
+            expected = (self.calendar.metadata["version"], self.calendar.sha256)
+            actual = (status.get("calendar_version"), status.get("calendar_sha256"))
+            if actual != expected:
+                raise RuntimeError("ADMIN calendar metadata 与本地日历不匹配")
         return status
 
     def settings(self) -> Dict[str, Any]:

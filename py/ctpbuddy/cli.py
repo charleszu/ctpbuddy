@@ -111,26 +111,30 @@ def cmd_refdata_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_calendar_option(path: Optional[str], expected_sha256: Optional[str]):
+    if not path:
+        if expected_sha256:
+            raise ValueError("--calendar-sha256 必须与 --calendar 一起使用")
+        return None
+    from .calendar import TradingCalendar
+    return TradingCalendar.from_file(path, expected_sha256=expected_sha256)
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     core = find_core()
     if core is None:
         print("error: ctpbuddy-server binary not found; set CTPBUDDY_CORE or add it to PATH", file=sys.stderr)
         return 1
     cmd: List[str] = [core, "--td", args.td, "--admin", args.admin, "--broker-id", args.broker_id]
-    calendar = None
     calendar_path = getattr(args, "calendar", None)
     calendar_sha256 = getattr(args, "calendar_sha256", None)
-    if calendar_path:
-        from .calendar import CalendarError, TradingCalendar
-        try:
-            calendar = TradingCalendar.from_file(calendar_path, expected_sha256=calendar_sha256)
-        except (CalendarError, OSError) as exc:
-            print("error: 日历加载失败: %s" % exc, file=sys.stderr)
-            return 1
-        cmd += ["--calendar-version", calendar.metadata["version"], "--calendar-sha256", calendar.sha256]
-    elif calendar_sha256:
-        print("error: --calendar-sha256 必须与 --calendar 一起使用", file=sys.stderr)
+    try:
+        calendar = _load_calendar_option(calendar_path, calendar_sha256)
+    except (ValueError, OSError) as exc:
+        print("error: 日历加载失败: %s" % exc, file=sys.stderr)
         return 1
+    if calendar:
+        cmd += ["--calendar-version", calendar.metadata["version"], "--calendar-sha256", calendar.sha256]
     if args.scenario:
         # YAML is authored, JSON is consumed: compile scenario.yaml so the
         # core's startup path sees the spec (the core never parses YAML).
@@ -167,14 +171,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_web(args: argparse.Namespace) -> int:
     from .web import serve
-    calendar = None
-    if args.calendar:
-        from .calendar import CalendarError, TradingCalendar
-        try:
-            calendar = TradingCalendar.from_file(args.calendar, expected_sha256=args.calendar_sha256)
-        except (CalendarError, OSError) as exc:
-            print("error: 日历加载失败: %s" % exc, file=sys.stderr)
-            return 1
+    try:
+        calendar = _load_calendar_option(args.calendar, args.calendar_sha256)
+    except (ValueError, OSError) as exc:
+        print("error: 日历加载失败: %s" % exc, file=sys.stderr)
+        return 1
     return serve(args.host, args.port, args.admin, args.db, args.workspace, calendar)
 
 

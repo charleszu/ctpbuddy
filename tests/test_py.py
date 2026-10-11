@@ -425,10 +425,19 @@ def test_calendar() -> None:
         assert cli_main(["calendar", "validate", path, "--sha256", "bad"]) == 1
     with patch("ctpbuddy.sdk.admin.socket.create_connection"):
         admin = Admin(calendar=cal)
-        with patch.object(admin, "cmd", return_value={"ok": True, "playback": {}}):
+        with patch.object(admin, "cmd", return_value={
+            "ok": True, "playback": {}, "calendar_version": "fixture-2026-10-r1",
+            "calendar_sha256": cal.sha256,
+        }):
             status = admin.status()
             assert status["calendar_version"] == "fixture-2026-10-r1"
             assert status["calendar_sha256"] == cal.sha256
+        with patch.object(admin, "cmd", return_value={"ok": True, "playback": {}}):
+            try:
+                admin.status()
+                raise AssertionError("缺失核心日历元数据必须失败")
+            except RuntimeError as exc:
+                assert "不匹配" in str(exc)
         with patch.object(admin, "cmd", return_value={"ok": True}) as cmd, patch.object(admin, "status", return_value={"playback": {"trading_day": "20261002"}}) as status:
             admin.settle_day({"rb": 1})
             cmd.assert_called_once_with("settle_day", settlement_prices={"rb": 1}, next_trading_day="20261005")
@@ -862,7 +871,7 @@ def test_web_replay() -> None:
                 ReadModelMetadata.from_admin_status({"playback": bad_status, "calendar_version": 1})
                 raise AssertionError("非字符串日历元数据必须失败")
             except Exception as exc:
-                assert "calendar_version 无效" in str(exc)
+                assert "calendar metadata" in str(exc)
             pause = json.loads(request("/api/replay", {"cmd": "pause"}, "POST").read())
             assert pause["playback"]["paused"]
             step = json.loads(request("/api/replay", {"cmd": "step"}, "POST").read())
