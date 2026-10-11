@@ -133,6 +133,11 @@ def test_scenario() -> None:
         write_canonical(d, [row])
         problems = validate_scenario(d)
         assert any("later than trading_day" in problem for problem in problems), problems
+        try:
+            list(iter_ticks(d))
+            raise AssertionError("action_day 晚于 trading_day 的 ticks.csv 应拒绝")
+        except ValueError as exc:
+            assert "later than trading_day" in str(exc), str(exc)
         row["action_day"] = "20261001"
         write_canonical(d, [row])
         # broken scenarios are rejected

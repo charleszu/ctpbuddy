@@ -115,6 +115,11 @@ def iter_ticks(scenario_dir: str) -> Iterator[Dict[str, Any]]:
             if len(row) > len(CANONICAL_COLUMNS):
                 raise ValueError("ticks.csv line %d: too many columns" % lineno)
             row = row + [""] * (len(CANONICAL_COLUMNS) - len(row))
+            trading_day = row[2].strip()
+            action_day = row[REQUIRED_COLUMNS].strip()
+            if (action_day and _valid_compact_date(trading_day) and _valid_compact_date(action_day)
+                    and action_day > trading_day):
+                raise ValueError("ticks.csv line %d: action_day is later than trading_day" % lineno)
             yield dict(zip(CANONICAL_COLUMNS, (c.strip() for c in row)))
 
 
