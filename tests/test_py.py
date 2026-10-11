@@ -657,6 +657,8 @@ def test_journal_projection() -> None:
             assert len(metadata["contract_sha256"]) == 64
             assert metadata["schema_version"] == "2"
             assert metadata["journal_sha256"] == first["sha256"]
+            assert metadata["core_sha256"] == first["core_sha256"]
+            assert metadata["virtual_time"] == "00:00:00.004"
             assert len(projection.query("account", investor="u1")) == 1
             order = projection.query("order_record", investor="u1")[0]
             assert order["status"] == "0" and order["volume_traded"] == 2
@@ -668,6 +670,8 @@ def test_journal_projection() -> None:
             assert read_model.source_kind == "sqlite_projection"
             assert read_model.journal_seq == 5 and read_model.last_seq == 5
             assert read_model.journal_hash == first["sha256"]
+            assert read_model.core_hash == first["core_sha256"]
+            assert read_model.virtual_time == "00:00:00.004"
             assert set(read_model.as_dict()) == READ_MODEL_METADATA_FIELDS
         conn = sqlite3.connect(db)
         try:
@@ -694,6 +698,18 @@ def test_journal_projection() -> None:
         try:
             Projection(db)
             raise AssertionError("缺少 read-model metadata 必须阻止投影打开")
+        except Exception as exc:
+            assert "read-model metadata 缺失" in str(exc)
+        rebuild(journal, db)
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("DELETE FROM projection_meta WHERE key='core_sha256'")
+            conn.commit()
+        finally:
+            conn.close()
+        try:
+            Projection(db)
+            raise AssertionError("缺少 core hash 必须阻止投影打开")
         except Exception as exc:
             assert "read-model metadata 缺失" in str(exc)
         rebuild(journal, db)
@@ -726,6 +742,7 @@ def test_projection_calendar_metadata() -> None:
             metadata = projection.read_model_metadata()
             assert metadata.calendar_version == "fixture-r1"
             assert metadata.calendar_sha256 == "a" * 64
+            assert metadata.virtual_time == "00:00:00.000"
     print("[ok] projection calendar metadata: server_start provenance survives rebuild")
 
 

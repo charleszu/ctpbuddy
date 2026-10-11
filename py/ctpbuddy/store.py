@@ -13,6 +13,7 @@ from .journal import (
     AUDIT_TYPES,
     SETTLEMENT_TYPES,
     JournalError,
+    fmt_vt,
     hash_stream,
     journal_paths,
     load_events,
@@ -82,7 +83,7 @@ class ReadModelMetadata:
         """Normalize and validate metadata stored by ``journal rebuild``."""
         required = {
             "contract_version", "contract_sha256", "schema_version",
-            "journal_sha256", "event_count", "last_seq",
+            "journal_sha256", "core_sha256", "event_count", "last_seq",
         }
         missing = sorted(key for key in required if key not in metadata)
         if missing:
@@ -106,9 +107,18 @@ class ReadModelMetadata:
         event_count = number("event_count")
         calendar = _calendar_metadata_pair(
             metadata.get("calendar_version"), metadata.get("calendar_sha256"), "SQLite 投影")
+        core_hash = metadata["core_sha256"]
+        if (not isinstance(core_hash, str) or len(core_hash) != 64 or
+                any(char not in "0123456789abcdefABCDEF" for char in core_hash)):
+            raise JournalError("SQLite 投影 read-model metadata 无效: core_sha256")
+        virtual_time = metadata.get("virtual_time")
+        if virtual_time is not None and not isinstance(virtual_time, str):
+            raise JournalError("SQLite 投影 read-model metadata 无效: virtual_time")
         return cls(
             source_kind="sqlite_projection",
             journal_seq=last_seq,
+            virtual_time=virtual_time,
+            core_hash=core_hash.lower(),
             journal_hash=metadata["journal_sha256"],
             calendar_version=calendar[0] if calendar else None,
             calendar_sha256=calendar[1] if calendar else None,
@@ -319,6 +329,8 @@ def rebuild(journal, database):
     events = load_events(journal)
     _validate(events)
     digest = hash_stream(events)
+    core_digest = hash_stream(events, core=True)
+    virtual_time = fmt_vt(events[-1]["vt_ms"]) if events else None
     fd, pending = tempfile.mkstemp(prefix=".ctpbuddy-projection-", suffix=".db", dir=target.parent)
     os.close(fd)
     try:
@@ -335,7 +347,10 @@ def rebuild(journal, database):
                     ("contract_version", str(CONTRACT_VERSION)),
                     ("contract_sha256", CONTRACT_SHA256),
                     ("schema_version", str(SCHEMA_VERSION)), ("journal_sha256", digest),
+                    ("core_sha256", core_digest),
                     ("event_count", str(len(events))), ("last_seq", str(len(events)))]
+                if virtual_time is not None:
+                    metadata_rows.append(("virtual_time", virtual_time))
                 calendar_rows = []
                 for event in events:
                     data = event.get("data")
@@ -373,6 +388,8 @@ def rebuild(journal, database):
         "contract_sha256": CONTRACT_SHA256,
         "events": len(events),
         "sha256": digest,
+        "core_sha256": core_digest,
+        "virtual_time": virtual_time,
     }
 
 
