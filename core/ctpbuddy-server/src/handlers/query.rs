@@ -2,6 +2,88 @@
 
 use super::*;
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct OrderQuery {
+    instrument_id: String,
+    order_sys_id: String,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TradeQuery {
+    instrument_id: String,
+    trade_id: String,
+}
+
+fn decode_order_query(payload: &[u8]) -> OrderQuery {
+    let q: CThostFtdcQryOrderField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
+    OrderQuery {
+        instrument_id: cstr(&q.InstrumentID),
+        order_sys_id: cstr(&q.OrderSysID),
+    }
+}
+
+fn decode_trade_query(payload: &[u8]) -> TradeQuery {
+    let q: CThostFtdcQryTradeField =
+        struct_from_bytes(payload).unwrap_or_else(CThostFtdcQryTradeField::zeroed);
+    TradeQuery {
+        instrument_id: cstr(&q.InstrumentID),
+        trade_id: cstr(&q.TradeID),
+    }
+}
+
+fn select_latest_orders(
+    orders: &[CThostFtdcOrderField],
+    broker: &str,
+    investor: &str,
+    query: &OrderQuery,
+) -> Vec<CThostFtdcOrderField> {
+    let mut latest: HashMap<String, usize> = HashMap::new();
+    let mut keys: Vec<String> = Vec::new();
+    for (i, order) in orders.iter().enumerate() {
+        if cstr(&order.BrokerID) != broker || cstr(&order.InvestorID) != investor {
+            continue;
+        }
+        if !query.instrument_id.is_empty() && cstr(&order.InstrumentID) != query.instrument_id {
+            continue;
+        }
+        if !query.order_sys_id.is_empty() && cstr(&order.OrderSysID) != query.order_sys_id {
+            continue;
+        }
+        // 首条 OrderSysID 为空，按稳定的前置/会话/引用关联整个生命周期。
+        let key = format!(
+            "{}/{}/{}",
+            order.FrontID,
+            order.SessionID,
+            cstr(&order.OrderRef)
+        );
+        if !latest.contains_key(&key) {
+            keys.push(key.clone());
+        }
+        latest.insert(key, i);
+    }
+    keys.into_iter()
+        .filter_map(|key| latest.get(&key).map(|&i| orders[i]))
+        .collect()
+}
+
+fn select_trades(
+    trades: &[CThostFtdcTradeField],
+    broker: &str,
+    investor: &str,
+    query: &TradeQuery,
+) -> Vec<CThostFtdcTradeField> {
+    trades
+        .iter()
+        .filter(|trade| cstr(&trade.BrokerID) == broker && cstr(&trade.InvestorID) == investor)
+        .filter(|trade| {
+            query.instrument_id.is_empty() || cstr(&trade.InstrumentID) == query.instrument_id
+        })
+        .filter(|trade| query.trade_id.is_empty() || cstr(&trade.TradeID) == query.trade_id)
+        .cloned()
+        .collect()
+}
+
 impl World {
     pub(crate) fn on_sub_md(&mut self, conn_id: u64, frame: &Frame, subscribe: bool) {
         let sz = size_of::<CThostFtdcSpecificInstrumentField>();
@@ -330,38 +412,13 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryOrderField =
-            struct_from_bytes(&frame.payload).unwrap_or_else(CThostFtdcQryOrderField::zeroed);
-        let (ins, sys) = (cstr(&q.InstrumentID), cstr(&q.OrderSysID));
-        // orders_today holds every state transition; the query surface mirrors
-        // CTP semantics: one row per order, its latest state, in insert order.
-        let mut latest: HashMap<String, usize> = HashMap::new();
-        let mut keys: Vec<String> = Vec::new();
-        for (i, o) in self.orders_today.iter().enumerate() {
-            if cstr(&o.BrokerID) != broker || cstr(&o.InvestorID) != investor {
-                continue;
-            }
-            if !ins.is_empty() && cstr(&o.InstrumentID) != ins {
-                continue;
-            }
-            if !sys.is_empty() && cstr(&o.OrderSysID) != sys {
-                continue;
-            }
-            // 首条 OrderSysID 为空，按稳定的前置/会话/引用关联整个生命周期。
-            let key = format!("{}/{}/{}", o.FrontID, o.SessionID, cstr(&o.OrderRef));
-            if !latest.contains_key(&key) {
-                keys.push(key.clone());
-            }
-            latest.insert(key, i);
-        }
-        for key in keys {
-            if let Some(&i) = latest.get(&key) {
-                let f = &self.orders_today[i];
-                self.send_frame(
-                    conn_id,
-                    Frame::new(msgs::RSP_QRY_ORDER, frame.req_id, struct_to_bytes(f)),
-                );
-            }
+        let query = decode_order_query(&frame.payload);
+        let fields = select_latest_orders(&self.orders_today, &broker, &investor, &query);
+        for f in &fields {
+            self.send_frame(
+                conn_id,
+                Frame::new(msgs::RSP_QRY_ORDER, frame.req_id, struct_to_bytes(f)),
+            );
         }
         self.send_frame(
             conn_id,
@@ -377,17 +434,8 @@ impl World {
             Some(v) => (v.0, v.1),
             None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
-        let q: CThostFtdcQryTradeField =
-            struct_from_bytes(&frame.payload).unwrap_or_else(CThostFtdcQryTradeField::zeroed);
-        let (ins, tid) = (cstr(&q.InstrumentID), cstr(&q.TradeID));
-        let fields: Vec<_> = self
-            .trades_today
-            .iter()
-            .filter(|t| cstr(&t.BrokerID) == broker && cstr(&t.InvestorID) == investor)
-            .filter(|t| ins.is_empty() || cstr(&t.InstrumentID) == ins)
-            .filter(|t| tid.is_empty() || cstr(&t.TradeID) == tid)
-            .cloned()
-            .collect();
+        let query = decode_trade_query(&frame.payload);
+        let fields = select_trades(&self.trades_today, &broker, &investor, &query);
         for f in &fields {
             self.send_frame(
                 conn_id,
@@ -648,5 +696,115 @@ impl World {
             msgs::RSP_QRY_BROKER_TRADING_PARAMS,
             vec![f],
         );
+    }
+}
+
+#[cfg(test)]
+mod order_trade_query_tests {
+    use super::*;
+
+    fn order(
+        broker: &str,
+        investor: &str,
+        instrument: &str,
+        order_ref: &str,
+        order_sys_id: &str,
+        front_id: i32,
+        session_id: i32,
+        status: u8,
+    ) -> CThostFtdcOrderField {
+        let mut f = CThostFtdcOrderField::zeroed();
+        set_cstr(&mut f.BrokerID, broker);
+        set_cstr(&mut f.InvestorID, investor);
+        set_cstr(&mut f.InstrumentID, instrument);
+        set_cstr(&mut f.OrderRef, order_ref);
+        set_cstr(&mut f.OrderSysID, order_sys_id);
+        f.FrontID = front_id;
+        f.SessionID = session_id;
+        f.OrderStatus = status;
+        f
+    }
+
+    fn trade(
+        broker: &str,
+        investor: &str,
+        instrument: &str,
+        trade_id: &str,
+    ) -> CThostFtdcTradeField {
+        let mut f = CThostFtdcTradeField::zeroed();
+        set_cstr(&mut f.BrokerID, broker);
+        set_cstr(&mut f.InvestorID, investor);
+        set_cstr(&mut f.InstrumentID, instrument);
+        set_cstr(&mut f.TradeID, trade_id);
+        f
+    }
+
+    #[test]
+    fn query_decoders_preserve_lenient_malformed_payload_behavior() {
+        assert_eq!(decode_order_query(&[]), OrderQuery::default());
+        assert_eq!(decode_trade_query(&[1, 2, 3]), TradeQuery::default());
+
+        let mut order_query = CThostFtdcQryOrderField::zeroed();
+        set_cstr(&mut order_query.InstrumentID, "rb2410");
+        set_cstr(&mut order_query.OrderSysID, "SYS-1");
+        assert_eq!(
+            decode_order_query(&struct_to_bytes(&order_query)),
+            OrderQuery {
+                instrument_id: "rb2410".into(),
+                order_sys_id: "SYS-1".into(),
+            }
+        );
+
+        let mut trade_query = CThostFtdcQryTradeField::zeroed();
+        set_cstr(&mut trade_query.InstrumentID, "ag2410");
+        set_cstr(&mut trade_query.TradeID, "T-1");
+        assert_eq!(
+            decode_trade_query(&struct_to_bytes(&trade_query)),
+            TradeQuery {
+                instrument_id: "ag2410".into(),
+                trade_id: "T-1".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn order_selection_returns_latest_state_in_first_seen_order() {
+        let orders = vec![
+            order("B", "I", "rb", "1", "", 1, 7, b'a'),
+            order("B", "I", "rb", "1", "SYS-1", 1, 7, b'b'),
+            order("B", "I", "ag", "2", "SYS-2", 1, 7, b'c'),
+            order("B", "other", "rb", "3", "SYS-3", 1, 7, b'd'),
+        ];
+
+        let rows = select_latest_orders(&orders, "B", "I", &OrderQuery::default());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(cstr(&rows[0].OrderRef), "1");
+        assert_eq!(rows[0].OrderStatus, b'b');
+        assert_eq!(cstr(&rows[1].OrderRef), "2");
+
+        let query = OrderQuery {
+            instrument_id: "rb".into(),
+            order_sys_id: "SYS-1".into(),
+        };
+        let rows = select_latest_orders(&orders, "B", "I", &query);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(cstr(&rows[0].OrderRef), "1");
+        assert_eq!(rows[0].OrderStatus, b'b');
+    }
+
+    #[test]
+    fn trade_selection_applies_identity_and_optional_filters() {
+        let trades = vec![
+            trade("B", "I", "rb", "T-1"),
+            trade("B", "I", "ag", "T-2"),
+            trade("B", "other", "rb", "T-3"),
+        ];
+        let query = TradeQuery {
+            instrument_id: "ag".into(),
+            trade_id: String::new(),
+        };
+        let rows = select_trades(&trades, "B", "I", &query);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(cstr(&rows[0].TradeID), "T-2");
     }
 }

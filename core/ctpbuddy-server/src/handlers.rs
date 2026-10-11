@@ -33,13 +33,15 @@ use ctpbuddy_matching::{
 };
 use ctpbuddy_wire::generated::{
     cstr, set_cstr, CThostFtdcInputOrderActionField, CThostFtdcInputOrderField,
-    CThostFtdcQryBrokerTradingParamsField, CThostFtdcQryInstrumentCommissionRateField,
-    CThostFtdcQryInstrumentField, CThostFtdcQryInstrumentMarginRateField,
-    CThostFtdcQryInstrumentOrderCommRateField, CThostFtdcQryInvestorPositionDetailField,
-    CThostFtdcQryInvestorPositionField, CThostFtdcQryInvestorProductGroupMarginField,
-    CThostFtdcQryOrderField, CThostFtdcQrySettlementInfoField, CThostFtdcQryTradeField,
-    CThostFtdcReqUserLoginField, CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
-    CThostFtdcSettlementInfoField, CThostFtdcSpecificInstrumentField, CThostFtdcUserLogoutField,
+    CThostFtdcOrderField, CThostFtdcQryBrokerTradingParamsField,
+    CThostFtdcQryInstrumentCommissionRateField, CThostFtdcQryInstrumentField,
+    CThostFtdcQryInstrumentMarginRateField, CThostFtdcQryInstrumentOrderCommRateField,
+    CThostFtdcQryInvestorPositionDetailField, CThostFtdcQryInvestorPositionField,
+    CThostFtdcQryInvestorProductGroupMarginField, CThostFtdcQryOrderField,
+    CThostFtdcQrySettlementInfoField, CThostFtdcQryTradeField, CThostFtdcReqUserLoginField,
+    CThostFtdcRspUserLoginField, CThostFtdcSettlementInfoConfirmField,
+    CThostFtdcSettlementInfoField, CThostFtdcSpecificInstrumentField, CThostFtdcTradeField,
+    CThostFtdcUserLogoutField,
 };
 use ctpbuddy_wire::msgs;
 use ctpbuddy_wire::{struct_from_bytes, struct_to_bytes};
