@@ -36,23 +36,23 @@ def main() -> int:
         os.makedirs(sdir)
         scenario(sdir)
         shutil.copytree(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "refdata"), os.path.join(sdir, "refdata"))
+        calendar = TradingCalendar.from_json({
+            "schema": "ctpbuddy.trading-calendar/v1",
+            "version": "e2e-2026-r1",
+            "source": {"kind": "fixture", "name": "m3_settlement", "revision": "r1", "license": "test", "scope": "futures"},
+            "days": [
+                {"date": "2026-10-02", "is_trading_day": True, "trading_day": "20261002"},
+                {"date": "2026-10-03", "is_trading_day": True, "trading_day": "20261003"},
+                {"date": "2026-10-04", "is_trading_day": False},
+                {"date": "2026-10-05", "is_trading_day": False},
+                {"date": "2026-10-06", "is_trading_day": True, "trading_day": "20261006"},
+            ],
+        })
         td, ap = free_port(), free_port()
         data = os.path.join(root, "data")
-        proc = subprocess.Popen([find_core(), "--td", f"127.0.0.1:{td}", "--admin", f"127.0.0.1:{ap}", "--broker-id", BROKER, "--speed", "0", "--data-dir", data, "--scenario", sdir], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        proc = subprocess.Popen([find_core(), "--td", f"127.0.0.1:{td}", "--admin", f"127.0.0.1:{ap}", "--broker-id", BROKER, "--speed", "0", "--data-dir", data, "--scenario", sdir, "--calendar-version", calendar.metadata["version"], "--calendar-sha256", calendar.sha256], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
             wait_port(ap)
-            calendar = TradingCalendar.from_json({
-                "schema": "ctpbuddy.trading-calendar/v1",
-                "version": "e2e-2026-r1",
-                "source": {"kind": "fixture", "name": "m3_settlement", "revision": "r1", "license": "test", "scope": "futures"},
-                "days": [
-                    {"date": "2026-10-02", "is_trading_day": True, "trading_day": "20261002"},
-                    {"date": "2026-10-03", "is_trading_day": True, "trading_day": "20261003"},
-                    {"date": "2026-10-04", "is_trading_day": False},
-                    {"date": "2026-10-05", "is_trading_day": False},
-                    {"date": "2026-10-06", "is_trading_day": True, "trading_day": "20261006"},
-                ],
-            })
             with Admin(f"127.0.0.1:{ap}", calendar=calendar) as admin:
                 admin.start_scenario(sdir, paused=True, spec={"name": "settlement-fictional", "accounts": [{
                     "investor": "carry002", "balance": 1000000, "positions": [{
