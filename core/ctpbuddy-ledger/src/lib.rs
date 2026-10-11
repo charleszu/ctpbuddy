@@ -32,6 +32,16 @@ pub const ERR_POSITION: i32 = 30; //       OVER_CLOSE_POSITION      CTP:平仓�
 pub const ERR_NO_CLOSE_TODAY_LEDGER: i32 = 50; // OVER_CLOSETODAY_POSITION CTP:平今仓位不足
 pub const ERR_NO_CLOSE_YD_LEDGER: i32 = 51; // OVER_CLOSEYESTERDAY_POSITION CTP:平昨仓位不足
 
+/// Errors returned by the explicit external cash transfer APIs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CashTransferError {
+    /// The amount was not a finite, strictly positive value.
+    InvalidAmount,
+    /// The account cannot withdraw the requested amount from current
+    /// available funds.
+    InsufficientFunds,
+}
+
 /// Which age buckets a close may consume: `(today_only, yd_only)`.
 ///
 /// 上期所/能源中心区分今昨仓，报入「平仓」(`Close`) 等同平昨，平今必须报
@@ -194,6 +204,50 @@ impl Ledger {
     pub fn account_mut(&mut self, broker_id: &str, investor_id: &str) -> Option<&mut Account> {
         self.accounts
             .get_mut(&AccountKey::new(broker_id, investor_id))
+    }
+
+    /// Apply an external deposit to an account. The account is created with
+    /// the configured initial funds when it does not exist yet, matching the
+    /// login/scenario account bootstrap behavior.
+    pub fn apply_deposit(
+        &mut self,
+        broker_id: &str,
+        investor_id: &str,
+        amount: f64,
+    ) -> Result<(), CashTransferError> {
+        let amount = Self::cash_amount(amount)?;
+        self.ensure_account(broker_id, investor_id).deposit += amount;
+        Ok(())
+    }
+
+    /// Apply an external withdrawal. Validation and the available-funds
+    /// check happen before mutating the account, so a rejected withdrawal is
+    /// atomic, including when the account did not exist previously.
+    pub fn apply_withdraw(
+        &mut self,
+        broker_id: &str,
+        investor_id: &str,
+        amount: f64,
+    ) -> Result<(), CashTransferError> {
+        let amount = Self::cash_amount(amount)?;
+        let key = AccountKey::new(broker_id, investor_id);
+        let candidate = self
+            .accounts
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| Account::new(broker_id, investor_id, self.initial_funds));
+        if candidate.available() < amount {
+            return Err(CashTransferError::InsufficientFunds);
+        }
+        self.accounts.entry(key).or_insert(candidate).withdraw += amount;
+        Ok(())
+    }
+
+    fn cash_amount(amount: f64) -> Result<Money, CashTransferError> {
+        if !amount.is_finite() || amount <= 0.0 {
+            return Err(CashTransferError::InvalidAmount);
+        }
+        Ok(Money::from_f64(amount))
     }
 
     pub fn accounts(&self) -> impl Iterator<Item = &Account> {

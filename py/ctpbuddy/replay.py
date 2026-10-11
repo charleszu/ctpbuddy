@@ -25,11 +25,10 @@ byte-for-byte. Admin inputs are re-issued as admin commands where one
 exists (`reset_account`, `settlement` -> settle_day, user-supplied
 `settlement_report`, `settings_updated` -> settings_update; see
 `journal.REPLAYABLE_ADMIN_TYPES`). Admin inputs no command can re-issue
-(`journal.UNREPLAYABLE_ADMIN_TYPES`: `deposit` / `withdraw` / `settle` /
-`admin`) are counted and listed as `not_replayed` — they are excluded from
-the core-hash comparison on both sides and never reported as a problem,
-so a recording that carries them still PASSes when everything replayable
-matches.
+(`journal.UNREPLAYABLE_ADMIN_TYPES`: `settle` / `admin`) are counted and
+listed as `not_replayed` — they are excluded from the core-hash comparison on
+both sides and never reported as a problem, so a recording that carries them
+still PASSes when everything replayable matches.
 
 Limitations (documented in DESIGN §11.2): distinct tick `vt_ms` values
 are assumed for seek patterns (ties resolve to the first tick); the
@@ -207,6 +206,7 @@ class _Walker:
         self._load_checked = False
         self.counts = {"load": 0, "session": 0, "order": 0, "cancel": 0,
                        "reset": 0, "settle": 0, "report": 0, "settings": 0,
+                       "deposit": 0, "withdraw": 0,
                        "not_replayed": 0, "tick": 0}
 
     # -- helpers ------------------------------------------------------------
@@ -520,6 +520,21 @@ class _Walker:
                 return
             self._admin_reissue(ev, "settings", lambda: self.admin.update_settings(after))
             self._say("settings_update %s" % sorted(after))
+        elif t in {"deposit", "withdraw"}:
+            broker = ev.get("broker") or self.broker_id
+            investor = ev.get("investor") or ""
+            amount = d.get("amount")
+            if not broker or not investor or not isinstance(amount, (int, float)):
+                self.problems.append(
+                    "%s (seq %s) is missing broker, investor, or amount"
+                    % (t, ev.get("seq")))
+                return
+            if t == "deposit":
+                send = lambda: self.admin.deposit(broker, investor, amount)
+            else:
+                send = lambda: self.admin.withdraw(broker, investor, amount)
+            self._admin_reissue(ev, t, send)
+            self._say("%s %s/%s %.6g" % (t, broker, investor, amount))
         elif t in UNREPLAYABLE_ADMIN_TYPES:
             # recognised admin input with no admin command to re-issue it:
             # classified, counted, excluded from the hash — not a difference

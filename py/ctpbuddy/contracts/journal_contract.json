@@ -24,8 +24,8 @@
     "settlement": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["account_snapshot", "position_snapshot", "audit_log"], "data_required": ["next_trading_day", "accounts"], "data_types": {"next_trading_day": "string", "accounts": "array"}},
     "settlement_report": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["settlement_report", "audit_log"], "data_required": ["settlement_id", "account_id", "currency_id", "content_bytes"], "data_types": {"settlement_id": "number", "account_id": "string", "currency_id": "string", "content_bytes": "array"}},
     "settings_updated": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"], "data_required": ["after"], "data_types": {"after": "object"}},
-    "deposit": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"], "data_types": {"amount": "number"}},
-    "withdraw": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"], "data_types": {"amount": "number"}},
+    "deposit": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"], "data_types": {"amount": "number"}},
+    "withdraw": {"category": "admin_input", "replay": "reissue", "hash": "semantic", "projection": ["audit_log"], "data_required": ["amount"], "data_types": {"amount": "number"}},
     "settle": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_policy": "opaque_object"},
     "admin": {"category": "admin_input", "replay": "skip", "hash": "semantic", "projection": ["audit_log"], "data_policy": "opaque_object"}
   }

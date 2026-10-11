@@ -1236,7 +1236,8 @@ impl World {
                 "server_start" | "server_stop" | "scenario_loaded" | "session_auth"
                 | "session_login" | "session_logout" | "md_watermark" | "assertion"
                 | "order_insert" | "order_cancel" | "settlement_report" | "ledger_recovered" => {}
-                "deposit" | "withdraw" | "settle" | "admin" => {
+                "deposit" | "withdraw" => self.replay_cash_event(&event, event_type.as_str())?,
+                "settle" | "admin" => {
                     return Err(format!(
                         "journal tail event '{event_type}' cannot be reconstructed from the snapshot"
                     ));
@@ -1245,6 +1246,28 @@ impl World {
             }
         }
         Ok(())
+    }
+
+    fn replay_cash_event(&mut self, event: &Value, event_type: &str) -> Result<(), String> {
+        let broker = event
+            .get_str("broker")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("{event_type} recovery event missing broker"))?;
+        let investor = event
+            .get_str("investor")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("{event_type} recovery event missing investor"))?;
+        let amount = event
+            .get("data")
+            .and_then(|data| data.get_num("amount"))
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .ok_or_else(|| format!("{event_type} recovery event has invalid amount"))?;
+        let result = match event_type {
+            "deposit" => self.ledger.apply_deposit(&broker, &investor, amount),
+            "withdraw" => self.ledger.apply_withdraw(&broker, &investor, amount),
+            _ => return Err(format!("unknown cash recovery event '{event_type}'")),
+        };
+        result.map_err(|error| format!("{event_type} recovery failed: {error:?}"))
     }
 
     fn replay_settlement_event(&mut self, event: &Value) -> Result<(), String> {
@@ -2075,6 +2098,81 @@ mod tests {
     }
 
     #[test]
+    fn recovery_replays_external_cash_events() {
+        let mut world = World::new(Config::default()).expect("world");
+        let deposit = json::parse(
+            r#"{"type":"deposit","broker":"8888","investor":"u","data":{"amount":125.5}}"#,
+        )
+        .unwrap();
+        let withdraw = json::parse(
+            r#"{"type":"withdraw","broker":"8888","investor":"u","data":{"amount":25.5}}"#,
+        )
+        .unwrap();
+        world.replay_cash_event(&deposit, "deposit").unwrap();
+        world.replay_cash_event(&withdraw, "withdraw").unwrap();
+        let account = world.ledger.account("8888", "u").unwrap();
+        assert_eq!(account.deposit.to_f64(), 125.5);
+        assert_eq!(account.withdraw.to_f64(), 25.5);
+    }
+
+    #[test]
+    fn admin_cash_transfer_updates_account_and_journals_identity() {
+        let dir = std::env::temp_dir().join(format!("ctpbuddy-cash-admin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut cfg = Config::default();
+        cfg.data_dir = dir.to_string_lossy().into_owned();
+        let mut world = World::new(cfg).expect("world");
+        let (tx, rx) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, tx, true);
+        world.on_frame(
+            1,
+            Frame::new(
+                msgs::ADMIN_REQ,
+                1,
+                br#"{"cmd":"deposit","broker":"8888","investor":"u","amount":125.5}"#.to_vec(),
+            ),
+        );
+        let response = rx.try_iter().next().expect("deposit response");
+        let value = json::parse(&String::from_utf8(response.payload).unwrap()).unwrap();
+        assert!(matches!(value.get("ok"), Some(Value::Bool(true))));
+        assert_eq!(
+            world.ledger.account("8888", "u").unwrap().deposit.to_f64(),
+            125.5
+        );
+
+        world.on_frame(
+            1,
+            Frame::new(
+                msgs::ADMIN_REQ,
+                2,
+                br#"{"cmd":"withdraw","broker":"8888","investor":"u","amount":25.5}"#.to_vec(),
+            ),
+        );
+        let _ = rx.try_iter().next().expect("withdraw response");
+        assert_eq!(
+            world.ledger.account("8888", "u").unwrap().withdraw.to_f64(),
+            25.5
+        );
+        drop(world);
+
+        let journal = std::fs::read_to_string(dir.join("journal").join("20261003.jsonl"))
+            .or_else(|_| {
+                let journal_dir = std::fs::read_dir(dir.join("journal"))?;
+                let path = journal_dir
+                    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                    .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+                    .ok_or_else(|| std::io::Error::other("journal file missing"))?;
+                std::fs::read_to_string(path)
+            })
+            .expect("cash journal");
+        assert!(journal.contains("\"type\":\"deposit\""));
+        assert!(journal.contains("\"type\":\"withdraw\""));
+        assert!(journal.contains("\"broker\":\"8888\""));
+        assert!(journal.contains("\"investor\":\"u\""));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn recover_startup_applies_tail_from_previous_archived_run() {
         let dir =
             std::env::temp_dir().join(format!("ctpbuddy-recover-tail-{}", std::process::id()));
@@ -2091,6 +2189,18 @@ mod tests {
             )
             .unwrap(),
         );
+        first.journal_record_json(
+            "deposit",
+            "9999",
+            "u",
+            json::parse(r#"{"amount":125.5}"#).unwrap(),
+        );
+        first.journal_record_json(
+            "withdraw",
+            "9999",
+            "u",
+            json::parse(r#"{"amount":25.5}"#).unwrap(),
+        );
         drop(first);
 
         let mut second_cfg = Config::default();
@@ -2105,6 +2215,12 @@ mod tests {
             Some(1)
         );
         assert_eq!(second.trades_today.len(), 1);
+        let account = second
+            .ledger
+            .account("9999", "u")
+            .expect("replayed account");
+        assert_eq!(account.deposit.to_f64(), 125.5);
+        assert_eq!(account.withdraw.to_f64(), 25.5);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

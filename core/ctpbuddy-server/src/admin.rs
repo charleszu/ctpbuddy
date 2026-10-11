@@ -1,10 +1,10 @@
 //! Admin control plane (JSON over ADMIN_REQ/ADMIN_RSP frames, port 5561).
 //!
 //! Commands: ping / status / settings_get / settings_update / start_scenario /
-//! pause / resume / step / set_speed / seek / loop / reset_account /
+//! pause / resume / step / set_speed / seek / loop / deposit / withdraw / reset_account /
 //! settle_day / settlement_report / shutdown. State-changing commands a replay
 //! must reproduce are journaled (scenario_loaded, reset_account, settlement,
-//! settlement_report, settings_updated, server_stop); playback controls show
+//! settlement_report, settings_updated, deposit, withdraw, server_stop); playback controls show
 //! up through `md_watermark` instead.
 
 use ctpbuddy_market::format_hhmmss;
@@ -15,6 +15,7 @@ use ctpbuddy_wire::Frame;
 use crate::json::{self, Value};
 use crate::scenario;
 use crate::{journal_contract, World, SERVER_VERSION};
+use ctpbuddy_ledger::CashTransferError;
 
 impl World {
     pub(crate) fn on_admin(&mut self, conn_id: u64, frame: &Frame) {
@@ -54,6 +55,8 @@ impl World {
             "set_speed" => self.admin_set_speed(conn_id, frame.req_id, &v),
             "seek" => self.admin_seek(conn_id, frame.req_id, &v),
             "loop" => self.admin_loop(conn_id, frame.req_id, &v),
+            "deposit" => self.admin_cash_transfer(conn_id, frame.req_id, &v, false),
+            "withdraw" => self.admin_cash_transfer(conn_id, frame.req_id, &v, true),
             "reset_account" => self.admin_reset_account(conn_id, frame.req_id, &v),
             "settle_day" => self.admin_settle_day(conn_id, frame.req_id, &v),
             "settlement_report" => self.admin_settlement_report(conn_id, frame.req_id, &v),
@@ -384,6 +387,69 @@ impl World {
                 ("ok".into(), json::b(true)),
                 ("cmd".into(), json::s("settlement_report")),
                 ("saved".into(), json::n(count as f64)),
+            ]),
+        );
+    }
+
+    fn admin_cash_transfer(&mut self, conn_id: u64, req_id: u32, v: &Value, withdraw: bool) {
+        let command = if withdraw { "withdraw" } else { "deposit" };
+        let Some(fields) = v.as_obj() else {
+            return self.admin_error(conn_id, req_id, &format!("{command} 请求必须为对象"));
+        };
+        let mut seen = std::collections::HashSet::new();
+        for (key, _) in fields {
+            if !matches!(key.as_str(), "cmd" | "broker" | "investor" | "amount")
+                || !seen.insert(key)
+            {
+                return self.admin_error(conn_id, req_id, &format!("{command} 含未知或重复字段"));
+            }
+        }
+        let broker = match v.get_str("broker") {
+            Some(value) if !value.is_empty() && self.cfg.supports_broker(&value) => value,
+            Some(value) if value.is_empty() => {
+                return self.admin_error(conn_id, req_id, "broker 不能为空")
+            }
+            Some(value) => {
+                return self.admin_error(conn_id, req_id, &format!("不支持的 BrokerID: {value}"))
+            }
+            None => return self.admin_error(conn_id, req_id, "缺少 broker"),
+        };
+        let investor = match v.get_str("investor") {
+            Some(value) if !value.is_empty() => value,
+            Some(_) => return self.admin_error(conn_id, req_id, "investor 不能为空"),
+            None => return self.admin_error(conn_id, req_id, "缺少 investor"),
+        };
+        let amount = match v.get("amount").and_then(Value::as_num) {
+            Some(value) if value.is_finite() && value > 0.0 => value,
+            _ => return self.admin_error(conn_id, req_id, "amount 必须为有限正数"),
+        };
+        let result = if withdraw {
+            self.ledger.apply_withdraw(&broker, &investor, amount)
+        } else {
+            self.ledger.apply_deposit(&broker, &investor, amount)
+        };
+        if let Err(error) = result {
+            let message = match error {
+                CashTransferError::InvalidAmount => "amount 必须为有限正数",
+                CashTransferError::InsufficientFunds => "可用资金不足",
+            };
+            return self.admin_error(conn_id, req_id, message);
+        }
+        self.journal_record_json(
+            command,
+            &broker,
+            &investor,
+            json::obj_sorted(vec![("amount".into(), json::n(amount))]),
+        );
+        self.admin_reply(
+            conn_id,
+            req_id,
+            json::obj_sorted(vec![
+                ("ok".into(), json::b(true)),
+                ("cmd".into(), json::s(command)),
+                ("broker".into(), json::s(&broker)),
+                ("investor".into(), json::s(&investor)),
+                ("amount".into(), json::n(amount)),
             ]),
         );
     }

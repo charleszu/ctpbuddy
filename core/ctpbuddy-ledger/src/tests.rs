@@ -81,6 +81,39 @@ fn explicit_cross_margin_rule_reliefs_only_the_paired_legs() {
 }
 
 #[test]
+fn external_cash_transfers_update_account_and_validate_amounts() {
+    let mut ledger = Ledger::new(100.0);
+    ledger.apply_deposit("TEST", "alice", 25.5).unwrap();
+    let account = ledger.account("TEST", "alice").unwrap();
+    assert_eq!(account.deposit.to_f64(), 25.5);
+    assert_eq!(account.dynamic_equity().to_f64(), 125.5);
+
+    ledger.apply_withdraw("TEST", "alice", 10.25).unwrap();
+    let account = ledger.account("TEST", "alice").unwrap();
+    assert_eq!(account.withdraw.to_f64(), 10.25);
+    assert_eq!(account.available().to_f64(), 115.25);
+
+    for amount in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        assert_eq!(
+            ledger.apply_deposit("TEST", "alice", amount),
+            Err(CashTransferError::InvalidAmount)
+        );
+    }
+}
+
+#[test]
+fn external_withdrawal_failure_is_atomic() {
+    let mut ledger = Ledger::new(100.0);
+    let before = ledger.accounts().count();
+    assert_eq!(
+        ledger.apply_withdraw("TEST", "alice", 101.0),
+        Err(CashTransferError::InsufficientFunds)
+    );
+    assert_eq!(ledger.accounts().count(), before);
+    assert!(ledger.account("TEST", "alice").is_none());
+}
+
+#[test]
 fn overlapping_cross_margin_rules_cannot_consume_one_leg_twice() {
     let mut catalog = fixture(false);
     for (rule_id, short) in [("a-b", "TESTB01"), ("a-c", "TESTA02")] {

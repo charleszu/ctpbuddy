@@ -1448,6 +1448,12 @@ def test_replay_admin_inputs() -> None:
         def update_settings(self, patch):
             return self.cmd("settings_update", patch=patch)
 
+        def deposit(self, broker, investor, amount):
+            return self.cmd("deposit", broker=broker, investor=investor, amount=amount)
+
+        def withdraw(self, broker, investor, amount):
+            return self.cmd("withdraw", broker=broker, investor=investor, amount=amount)
+
     def ev(seq, typ, data=None, **kw):
         e = {"seq": seq, "ts_wall": "t", "trading_day": "20261002", "vt_ms": 1.0,
              "type": typ, "data": data if data is not None else {}}
@@ -1475,28 +1481,28 @@ def test_replay_admin_inputs() -> None:
     ]
     w.walk(events, "")
     assert w.problems == [], w.problems
-    assert [c[0] for c in admin.calls] == ["reset_account", "settle_day", "settlement_report", "settings_update"], admin.calls
+    assert [c[0] for c in admin.calls] == ["reset_account", "settle_day", "settlement_report", "settings_update", "deposit", "withdraw"], admin.calls
     assert admin.calls[1][1] == {"settlement_prices": {"rb2601": 3500.0}, "next_trading_day": "20261005"}
     report = admin.calls[2][1]["reports"][0]
     assert report["content_bytes"] == [66, 67] and report["source"] == "user_supplied" and report["trading_day"] == "20261002", report
     assert admin.calls[3][1] == {"patch": {"qry_freq": 2}}
+    assert admin.calls[4][1] == {"broker": "8888", "investor": "u1", "amount": 1000.0}
+    assert admin.calls[5][1] == {"broker": "8888", "investor": "u1", "amount": 10.0}
     assert w.counts["reset"] == 1 and w.counts["settle"] == 1 and w.counts["report"] == 1
-    assert w.counts["settings"] == 1 and w.counts["not_replayed"] == 2, w.counts
-    assert len(w.not_replayed) == 2 and w.not_replayed[0].startswith("deposit (seq 6"), w.not_replayed
+    assert w.counts["settings"] == 1 and w.counts["deposit"] == 1 and w.counts["withdraw"] == 1
+    assert w.counts["not_replayed"] == 0 and w.not_replayed == [], w.counts
 
-    # the comparison drops the not-replayed types on both sides: a replay
-    # journal without the deposit/withdraw still matches
+    # A faithful replay keeps both cash transfers in the semantic core.
     replayed = [dict(e, seq=i) for i, e in enumerate(
         (e for e in events if e["type"] not in UNREPLAYABLE_ADMIN_TYPES), 1)]
-    assert hash_stream(events, core=True) != hash_stream(replayed, core=True)
-    assert hash_stream(without_types(events, UNREPLAYABLE_ADMIN_TYPES), core=True) == \
-        hash_stream(without_types(replayed, UNREPLAYABLE_ADMIN_TYPES), core=True)
-    assert first_core_diff(events, replayed) is not None
-    assert first_core_diff(events, replayed, skip=UNREPLAYABLE_ADMIN_TYPES) is None
+    assert hash_stream(events, core=True) == hash_stream(replayed, core=True)
+    assert first_core_diff(events, replayed) is None
+    missing_cash = [e for e in events if e["type"] not in {"deposit", "withdraw"}]
+    assert hash_stream(events, core=True) != hash_stream(missing_cash, core=True)
+    assert first_core_diff(events, missing_cash) is not None
     report_text = format_result({"ok": True, "problems": [], "notes": [], "not_replayed": w.not_replayed,
                                  "recorded_core": "a", "replay_core": "a", "diff": None})
-    assert "2 admin input(s) not replayable" in report_text and "PASS" in report_text, report_text
-    assert "deposit (seq 6" in report_text and "!" not in report_text.split("\n")[0], report_text
+    assert "PASS" in report_text, report_text
 
     # a core rejection of a re-issued admin input IS a real difference
     admin2 = FakeAdmin()
@@ -1506,7 +1512,7 @@ def test_replay_admin_inputs() -> None:
     assert len(w2.problems) == 3 and "settlement (seq 2)" in w2.problems[0] and "核心拒绝" in w2.problems[0], w2.problems
     assert "next_trading_day" in w2.problems[1] and "after" in w2.problems[2], w2.problems
     assert w2.counts["settle"] == 0 and w2.not_replayed == []
-    print("[ok] replay: admin inputs re-issued (settle_day/report/settings), unreplayable ones classified not a diff")
+    print("[ok] replay: admin inputs re-issued (settle_day/report/settings/deposit/withdraw)")
 
 
 def test_journal_contract() -> None:
@@ -1527,8 +1533,8 @@ def test_journal_contract() -> None:
     assert {"server_start", "session_auth"}.issubset(KNOWN_TYPES)
     assert "server_start" in CORE_NOISE_TYPES
     assert "session_auth" in REPLAYABLE_TYPES
-    assert REPLAYABLE_ADMIN_TYPES == {"reset_account", "settlement", "settlement_report", "settings_updated"}
-    assert UNREPLAYABLE_ADMIN_TYPES == {"deposit", "withdraw", "settle", "admin"}
+    assert REPLAYABLE_ADMIN_TYPES == {"reset_account", "settlement", "settlement_report", "settings_updated", "deposit", "withdraw"}
+    assert UNREPLAYABLE_ADMIN_TYPES == {"settle", "admin"}
     assert "settlement" in SETTLEMENT_TYPES
     assert SETTLEMENT_REPORT_TYPES == PROJECTION_TYPES["settlement_report"]
     assert "settlement_report" in SETTLEMENT_REPORT_TYPES

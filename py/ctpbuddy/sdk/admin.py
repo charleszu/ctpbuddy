@@ -105,6 +105,14 @@ class Admin:
     def reset_account(self, investor: str = "") -> Dict[str, Any]:
         return self.cmd("reset_account", investor=investor)
 
+    def deposit(self, broker: str, investor: str, amount: float) -> Dict[str, Any]:
+        """Credit external funds to one broker/investor account."""
+        return self.cmd("deposit", broker=broker, investor=investor, amount=amount)
+
+    def withdraw(self, broker: str, investor: str, amount: float) -> Dict[str, Any]:
+        """Debit external funds after checking current available funds."""
+        return self.cmd("withdraw", broker=broker, investor=investor, amount=amount)
+
     def settlement_report(self, reports: Any) -> Dict[str, Any]:
         normalized = []
         for report in reports:
