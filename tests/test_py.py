@@ -129,6 +129,10 @@ def test_scenario() -> None:
         write_canonical(d, [row])
         problems = validate_scenario(d)
         assert any("action_day" in problem for problem in problems), problems
+        row["action_day"] = "20261003"
+        write_canonical(d, [row])
+        problems = validate_scenario(d)
+        assert any("later than trading_day" in problem for problem in problems), problems
         row["action_day"] = "20261001"
         write_canonical(d, [row])
         # broken scenarios are rejected

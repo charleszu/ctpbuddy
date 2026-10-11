@@ -291,6 +291,12 @@ impl CsvSource {
                     format!("csv line {}: action_day is not a valid YYYYMMDD", i + 1),
                 ));
             }
+            if !t.action_day.is_empty() && t.action_day > t.trading_day {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("csv line {}: action_day is later than trading_day", i + 1),
+                ));
+            }
             t.update_time = c[3].trim().into();
             t.update_millisec = int(4)?;
             t.last_price = num(5)?;
@@ -684,6 +690,13 @@ mod tests {
         std::fs::write(&path, row.join(",") + "\n").unwrap();
         let error = CsvSource::load(path.to_str().unwrap()).unwrap_err();
         assert!(error.to_string().contains("action_day"), "{error}");
+        row[CSV_COLUMNS.len()] = "20261010".into();
+        std::fs::write(&path, row.join(",") + "\n").unwrap();
+        let error = CsvSource::load(path.to_str().unwrap()).unwrap_err();
+        assert!(
+            error.to_string().contains("later than trading_day"),
+            "{error}"
+        );
         let _ = std::fs::remove_file(path);
     }
 }

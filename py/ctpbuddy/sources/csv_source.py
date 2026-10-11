@@ -86,6 +86,11 @@ def validate_scenario(scenario_dir: str) -> List[str]:
                 problems.append("ticks.csv line %d: trading_day is not a valid YYYYMMDD" % lineno)
             if len(row) > REQUIRED_COLUMNS and row[REQUIRED_COLUMNS].strip() and not _valid_compact_date(row[REQUIRED_COLUMNS].strip()):
                 problems.append("ticks.csv line %d: action_day is not a valid YYYYMMDD" % lineno)
+            if (len(row) > REQUIRED_COLUMNS and row[REQUIRED_COLUMNS].strip() and
+                    _valid_compact_date(row[2].strip()) and
+                    _valid_compact_date(row[REQUIRED_COLUMNS].strip()) and
+                    row[REQUIRED_COLUMNS].strip() > row[2].strip()):
+                problems.append("ticks.csv line %d: action_day is later than trading_day" % lineno)
             if len(problems) > 5:
                 break
     instruments = files["instruments"]
