@@ -1187,6 +1187,15 @@ impl World {
         {
             return;
         }
+        // Snapshot ordering is journal -> state: a recovery snapshot must
+        // never claim a durable state while its corresponding audit prefix is
+        // still buffered in the journal writer.
+        if let Some(j) = self.journal.as_mut() {
+            if let Err(e) = j.flush() {
+                eprintln!("[ctpbuddy] journal flush before snapshot failed: {e}");
+                return;
+            }
+        }
         match state::write_with_flow(&self.cfg.data_dir, &self.vt_trading_day, &snap, &flow) {
             Ok(()) => {
                 self.last_snapshot = Some(snap);
