@@ -122,13 +122,20 @@ class ReadModelMetadata:
         virtual_time = playback.get("virtual_time")
         if virtual_time is not None and not isinstance(virtual_time, str):
             raise JournalError("ADMIN read-model metadata virtual_time 无效")
+
+        def text(key: str) -> Optional[str]:
+            value = status.get(key)
+            if value is not None and not isinstance(value, str):
+                raise JournalError("ADMIN read-model metadata %s 无效" % key)
+            return value
+
         return cls(
             source_kind="admin_live",
             journal_seq=journal_seq,
             virtual_time=virtual_time,
-            core_hash=status.get("core_hash"),
-            calendar_version=status.get("calendar_version"),
-            calendar_sha256=status.get("calendar_sha256"),
+            core_hash=text("core_hash"),
+            calendar_version=text("calendar_version"),
+            calendar_sha256=text("calendar_sha256"),
         )
 SCHEMA = """
 CREATE TABLE projection_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);

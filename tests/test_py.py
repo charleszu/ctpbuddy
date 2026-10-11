@@ -832,6 +832,13 @@ def test_web_replay() -> None:
             assert status["metadata"]["virtual_time"] == "09:30:00.000"
             assert status["metadata"]["calendar_version"] == "web-fixture-calendar"
             assert status["metadata"]["calendar_sha256"] == "c" * 64
+            bad_status = dict(FakeAdmin.state)
+            try:
+                from ctpbuddy.store import ReadModelMetadata
+                ReadModelMetadata.from_admin_status({"playback": bad_status, "calendar_version": 1})
+                raise AssertionError("非字符串日历元数据必须失败")
+            except Exception as exc:
+                assert "calendar_version 无效" in str(exc)
             pause = json.loads(request("/api/replay", {"cmd": "pause"}, "POST").read())
             assert pause["playback"]["paused"]
             step = json.loads(request("/api/replay", {"cmd": "step"}, "POST").read())
