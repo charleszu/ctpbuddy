@@ -6,6 +6,7 @@
 //! a transport adapter, not a protocol change.
 
 pub mod admin;
+pub mod calendar;
 pub mod dtime;
 pub mod handlers;
 pub mod journal;
@@ -145,6 +146,8 @@ pub struct Config {
     /// Explicit offline calendar provenance; the core does not infer or load
     /// the Python calendar snapshot itself.
     pub calendar: Option<CalendarMetadata>,
+    /// Parsed offline calendar snapshot used for core-side TradingDay derivation.
+    pub calendar_snapshot: Option<calendar::CalendarSnapshot>,
 }
 
 impl Default for Config {
@@ -166,6 +169,7 @@ impl Default for Config {
             settings_overrides: Vec::new(),
             recover: false,
             calendar: None,
+            calendar_snapshot: None,
         }
     }
 }

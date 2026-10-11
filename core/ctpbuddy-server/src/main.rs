@@ -43,6 +43,7 @@ options:
                           fixed offline calendar version
       --calendar-sha256 <hex>
                           fixed offline calendar SHA256
+      --calendar <file>  validated offline calendar snapshot
       --scenario <dir>   scenario dir with refdata/ + ticks.csv
       --recover          restore the ledger from <data-dir>/state/ledger.json
                          (also CTPBUDDY_RECOVER=1); working orders are dropped
@@ -156,6 +157,20 @@ fn apply_env(cfg: &mut Config) {
                 std::process::exit(1);
             });
     }
+    if let Ok(path) = std::env::var("CTPBUDDY_CALENDAR") {
+        if !path.is_empty() {
+            cfg.calendar_snapshot = Some(
+                ctpbuddy_server::calendar::CalendarSnapshot::from_file(
+                    &path,
+                    cfg.calendar.as_ref(),
+                )
+                .unwrap_or_else(|e| {
+                    eprintln!("invalid calendar snapshot: {e}");
+                    std::process::exit(1);
+                }),
+            );
+        }
+    }
 }
 
 /// Parse CLI flags on top of `base` (which already carries env/defaults).
@@ -163,6 +178,7 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
     let mut args = std::env::args().skip(1);
     let mut calendar_version = cfg.calendar.as_ref().map(|v| v.version.clone());
     let mut calendar_sha256 = cfg.calendar.as_ref().map(|v| v.sha256.clone());
+    let mut calendar_path = None;
     while let Some(arg) = args.next() {
         // Every value-taking option accepts a following value.
         let mut take = |what: &str| -> Result<String, String> {
@@ -185,6 +201,7 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
             "--scenario" => cfg.scenario_dir = Some(take("--scenario")?),
             "--calendar-version" => calendar_version = Some(take("--calendar-version")?),
             "--calendar-sha256" => calendar_sha256 = Some(take("--calendar-sha256")?),
+            "--calendar" => calendar_path = Some(take("--calendar")?),
             "--recover" => cfg.recover = true,
             "--refdata" => cfg.refdata_dir = Some(take("--refdata")?),
             "--qry-freq" => {
@@ -252,6 +269,12 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
         }
     }
     cfg.calendar = ctpbuddy_server::calendar_metadata(calendar_version, calendar_sha256)?;
+    cfg.calendar_snapshot = calendar_path
+        .as_deref()
+        .map(|path| {
+            ctpbuddy_server::calendar::CalendarSnapshot::from_file(path, cfg.calendar.as_ref())
+        })
+        .transpose()?;
     Ok(cfg)
 }
 

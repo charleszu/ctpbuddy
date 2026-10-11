@@ -383,8 +383,23 @@ impl World {
     }
 
     fn admin_settle_day(&mut self, conn_id: u64, req_id: u32, v: &Value) {
-        let Some(next_day) = v.get_str("next_trading_day") else {
-            return self.admin_error(conn_id, req_id, "settle_day 需要 next_trading_day");
+        let next_day = match v.get_str("next_trading_day") {
+            Some(day) => day.to_string(),
+            None => match self
+                .cfg
+                .calendar_snapshot
+                .as_ref()
+                .and_then(|calendar| calendar.next_trading_day(&self.vt_trading_day).ok())
+            {
+                Some(day) => day,
+                None => {
+                    return self.admin_error(
+                        conn_id,
+                        req_id,
+                        "settle_day 需要 next_trading_day（或配置完整离线日历）",
+                    )
+                }
+            },
         };
         let Some(prices) = v.get("settlement_prices").and_then(Value::as_obj) else {
             return self.admin_error(conn_id, req_id, "settle_day 需要 settlement_prices 对象");

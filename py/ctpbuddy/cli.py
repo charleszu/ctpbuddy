@@ -134,7 +134,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print("error: 日历加载失败: %s" % exc, file=sys.stderr)
         return 1
     if calendar:
-        cmd += ["--calendar-version", calendar.metadata["version"], "--calendar-sha256", calendar.sha256]
+        cmd += ["--calendar", calendar_path, "--calendar-version", calendar.metadata["version"], "--calendar-sha256", calendar.sha256]
     if args.scenario:
         # YAML is authored, JSON is consumed: compile scenario.yaml so the
         # core's startup path sees the spec (the core never parses YAML).
