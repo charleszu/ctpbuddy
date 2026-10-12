@@ -233,8 +233,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     ))
     _print_assertions(v.get("assertions"))
     for a in v.get("accounts", []):
-        print("  account %-14s balance=%.2f available=%.2f profit=%.2f" % (
-            a.get("investor"), a.get("balance", 0.0), a.get("available", 0.0), a.get("position_profit", 0.0),
+        print("  account %-8s %-14s %-4s balance=%.2f available=%.2f profit=%.2f" % (
+            a.get("broker", v.get("broker_id", "?")), a.get("investor"), a.get("currency", "CNY"),
+            a.get("balance", 0.0), a.get("available", 0.0), a.get("position_profit", 0.0),
         ))
     return 0
 
