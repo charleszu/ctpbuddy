@@ -122,6 +122,10 @@ jobs:
           $env:CTPBUDDY_SHIM_MODE = "auth-check"
           python tests/e2e/m1_shim_e2e.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows release package（fixture + 真实产物）
+        env:
+          CTPBUDDY_TEST_REAL_RELEASE: "1"
+        run: python tests/e2e/release_package.py
 
   # Linux：核心单测 + Shim .so 构建 + 经 Shim 的端到端（头文件取自 docs/api-doc-html/files）。
   linux:
@@ -153,3 +157,11 @@ jobs:
           done
           python tests/e2e/m1_shim_e2e.py
           CTPBUDDY_SHIM_MODE=auth-check python tests/e2e/m1_shim_e2e.py
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux Docker acceptance
+        run: python3 tools/docker_acceptance.py

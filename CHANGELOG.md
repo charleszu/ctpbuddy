@@ -4,7 +4,7 @@
 
 ## 2026-10（本轮）
 
-- **架构状态与验收口径对齐**：补记交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 外部资金入口；本机执行 `CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py`（fixture/real 均 PASS）与 `hugo --cleanDestinationDir --gc --minify --environment production`（80 pages/22 static）通过；`python tools/docker_acceptance.py` 因本机 Docker daemon 不可用按设计 SKIP，保留为 CI 项。
+- **架构状态与验收口径对齐**：补记交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 外部资金入口；本机执行 `CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py`（fixture/real 均 PASS）与 `hugo --cleanDestinationDir --gc --minify --environment production`（80 pages/22 static）通过；`python tools/docker_acceptance.py` 因本机 Docker daemon 不可用按设计 SKIP，现已由 `.github/workflows/core-tests.yml` 的 `docker` job 接管 CI 验收。
 - **中金所平今费时间序池落地**（知识库 §10.4 #10 修正，生产数据 81/81 判别）：`ExchangeRules.fee_close_pool`（仅 CFFEX）+ `Position.fee_open_pool`——开仓逐笔累池、平仓取 `min(手数, 池)` 作平今手数，与明细的先开先平消耗正交（昨仓被平收平今费、池尽后平今仓收平昨费）；日结随 `today_position` 同点清池；快照 v2 携带池状态，恢复兼容 v1 并按交易日重建当日开仓池。锁定：ledger 单测（三段分叉 + DCE 对照 + 日结清池）、e2e `m3_fee_cffex.py`（bootstrap 昨仓 + scenario 自带 `refdata/commission_rates.jsonl` 走完整 server）、`tools/audit_real_accounts.py` 复跑全绿（459/459、976/983、64/64）。
 - 日结后持仓保证金按结算价重估（昨仓恒用昨结算价，逐明细按剩余手数重算）；交易所差异集中到 `exchange_rules.rs` 规则表；`SubscribePrivateTopic` 的 RESTART/RESUME 经 AUTH 的 `private_resume` 生效，登录后重放私有流。
 

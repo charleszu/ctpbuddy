@@ -21,6 +21,6 @@ menus:
 
 - ZeroMQ 传输适配，替换当前 TCP 占位。
 - Web 当前是仅回环、本地控制面：投影只读，写入口白名单化；不等同于完整远程管理后台。
-- M4 三渠道发布与正式文档站发布流程；Hugo 文档站和 Windows release package（含真实产物 opt-in）已本机验收，Docker daemon 仍需 CI 验收。
+- M4 三渠道发布与正式文档站发布流程；Hugo 文档站和 Windows release package（含真实产物 opt-in）已本机验收，Docker acceptance job 已接入 CI，仍需实际 CI run 留存结果。
 
 完整状态和每项实现边界见 [`README.md`](https://github.com/charleszu/ctpbuddy/blob/main/README.md) 与 [`DESIGN.md`](https://github.com/charleszu/ctpbuddy/blob/main/DESIGN.md)。
