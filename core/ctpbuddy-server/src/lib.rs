@@ -1,9 +1,9 @@
-//! ctpbuddy-server: the single-threaded world loop plus its TCP transports.
+//! ctpbuddy-server: the single-threaded world loop plus its TCP/ZeroMQ
+//! transports.
 //!
-//! Transport note: DESIGN.md §6 targets ZeroMQ; M1 carries the exact same
-//! frames over plain TCP (one connection per client, frames back-to-back).
-//! The framing is transport-agnostic by construction, so swapping in ZMTP is
-//! a transport adapter, not a protocol change.
+//! TCP remains the default and ADMIN transport. A `zmq://` TD endpoint uses a
+//! ROUTER/DEALER adapter; both transports carry the same CB frames, so the
+//! protocol and world semantics are independent of the transport.
 
 pub mod admin;
 pub mod calendar;
@@ -17,6 +17,7 @@ pub mod scenario;
 pub mod settings;
 mod settlement;
 pub mod state;
+mod transport_zmq;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
@@ -88,6 +89,10 @@ static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 /// Id the next accepted connection will receive (never reused).
 pub(crate) fn next_conn_id() -> u64 {
     NEXT_CONN_ID.load(Ordering::SeqCst)
+}
+
+pub(crate) fn allocate_conn_id() -> u64 {
+    NEXT_CONN_ID.fetch_add(1, Ordering::SeqCst)
 }
 
 /// 报撤单流控的两条独立预算流（notes/14 §A.3-02：`ReqOrderInsert` 与
@@ -207,13 +212,17 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
     // the book or shut the core down. Refuse non-loopback binds unless the
     // operator opts in explicitly (e.g. behind a VPN / container network).
     ensure_admin_loopback(&cfg.admin_endpoint)?;
-    let td = TcpListener::bind(&cfg.td_endpoint)?;
     let admin = TcpListener::bind(&cfg.admin_endpoint)?;
     let mut world = World::new(cfg.clone())?;
     let (tx, rx) = mpsc::channel::<WorldMsg>();
 
-    let tx_td = tx.clone();
-    thread::spawn(move || accept_loop(td, tx_td, false));
+    if cfg.td_endpoint.starts_with("zmq://") {
+        transport_zmq::start(&cfg.td_endpoint, tx.clone())?;
+    } else {
+        let td = TcpListener::bind(&cfg.td_endpoint)?;
+        let tx_td = tx.clone();
+        thread::spawn(move || accept_loop(td, tx_td, false));
+    }
     let tx_admin = tx.clone();
     thread::spawn(move || accept_loop(admin, tx_admin, true));
     drop(tx); // keep only the acceptor/conn threads' clones alive
@@ -286,6 +295,19 @@ struct ConnLimits {
     live: Arc<std::sync::atomic::AtomicUsize>,
 }
 
+static SHARED_CONN_COUNT: std::sync::OnceLock<Arc<std::sync::atomic::AtomicUsize>> =
+    std::sync::OnceLock::new();
+
+pub(crate) fn shared_connection_counter() -> Arc<std::sync::atomic::AtomicUsize> {
+    SHARED_CONN_COUNT
+        .get_or_init(|| Arc::new(std::sync::atomic::AtomicUsize::new(0)))
+        .clone()
+}
+
+pub(crate) fn configured_max_conns() -> usize {
+    parse_max_conns(std::env::var(MAX_CONNS_ENV).ok().as_deref())
+}
+
 pub(crate) fn parse_max_conns(v: Option<&str>) -> usize {
     v.and_then(|s| s.trim().parse::<usize>().ok())
         .filter(|n| *n > 0)
@@ -301,14 +323,10 @@ impl Drop for ConnGuard {
 }
 
 fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
-    // The counter is process-global so TD and ADMIN listeners share one cap.
-    static SHARED: std::sync::OnceLock<Arc<std::sync::atomic::AtomicUsize>> =
-        std::sync::OnceLock::new();
-    let live = SHARED
-        .get_or_init(|| Arc::new(std::sync::atomic::AtomicUsize::new(0)))
-        .clone();
+    // The counter is process-global so TCP and ZeroMQ listeners share one cap.
+    let live = shared_connection_counter();
     let limits = ConnLimits {
-        max_conns: parse_max_conns(std::env::var(MAX_CONNS_ENV).ok().as_deref()),
+        max_conns: configured_max_conns(),
         write_timeout: WRITE_TIMEOUT,
         live,
     };
@@ -328,7 +346,7 @@ fn accept_loop_with(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool,
                 let guard = ConnGuard(lim.live.clone());
                 let _ = s.set_nodelay(true);
                 let _ = s.set_write_timeout(Some(lim.write_timeout));
-                let id = NEXT_CONN_ID.fetch_add(1, Ordering::SeqCst);
+                let id = allocate_conn_id();
                 let (writer_tx, writer_rx) = mpsc::channel::<Frame>();
                 let _ = tx.send(WorldMsg::Opened {
                     id,
@@ -480,6 +498,9 @@ pub(crate) enum WorldMsg {
     Closed {
         id: u64,
     },
+    /// A transport failed after startup; stop the world instead of reporting
+    /// a healthy core with a dead TD endpoint.
+    TransportClosed,
 }
 
 /// One client connection (a "front session" in CTP terms).
@@ -1198,6 +1219,7 @@ impl World {
                     } => self.on_conn_opened(id, writer, is_admin),
                     WorldMsg::Inbound { id, frame } => self.on_frame(id, frame),
                     WorldMsg::Closed { id } => self.on_conn_closed(id),
+                    WorldMsg::TransportClosed => self.shutdown = true,
                 },
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -1470,6 +1492,10 @@ impl World {
         field.OrderStatus = status;
         field.VolumeTraded = data.get_num("volume_traded").unwrap_or(0.0) as i32;
         field.VolumeTotal = data.get_num("volume_total").unwrap_or(0.0) as i32;
+        field.Direction = data.get_num("direction").unwrap_or(0.0) as u8;
+        field.CombOffsetFlag[0] = data.get_num("offset").unwrap_or(0.0) as u8;
+        field.LimitPrice = data.get_num("price").unwrap_or(0.0);
+        field.ForceCloseReason = data.get_num("force_close_reason").unwrap_or(0.0) as u8;
         self.private_seq.push((false, self.orders_today.len()));
         self.orders_today.push(field);
         Ok(())
@@ -1766,6 +1792,13 @@ impl World {
             ),
             ("volume_traded".into(), json::n(field.VolumeTraded as f64)),
             ("volume_total".into(), json::n(field.VolumeTotal as f64)),
+            ("direction".into(), json::n(field.Direction as f64)),
+            ("offset".into(), json::n(field.CombOffsetFlag[0] as f64)),
+            ("price".into(), json::n(field.LimitPrice)),
+            (
+                "force_close_reason".into(),
+                json::n(field.ForceCloseReason as f64),
+            ),
             ("update_time".into(), json::s(&cstr(&field.UpdateTime))),
         ]);
         if let Some(j) = self.journal.as_mut() {
@@ -2096,6 +2129,52 @@ mod tests {
         );
         assert_eq!(value.get_str("calendar_sha256"), Some("b".repeat(64)));
         assert_eq!(value.get_str("contract_version"), Some("1".into()));
+        assert!(matches!(value.get("positions"), Some(json::Value::Arr(rows)) if rows.is_empty()));
+    }
+
+    #[test]
+    fn settle_day_force_closes_expired_position_with_auditable_events() {
+        let mut world = World::new(Config::default()).expect("world");
+        world.vt_trading_day = "20261012".into();
+        let instrument = "sc2603";
+        assert!(world.engine.catalog().get(instrument).is_some());
+        world.ledger.ensure_account("8888", "u");
+        let position =
+            world
+                .ledger
+                .position_mut_or_create("8888", "u", instrument, PositionSide::Long);
+        position.today_position = 1;
+        position.open_volume = 1;
+        position.open_amount = ctpbuddy_ledger::Money::from_f64(700.0);
+        position.position_cost = ctpbuddy_ledger::Money::from_f64(690.0);
+        position.settlement_price = 690.0;
+        position.add_detail(
+            "20261012",
+            "seed",
+            700.0,
+            1,
+            ctpbuddy_ledger::Money::ZERO,
+            690.0,
+        );
+
+        let (tx, rx) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, tx, true);
+        world.on_frame(
+            1,
+            Frame::new(
+                msgs::ADMIN_REQ,
+                9,
+                br#"{"cmd":"settle_day","next_trading_day":"20261013","settlement_prices":{"sc2603":700.0}}"#.to_vec(),
+            ),
+        );
+        let response = rx.try_iter().next().expect("settle response");
+        let value = json::parse(&String::from_utf8(response.payload).unwrap()).unwrap();
+        assert_eq!(value.get_bool("ok"), Some(true));
+        assert_eq!(value.get_num("forced_liquidations"), Some(1.0));
+        assert!(world
+            .ledger
+            .position("8888", "u", instrument, PositionSide::Long)
+            .is_none());
     }
 
     #[test]

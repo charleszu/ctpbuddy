@@ -17,6 +17,10 @@ ctpbuddy-matching = { path = "../ctpbuddy-matching" }
 ctpbuddy-ledger = { path = "../ctpbuddy-ledger" }
 serde = "1"
 serde_json = "1"
+bytes = "1"
+futures = "0.3"
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+zeromq = "0.6"
 
 [lints]
 workspace = true

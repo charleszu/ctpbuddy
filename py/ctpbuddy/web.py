@@ -341,7 +341,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             pb = status["playback"]
             return {"ok": True, "scenario": status["scenario"], "playback": dict(pb, finished=pb["loaded"] and pb["idx"] >= pb["total"]),
                     "accounts": status.get("accounts", []), "broker_id": status.get("broker_id"),
-                    "open_orders": status.get("open_orders"), "positions_state": "admin_live_positions_unavailable",
+                    "open_orders": status.get("open_orders"), "positions": status.get("positions", []),
+                    "positions_state": "admin_live",
                     "metadata": ReadModelMetadata.from_admin_status(status).as_dict(),
                     "realtime": True, "speed_range": {"min": 0, "max": MAX_PLAYBACK_SPEED}}
 

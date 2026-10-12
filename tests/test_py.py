@@ -934,6 +934,7 @@ def test_web_replay() -> None:
             csrf = json.loads(request("/api/session").read())["token"]
             status = json.loads(request("/api/replay/status").read())
             assert status["playback"]["idx"] == 0 and status["realtime"] is True
+            assert status["positions_state"] == "admin_live" and status["positions"] == []
             assert status["metadata"]["source_kind"] == "admin_live"
             assert status["metadata"]["virtual_time"] == "09:30:00.000"
             assert status["metadata"]["calendar_version"] == "web-fixture-calendar"

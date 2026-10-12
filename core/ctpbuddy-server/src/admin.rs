@@ -8,14 +8,15 @@
 //! up through `md_watermark` instead.
 
 use ctpbuddy_market::format_hhmmss;
-use ctpbuddy_wire::generated::cstr;
+use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcOrderField, CThostFtdcTradeField};
 use ctpbuddy_wire::msgs;
-use ctpbuddy_wire::Frame;
+use ctpbuddy_wire::{struct_to_bytes, Frame};
 
 use crate::json::{self, Value};
 use crate::scenario;
-use crate::{journal_contract, World, SERVER_VERSION};
+use crate::{journal_contract, PrivateNotification, World, SERVER_VERSION};
 use ctpbuddy_ledger::CashTransferError;
+use ctpbuddy_matching::{Direction, Fill, OffsetFlag};
 
 impl World {
     pub(crate) fn on_admin(&mut self, conn_id: u64, frame: &Frame) {
@@ -91,6 +92,9 @@ impl World {
     }
 
     fn admin_status(&mut self, conn_id: u64, req_id: u32) {
+        // ADMIN status is a live read model. Revalue the ledger immediately so
+        // Web/CLI consumers see the same position profit as CTP queries.
+        self.mark_to_market_now();
         let (idx, total) = self
             .playback
             .as_ref()
@@ -141,6 +145,45 @@ impl World {
                 ])
             })
             .collect();
+        let mut position_rows = Vec::new();
+        for account in self.ledger.accounts() {
+            for (position, detail) in self
+                .ledger
+                .positions_of_ordered(&account.broker_id, &account.investor_id)
+            {
+                position_rows.push(json::obj_sorted(vec![
+                    ("broker".into(), json::s(&account.broker_id)),
+                    ("investor".into(), json::s(&account.investor_id)),
+                    ("instrument".into(), json::s(&position.instrument_id)),
+                    (
+                        "side".into(),
+                        json::s(if position.side == ctpbuddy_ledger::PositionSide::Long {
+                            "long"
+                        } else {
+                            "short"
+                        }),
+                    ),
+                    ("volume".into(), json::n(detail.volume as f64)),
+                    (
+                        "today_position".into(),
+                        json::n(position.today_position as f64),
+                    ),
+                    ("yd_position".into(), json::n(position.yd_position as f64)),
+                    ("open_date".into(), json::s(&detail.open_date)),
+                    ("trade_id".into(), json::s(&detail.trade_id)),
+                    ("open_price".into(), json::n(detail.open_price)),
+                    (
+                        "settlement_price".into(),
+                        json::n(position.settlement_price),
+                    ),
+                    (
+                        "position_profit".into(),
+                        json::n(position.position_profit.to_f64()),
+                    ),
+                    ("margin".into(), json::n(position.margin.to_f64())),
+                ]));
+            }
+        }
         let mut brokers: Vec<String> = self
             .cfg
             .broker_ids()
@@ -191,6 +234,7 @@ impl World {
                 json::s(&journal_contract::contract_version().to_string()),
             ),
             ("accounts".into(), Value::Arr(accounts)),
+            ("positions".into(), Value::Arr(position_rows)),
             (
                 "brokers".into(),
                 Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
@@ -548,6 +592,10 @@ impl World {
             .collect();
         brokers.sort_unstable();
         let mut staged_ledger = self.ledger.clone();
+        let forced = match self.stage_expired_liquidations(&map, &current_day, &mut staged_ledger) {
+            Ok(forced) => forced,
+            Err(e) => return self.admin_error(conn_id, req_id, &e),
+        };
         if let Err(e) =
             staged_ledger.settle_trading_day(self.engine.catalog(), &map, &current_day, &next_day)
         {
@@ -627,6 +675,7 @@ impl World {
                 "cleared_trades".into(),
                 json::n(self.trades_today.len() as f64),
             ),
+            ("forced_liquidations".into(), json::n(forced.len() as f64)),
             (
                 "cleared_confirmations".into(),
                 json::n(self.settlement_confirmed.len() as f64),
@@ -648,6 +697,7 @@ impl World {
             return self.admin_error(conn_id, req_id, &format!("保存结算报告失败: {e}"));
         }
         self.ledger = staged_ledger;
+        self.record_forced_liquidations(&forced);
         self.engine = staged_engine;
         self.playback = staged_playback;
         let broker = self.cfg.primary_broker().to_string();
@@ -663,12 +713,227 @@ impl World {
                 ("ok".into(), json::b(true)),
                 ("cmd".into(), json::s("settle_day")),
                 ("trading_day".into(), json::s(&next_day)),
+                ("forced_liquidations".into(), json::n(forced.len() as f64)),
                 (
                     "brokers".into(),
                     Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
                 ),
             ]),
         );
+    }
+
+    /// Stage expiry closes against a cloned ledger. Missing or invalid prices
+    /// are rejected before the live world is changed.
+    fn stage_expired_liquidations(
+        &self,
+        prices: &std::collections::HashMap<String, f64>,
+        trading_day: &str,
+        staged: &mut ctpbuddy_ledger::Ledger,
+    ) -> Result<Vec<(CThostFtdcOrderField, Fill, CThostFtdcTradeField, f64)>, String> {
+        struct Candidate {
+            broker: String,
+            investor: String,
+            instrument: String,
+            exchange: String,
+            direction: Direction,
+            offset: OffsetFlag,
+            volume: i32,
+            price: f64,
+            pre_settlement: f64,
+        }
+        let accounts: Vec<(String, String)> = self
+            .ledger
+            .accounts()
+            .map(|a| (a.broker_id.clone(), a.investor_id.clone()))
+            .collect();
+        let mut candidates: Vec<Candidate> = Vec::new();
+        for (broker, investor) in accounts {
+            for position in self.ledger.positions_of(&broker, &investor) {
+                let Some(instrument) = self.engine.catalog().get(&position.instrument_id) else {
+                    continue;
+                };
+                if position.volume() <= 0
+                    || instrument.expire_date.is_empty()
+                    || instrument.expire_date.as_str() > trading_day
+                {
+                    continue;
+                }
+                let price = prices
+                    .get(&position.instrument_id)
+                    .copied()
+                    .ok_or_else(|| {
+                        format!(
+                            "到期合约 {} 缺少结算价，自动强平已拒绝",
+                            position.instrument_id
+                        )
+                    })?;
+                if !price.is_finite() || price <= 0.0 {
+                    return Err(format!(
+                        "到期合约 {} 的强平价必须为正有限数",
+                        position.instrument_id
+                    ));
+                }
+                let direction = match position.side {
+                    ctpbuddy_ledger::PositionSide::Long => Direction::Sell,
+                    ctpbuddy_ledger::PositionSide::Short => Direction::Buy,
+                };
+                let rules = ctpbuddy_matching::rules_for(&instrument.exchange_id);
+                if rules.splits_today_yesterday {
+                    if position.today_position > 0 {
+                        candidates.push(Candidate {
+                            broker: broker.clone(),
+                            investor: investor.clone(),
+                            instrument: position.instrument_id.clone(),
+                            exchange: instrument.exchange_id.clone(),
+                            direction,
+                            offset: OffsetFlag::CloseToday,
+                            volume: position.today_position,
+                            price,
+                            pre_settlement: position.pre_settlement_price,
+                        });
+                    }
+                    if position.yd_position > 0 {
+                        candidates.push(Candidate {
+                            broker: broker.clone(),
+                            investor: investor.clone(),
+                            instrument: position.instrument_id.clone(),
+                            exchange: instrument.exchange_id.clone(),
+                            direction,
+                            offset: OffsetFlag::CloseYesterday,
+                            volume: position.yd_position,
+                            price,
+                            pre_settlement: position.pre_settlement_price,
+                        });
+                    }
+                } else {
+                    candidates.push(Candidate {
+                        broker: broker.clone(),
+                        investor: investor.clone(),
+                        instrument: position.instrument_id.clone(),
+                        exchange: instrument.exchange_id.clone(),
+                        direction,
+                        offset: OffsetFlag::Close,
+                        volume: position.volume(),
+                        price,
+                        pre_settlement: position.pre_settlement_price,
+                    });
+                }
+            }
+        }
+        candidates.sort_by(|a, b| {
+            a.broker
+                .cmp(&b.broker)
+                .then(a.investor.cmp(&b.investor))
+                .then(a.instrument.cmp(&b.instrument))
+                .then(a.offset.as_ctp().cmp(&b.offset.as_ctp()))
+        });
+        let mut out = Vec::with_capacity(candidates.len());
+        for (index, candidate) in candidates.into_iter().enumerate() {
+            let Candidate {
+                broker,
+                investor,
+                instrument,
+                exchange,
+                direction,
+                offset,
+                volume,
+                price,
+                pre_settlement,
+            } = candidate;
+            let order_ref = format!("AUTOFC-{trading_day}-{}", index + 1);
+            let order_sys_id = format!("AUTOFC-SYS-{}", index + 1);
+            let trade_id = format!("AUTOFC-TRD-{}", index + 1);
+            let mut fill = Fill {
+                broker_id: [0; 11],
+                investor_id: [0; 13],
+                user_id: [0; 16],
+                instrument_id: instrument.clone(),
+                exchange_id: exchange.clone(),
+                direction,
+                offset,
+                hedge_flag: b'1',
+                price,
+                volume,
+                volume_total_original: volume,
+                order_sys_id: [0; 21],
+                order_ref: [0; 13],
+                trade_id: [0; 21],
+                order_key: format!("auto-force-close/{trading_day}/{index}"),
+            };
+            set_cstr(&mut fill.broker_id, &broker);
+            set_cstr(&mut fill.investor_id, &investor);
+            set_cstr(&mut fill.order_sys_id, &order_sys_id);
+            set_cstr(&mut fill.order_ref, &order_ref);
+            set_cstr(&mut fill.trade_id, &trade_id);
+            staged.on_fill(&fill, self.engine.catalog(), pre_settlement, trading_day);
+
+            let mut order = CThostFtdcOrderField::zeroed();
+            set_cstr(&mut order.BrokerID, &broker);
+            set_cstr(&mut order.InvestorID, &investor);
+            set_cstr(&mut order.OrderRef, &order_ref);
+            set_cstr(&mut order.OrderSysID, &order_sys_id);
+            set_cstr(&mut order.InstrumentID, &instrument);
+            set_cstr(&mut order.ExchangeID, &exchange);
+            set_cstr(&mut order.TradingDay, trading_day);
+            order.OrderPriceType = b'2';
+            order.Direction = direction.as_ctp();
+            order.CombOffsetFlag[0] = offset.as_ctp();
+            order.CombHedgeFlag[0] = b'1';
+            order.LimitPrice = price;
+            order.VolumeTotalOriginal = volume;
+            order.TimeCondition = b'3';
+            order.VolumeCondition = b'1';
+            // CTP's PersonDeliv reason ('7') identifies a delivery/expiry
+            // close; it is distinct from a user order with reason '0'.
+            order.ForceCloseReason = b'7';
+            order.OrderSubmitStatus = b'3';
+            order.OrderStatus = b'0';
+            order.OrderType = b'0';
+            order.VolumeTraded = volume;
+            set_cstr(&mut order.StatusMsg, "到期合约自动强平");
+
+            let mut trade = CThostFtdcTradeField::zeroed();
+            set_cstr(&mut trade.BrokerID, &broker);
+            set_cstr(&mut trade.InvestorID, &investor);
+            set_cstr(&mut trade.OrderRef, &order_ref);
+            set_cstr(&mut trade.OrderSysID, &order_sys_id);
+            set_cstr(&mut trade.InstrumentID, &instrument);
+            set_cstr(&mut trade.ExchangeID, &exchange);
+            set_cstr(&mut trade.TradeID, &trade_id);
+            set_cstr(&mut trade.TradingDay, trading_day);
+            trade.Direction = direction.as_ctp();
+            trade.OffsetFlag = offset.as_ctp();
+            trade.HedgeFlag = b'1';
+            trade.Price = price;
+            trade.Volume = volume;
+            out.push((order, fill, trade, pre_settlement));
+        }
+        Ok(out)
+    }
+
+    fn record_forced_liquidations(
+        &mut self,
+        events: &[(CThostFtdcOrderField, Fill, CThostFtdcTradeField, f64)],
+    ) {
+        let day = self.vt_trading_day.clone();
+        for (order, fill, trade, pre_settlement) in events {
+            self.private_seq.push((false, self.orders_today.len()));
+            self.orders_today.push(*order);
+            self.journal_record_order_update(&day, self.vt_now_ms, order);
+            self.emit_private_notification(PrivateNotification {
+                broker: cstr(&order.BrokerID),
+                investor: cstr(&order.InvestorID),
+                frame: Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(order)),
+            });
+            self.private_seq.push((true, self.trades_today.len()));
+            self.trades_today.push(*trade);
+            self.journal_record_fill(&day, self.vt_now_ms, fill, *pre_settlement);
+            self.emit_private_notification(PrivateNotification {
+                broker: cstr(&trade.BrokerID),
+                investor: cstr(&trade.InvestorID),
+                frame: Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(trade)),
+            });
+        }
     }
 
     /// Active orders of `investor` still resting on the engine books

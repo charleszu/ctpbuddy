@@ -49,7 +49,9 @@ options:
       --recover          restore the ledger from <data-dir>/state/ledger.json
                          (also CTPBUDDY_RECOVER=1); working orders are dropped
       --speed <n>        playback speed multiplier    (0 = as fast as possible)
-      --td <addr>        CTP td front endpoint        (default 127.0.0.1:5560)
+      --td <addr>        CTP td front endpoint; use zmq://tcp://host:port
+                          for ZeroMQ ROUTER/DEALER transport
+                          (default 127.0.0.1:5560)
   -v, --version          show version
 ";
 

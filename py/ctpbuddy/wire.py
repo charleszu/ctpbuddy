@@ -4,7 +4,8 @@
 
 The Python side speaks the exact same frames as the C++ shim: magic 'CB',
 version 1, msg_type (u16 LE), req_id (u32 LE), payload length (u32 LE),
-payload. Transport-agnostic by construction (TCP in M1, ZeroMQ later).
+payload. Transport-agnostic by construction (TCP by default; the core TD
+transport also accepts a `zmq://` endpoint).
 """
 from __future__ import annotations
 

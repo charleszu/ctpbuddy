@@ -14,7 +14,7 @@
 
 SimNow / openctp 都是远程 CS 模式：网络绑死、无法注入极端行情、不可复现、无管理面。CTPBuddy 把柜台搬到本地：替换同名 DLL 即可接入，行情可回放、场景可注入、账户可管理、团队可共用。
 
-> **当前边界（请先读）**：传输为明文 TCP，ADMIN 与交易端口**无认证**（TD 登录不校验密码）；核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离；登录后的私有流 snapshot/recovery 已实现相应范围。仍未完成的是 ZeroMQ、`ctpbuddy.ini` 前置别名/IPC、实时持仓查询和完整 Web 运营后台。「团队共用」目前仅适用于受信内网并自行做网络隔离。
+> **当前边界（请先读）**：交易端支持明文 TCP，也支持以 `zmq://tcp://host:port`（或 `zmq://host:port`）启用 ZeroMQ ROUTER/DEALER 传输；ADMIN 仍为明文 TCP 且**无认证**（TD 登录不校验密码）。核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 当前仍使用 TCP。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，实时持仓从 ADMIN status 与 Web 回放状态读取，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。「团队共用」目前仅适用于受信内网并自行做网络隔离。
 
 ## 架构速览
 
@@ -29,7 +29,7 @@ flowchart LR
   J --> Q[Python journal 投影<br/>data/ctpbuddy.db]
 ```
 
-Rust 核心内部由 `server/wire`、`market`、`Catalog/RefData`、`matching` 和 `ledger` 组成；Python 负责场景编译、控制面、Web 和 journal 投影，不实现撮合与账本。当前传输是 TCP，ZeroMQ 是后续适配方向。
+Rust 核心内部由 `server/wire`、`market`、`Catalog/RefData`、`matching` 和 `ledger` 组成；Python 负责场景编译、控制面、Web 和 journal 投影，不实现撮合与账本。交易端默认使用 TCP，也可通过 `zmq://` 端点启用 ZeroMQ 适配；ADMIN 保持 TCP。
 
 ## 当前进展
 
@@ -45,7 +45,7 @@ Wire v1 保持现有小端 C 布局和字段偏移，Rust 编解码按字段处�
 
 - M1 核心闭环 + Shim 全链路、M2 撮合/流控、M3 参考数据/显式日结/OrderSysID/结算单/journal 投影：已完成。
 - 近期已补齐：交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 写入口；真实 release package 与 Hugo 文档站已在本机验收。
-- 未完成：ZeroMQ 传输适配、`ctpbuddy.ini` 前置别名/IPC、M4 三渠道正式发布流程、实时持仓查询和完整 Web 运营后台；Windows release package 构建与真实产物验收已在本机通过，Docker acceptance 已接入 CI（本机仍因 daemon 不可用而 SKIP）。详见 DESIGN §0.6。
+- 未完成：`ctpbuddy.ini` 前置别名/IPC、M4 三渠道正式发布流程和完整 Web 运营后台；Windows release package 构建与真实产物验收已在本机通过，Docker acceptance 已接入 CI（本机仍因 daemon 不可用而 SKIP）。详见 DESIGN §0.6。
 
 ## 快速开始
 
