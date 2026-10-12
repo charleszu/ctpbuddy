@@ -29,14 +29,17 @@ def main(argv=None) -> int:
     docker = shutil.which("docker")
     if not docker:
         return skipped("docker 不在 PATH；CI 可执行 docker compose build/run", args.allow_skip)
-    command = [docker, "compose", "-f", str(REPO / "docker" / "compose.yml"), "run", "--rm", "acceptance"]
+    compose = [docker, "compose", "-f", str(REPO / "docker" / "compose.yml")]
     try:
         probe = subprocess.run([docker, "info"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     except OSError as exc:
         return skipped("无法启动 docker: %s" % exc, args.allow_skip)
     if probe.returncode != 0:
         return skipped("Docker daemon 不可用；CI 可执行 docker compose build/run", args.allow_skip)
-    return subprocess.call(command, cwd=str(REPO))
+    build = subprocess.call(compose + ["build", "acceptance"], cwd=str(REPO))
+    if build != 0:
+        return build
+    return subprocess.call(compose + ["run", "--rm", "acceptance"], cwd=str(REPO))
 
 
 if __name__ == "__main__":
