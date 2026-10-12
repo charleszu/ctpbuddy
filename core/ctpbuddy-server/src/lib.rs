@@ -1281,9 +1281,19 @@ impl World {
                         return Err("reset_account recovery event missing investor".into());
                     }
                 }
-                "server_start" | "server_stop" | "scenario_loaded" | "session_auth"
-                | "session_login" | "session_logout" | "md_watermark" | "assertion"
-                | "order_insert" | "order_cancel" | "settlement_report" | "ledger_recovered" => {}
+                "server_start"
+                | "server_stop"
+                | "scenario_loaded"
+                | "session_auth"
+                | "session_login"
+                | "session_logout"
+                | "md_watermark"
+                | "assertion"
+                | "order_insert"
+                | "order_cancel"
+                | "settlement_report"
+                | "ledger_recovered"
+                | "system_announcement" => {}
                 "deposit" | "withdraw" => self.replay_cash_event(&event, event_type.as_str())?,
                 "settle" | "admin" => {
                     return Err(format!(
@@ -2157,6 +2167,33 @@ mod tests {
     }
 
     #[test]
+    fn admin_announcement_publishes_sys_topic() {
+        let mut world = World::new(Config::default()).expect("world");
+        let (broadcast_tx, mut broadcast_rx) = tokio::sync::mpsc::channel(1);
+        world.broadcast_tx = Some(broadcast_tx);
+        let (tx, rx) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, tx, true);
+        world.on_frame(
+            1,
+            Frame::new(
+                msgs::ADMIN_REQ,
+                8,
+                br#"{"cmd":"announce","severity":"warning","message":"maintenance"}"#.to_vec(),
+            ),
+        );
+        let response = rx.try_iter().next().expect("announce response");
+        let response_value = json::parse(&String::from_utf8(response.payload).unwrap()).unwrap();
+        assert_eq!(response_value.get_bool("ok"), Some(true));
+        let broadcast = broadcast_rx.try_recv().expect("sys broadcast");
+        assert_eq!(broadcast.topic, "sys/announcement");
+        assert_eq!(broadcast.frame.msg_type, msgs::ADMIN_RSP);
+        let payload = json::parse(&String::from_utf8(broadcast.frame.payload).unwrap()).unwrap();
+        assert_eq!(payload.get_str("type"), Some("announcement".into()));
+        assert_eq!(payload.get_str("severity"), Some("warning".into()));
+        assert_eq!(payload.get_str("message"), Some("maintenance".into()));
+    }
+
+    #[test]
     fn settle_day_force_closes_expired_position_with_auditable_events() {
         let mut world = World::new(Config::default()).expect("world");
         world.vt_trading_day = "20261012".into();
@@ -2181,6 +2218,8 @@ mod tests {
             690.0,
         );
 
+        let (broadcast_tx, mut broadcast_rx) = tokio::sync::mpsc::channel(4);
+        world.broadcast_tx = Some(broadcast_tx);
         let (tx, rx) = mpsc::channel::<Frame>();
         world.on_conn_opened(1, tx, true);
         world.on_frame(
@@ -2195,6 +2234,19 @@ mod tests {
         let value = json::parse(&String::from_utf8(response.payload).unwrap()).unwrap();
         assert_eq!(value.get_bool("ok"), Some(true));
         assert_eq!(value.get_num("forced_liquidations"), Some(1.0));
+        let broadcast = loop {
+            let next = broadcast_rx.try_recv().expect("settlement sys broadcast");
+            if next.topic == "sys/settlement" {
+                break next;
+            }
+        };
+        assert_eq!(broadcast.topic, "sys/settlement");
+        let broadcast_value =
+            json::parse(&String::from_utf8(broadcast.frame.payload).unwrap()).unwrap();
+        assert_eq!(
+            broadcast_value.get_str("type"),
+            Some("settlement_complete".into())
+        );
         assert!(world
             .ledger
             .position("8888", "u", instrument, PositionSide::Long)

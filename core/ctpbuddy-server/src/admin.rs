@@ -2,7 +2,7 @@
 //!
 //! Commands: ping / status / settings_get / settings_update / start_scenario /
 //! pause / resume / step / set_speed / seek / loop / deposit / withdraw / reset_account /
-//! settle_day / settlement_report / shutdown. State-changing commands a replay
+//! settle_day / settlement_report / announce / shutdown. State-changing commands a replay
 //! must reproduce are journaled (scenario_loaded, reset_account, settlement,
 //! settlement_report, settings_updated, deposit, withdraw, server_stop); playback controls show
 //! up through `md_watermark` instead.
@@ -61,6 +61,7 @@ impl World {
             "reset_account" => self.admin_reset_account(conn_id, frame.req_id, &v),
             "settle_day" => self.admin_settle_day(conn_id, frame.req_id, &v),
             "settlement_report" => self.admin_settlement_report(conn_id, frame.req_id, &v),
+            "announce" => self.admin_announce(conn_id, frame.req_id, &v),
             "shutdown" => {
                 self.admin_reply(
                     conn_id,
@@ -702,6 +703,20 @@ impl World {
         self.playback = staged_playback;
         let broker = self.cfg.primary_broker().to_string();
         self.journal_record_json("settlement", &broker, "", event);
+        let sys_event = json::obj_sorted(vec![
+            ("type".into(), json::s("settlement_complete")),
+            ("from_trading_day".into(), json::s(&current_day)),
+            ("trading_day".into(), json::s(&next_day)),
+            ("forced_liquidations".into(), json::n(forced.len() as f64)),
+            (
+                "brokers".into(),
+                Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
+            ),
+        ]);
+        self.publish(crate::Broadcast {
+            topic: "sys/settlement".into(),
+            frame: Frame::new(msgs::ADMIN_RSP, 0, sys_event.to_json().into_bytes()),
+        });
         self.clear_day_flow();
         self.settlement_confirmed.clear();
         self.vt_trading_day = next_day.clone();
@@ -718,6 +733,51 @@ impl World {
                     "brokers".into(),
                     Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
                 ),
+            ]),
+        );
+    }
+
+    fn admin_announce(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+        let Some(fields) = v.as_obj() else {
+            return self.admin_error(conn_id, req_id, "announce 请求必须为对象");
+        };
+        let Some(message) = v.get_str("message") else {
+            return self.admin_error(conn_id, req_id, "announce 需要 message");
+        };
+        let severity = v.get_str("severity").unwrap_or_else(|| "info".to_string());
+        let mut seen = std::collections::HashSet::new();
+        for (key, _) in fields {
+            if !matches!(key.as_str(), "cmd" | "message" | "severity") || !seen.insert(key) {
+                return self.admin_error(conn_id, req_id, "announce 含未知或重复字段");
+            }
+        }
+        if message.is_empty() || message.len() > 4096 {
+            return self.admin_error(conn_id, req_id, "announce message 长度必须为 1..4096");
+        }
+        if !matches!(severity.as_str(), "info" | "warning" | "error") {
+            return self.admin_error(
+                conn_id,
+                req_id,
+                "announce severity 必须为 info/warning/error",
+            );
+        }
+        let payload = json::obj_sorted(vec![
+            ("type".into(), json::s("announcement")),
+            ("severity".into(), json::s(&severity)),
+            ("message".into(), json::s(&message)),
+            ("trading_day".into(), json::s(&self.vt_trading_day)),
+        ]);
+        self.journal_record_json("system_announcement", "", "", payload.clone());
+        self.publish(crate::Broadcast {
+            topic: "sys/announcement".into(),
+            frame: Frame::new(msgs::ADMIN_RSP, 0, payload.to_json().into_bytes()),
+        });
+        self.admin_reply(
+            conn_id,
+            req_id,
+            json::obj_sorted(vec![
+                ("ok".into(), json::b(true)),
+                ("cmd".into(), json::s("announce")),
             ]),
         );
     }

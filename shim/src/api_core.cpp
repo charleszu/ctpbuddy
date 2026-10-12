@@ -424,8 +424,10 @@ bool ApiCore::connect_front() {
                     z.setsockopt(sub, ZMQ_RCVHWM, &hwm, sizeof(hwm));
                     const char md[] = "md/";
                     const char td[] = "td/";
+                    const char sys[] = "sys/";
                     z.setsockopt(sub, ZMQ_SUBSCRIBE, md, sizeof(md) - 1);
                     z.setsockopt(sub, ZMQ_SUBSCRIBE, td, sizeof(td) - 1);
+                    z.setsockopt(sub, ZMQ_SUBSCRIBE, sys, sizeof(sys) - 1);
                     if (z.connect(sub, pub_endpoint.c_str()) != 0) {
                         z.close(sub);
                         sub = nullptr;
