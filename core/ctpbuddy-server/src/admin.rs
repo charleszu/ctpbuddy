@@ -141,6 +141,14 @@ impl World {
                 ])
             })
             .collect();
+        let mut brokers: Vec<String> = self
+            .cfg
+            .broker_ids()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        brokers.sort_unstable();
+        brokers.dedup();
         let mut fields = vec![
             ("ok".into(), json::b(true)),
             ("cmd".into(), json::s("status")),
@@ -183,6 +191,10 @@ impl World {
                 json::s(&journal_contract::contract_version().to_string()),
             ),
             ("accounts".into(), Value::Arr(accounts)),
+            (
+                "brokers".into(),
+                Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
+            ),
             ("assertions".into(), self.assertions_status()),
         ];
         if let Some(calendar) = &self.cfg.calendar {

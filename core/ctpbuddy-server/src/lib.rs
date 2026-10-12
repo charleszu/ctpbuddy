@@ -2240,6 +2240,10 @@ mod tests {
         );
         let status = rx.try_iter().next().expect("status response");
         let status_value = json::parse(&String::from_utf8(status.payload).unwrap()).unwrap();
+        assert_eq!(
+            status_value.get("brokers").map(Value::to_json).as_deref(),
+            Some("[\"B1\",\"B2\"]")
+        );
         let accounts = match status_value.get("accounts") {
             Some(Value::Arr(rows)) => rows,
             _ => panic!("status accounts"),
