@@ -13,7 +13,7 @@ description: 从 py/ctpbuddy/web.py 说明本地 Web、投影白名单和写入�
 ctpbuddy web --host loopback --port 8080 --admin 127.0.0.1:5561 --db ./data/ctpbuddy.db --workspace .
 ```
 
-`make_server()` 只接受 loopback bind，ADMIN 解析出的所有地址也必须是 loopback。GET 端点包括静态设置页、`/api/session`、`/api/settings`、`/api/scenarios`、`/api/scenario?path=scenarios/rb_demo`、`/api/replay/status` 和 `/api/projection`。
+`make_server()` 只接受 loopback bind，ADMIN 解析出的所有地址也必须是 loopback。GET 端点包括静态设置页、`/api/session`、`/api/settings`、`/api/scenarios`、`/api/scenario?path=scenarios/rb_demo`、`/api/replay/status`、`/api/live` 和 `/api/projection`。
 
 投影 `table` 只能是 `account`、`position_snapshot`、`account_snapshot`、`order_record`、`trade_record`、`audit_log`、`settlement_report`；查询参数只允许 table/broker/investor/trading_day/limit/offset。未配置 DB 返回 404，SQLite/文件故障只返回 503 的通用错误，不回显绝对路径。
 
@@ -30,3 +30,5 @@ POST 只允许 `/api/settings`、`/api/replay`、`/api/scenario/load`、`/api/ad
 ## 边界声明
 
 Web 的 live 摘要和 projection 查询是两种状态：projection 返回 `realtime:false`，场景详情还标注初始持仓不是 live 状态；页面不能被理解为完整交易终端或远程生产管理面。当前设计是本机控制面，未实现认证代理、TLS 或公网部署能力。
+
+`/api/live` 从同一次核心状态返回账户、持仓、最新订单和当日成交；支持严格 broker/investor/limit/offset 筛选分页。页面每两秒轮询、隐藏时暂停，离线提示读数过期；历史 SQLite 查询仍标为 snapshot。ADMIN 配置 token 后仅在后端 SDK 中使用，不传入浏览器。

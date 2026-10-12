@@ -22,14 +22,14 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 
 | 设计条目 | 当前实现 | 影响 |
 |---|---|---|
-| §6 ZeroMQ DEALER/ROUTER + PUB/SUB | TD 原生端点已支持 ZeroMQ ROUTER/DEALER；ZMQ TD 模式设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后支持 `md/...`、`td/...` PUB/SUB 广播；TCP 与 ZMQ 共用 CB 帧 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道；ZMQ/TCP 共用并发上限 |
+| §6 ZeroMQ DEALER/ROUTER + PUB/SUB | TD 原生端点已支持 ZeroMQ ROUTER/DEALER；ZMQ TD 模式设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后支持 `md/...`、`td/...` PUB/SUB 广播；TCP 与 ZMQ 共用 CB 帧 | 可选 native libzmq CURVE + ZAP 公钥白名单，缺库/非法密钥拒绝启动；ADMIN 跨机仍需可信隧道；ZMQ/TCP 共用并发上限 |
 | §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | `CTPBUDDY_ADDR` 已支持 TCP、ZeroMQ TCP 与 ZeroMQ IPC；Shim 可直接连接 `zmq://ipc:///path`；`ctpbuddy.ini` `[fronts]` 别名表已支持；`CTPBUDDY_INI` 可指定路径，默认查找当前目录 | 生产前置地址需要由部署提供别名映射文件；IPC 传输已成立 |
 | §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离；ADMIN status 暴露稳定 broker scope；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 已完成单进程多 Broker 的运行与结算编排；需要故障域、版本或管理边界时仍应运行多个核心实例 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
 | §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，snapshot 前先 flush journal；`--recover` 会读取上一轮归档 journal，并把快照之后的 `fill`、`order_update`、`reset_account`、`settlement`、`settings_updated`、`deposit`、`withdraw` 尾部应用到账本和私有流；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；历史泛型 `settle` / `admin` 仍 fail closed |
-| §5 Shim DLL/so | Windows DLL 与 Linux `.so` 均支持 TCP 与运行时加载 libzmq 的 `zmq://` DEALER；可选订阅 `md/`、`td/`、`sys/` PUB/SUB；`ctpbuddy.ini` `[fronts]` 与 `CTPBUDDY_ADDR` 可整体重定向前置 | ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
+| §5 Shim DLL/so | Windows DLL 与 Linux `.so` 均支持 TCP 与运行时加载 libzmq 的 `zmq://` DEALER；可选订阅 `md/`、`td/`、`sys/` PUB/SUB；`ctpbuddy.ini` `[fronts]` 与 `CTPBUDDY_ADDR` 可整体重定向前置 | ADMIN 可配置 token；远程绑定要求显式 opt-in 与非空 token；Shim DEALER/SUB 支持 CURVE |
 | RefData 供给与查询/计算一致性 | Rust/Python 共用 versioned `ctpbuddy.refdata` contract；表名、字段、默认值、枚举和 numeric 字段由单一 JSON contract 校验并生成 Rust 常量，fixture vectors 覆盖两侧解析 | 仍需使用者提供真实费率/申报费数据；核心不编造缺失费率，跨品种复杂组合与仓单折抵仍未建模 |
-| Live / projection read model provenance | ADMIN live status 与 SQLite journal projection 共用 `ReadModelMetadata` 字段形状；包含 source、journal/core/projection hash、calendar 与 contract provenance；Web 明确标示 realtime 与 snapshot；ADMIN/Web replay status 暴露实时持仓 rows | 完整实时账户/订单后台仍未提供；SQLite projection 仍是可重建的非实时读模型 |
+| Live / projection read model provenance | ADMIN live status 与 SQLite journal projection 共用 `ReadModelMetadata` 字段形状；包含 source、journal/core/projection hash、calendar 与 contract provenance；Web 明确标示 realtime 与 snapshot；ADMIN/Web replay status 暴露实时持仓 rows | 实时账户/持仓/订单/成交后台已提供筛选分页和定时刷新；SQLite projection 仍是非实时读模型，未生成的 live hash 保持 null |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | 暂不纳入当前实现范围 |
 | §8.6 / §8.7 昨仓保证金按昨结算价计 | 已实现：`settle_trading_day` 在推进交易日时按供给结算价重算每个存续明细的保证金，并更新 `last_settlement_price`；`MarginPriceType=Last` 仅对今仓按最新价做盘中重估，昨仓仍固定昨结算价；可选 `cross_margin_rules.jsonl` 以显式多空腿和 `offset_ratio` 计算跨品种 relief，重叠规则按稳定 `rule_id` 顺序消耗可用腿额，不能重复抵扣 | 真实柜台的组合保证金、复杂套利取高和仓单折抵仍取决于 provider 提供的正式关系/算法；核心不会根据品种名自行推断 |
 | World wire routing seam | `handlers.rs` 已将客户端消息号到业务路由抽为纯 `client_route` 函数，order/query 的输入解码与字段校验已有纯 command seam；engine event 已拆成 state apply 与 private notification fanout 两阶段，pulse 已拆为 playback polling、tick processing、mark-to-market、durability 四段；账本计算已按 broker 解析费率 | 连接生命周期、journal、playback、账本和回报编排仍由 `World` 统一协调；跨组件 command/result 类型和独立 side-effect coordinator 仍可继续下沉 |
@@ -314,7 +314,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 | PUB | `td/{broker}/{investor}` | OnRtnOrder / OnRtnTrade / OnErrRtnOrder* |
 | PUB | `sys` | 广播：结算完成、系统公告 |
 
-> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后，行情、私有回报和系统事件按 `md/{exchange}/{instrument}`、`td/{broker}/{investor}`、`sys/settlement` 或 `sys/announcement` 通过 PUB/SUB 广播；ZeroMQ 身份只负责映射请求连接，协议帧不变；ADMIN 保持 TCP。`sys` 广播已支持结算完成与管理员公告；仍未提供 CURVE 加密和历史快照补发；PUB 队列容量、已发布和丢弃计数通过 ADMIN status 的 `pubsub` 字段暴露。
+> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后，行情、私有回报和系统事件按 `md/{exchange}/{instrument}`、`td/{broker}/{investor}`、`sys/settlement` 或 `sys/announcement` 通过 PUB/SUB 广播；ZeroMQ 身份只负责映射请求连接，协议帧不变；ADMIN 保持 TCP。`sys` 广播已支持结算完成与管理员公告；可选 CURVE/ZAP 白名单（配置见 [运维验收](docs/operations.md)）；未提供 PUB 历史快照补发；PUB 队列容量、已发布和丢弃计数通过 ADMIN status 的 `pubsub` 字段暴露。
 
 - 查询语义对齐 CTP：多帧循环 + 末帧 `is_last=1`；
 - **BrokerID 策略：单进程托管多 Broker**：broker 是核心内的一等实体（共享合约目录，按 `(broker_id, instrument_id)` 覆盖保证金/手续费规则，账户空间按 BrokerID 隔离），默认 BrokerID 为 **8888**（不与 SimNow 的 9999 及主流实盘券商号冲突，金融俗惯例里的吉利号，`--broker-id` 可改，也可传逗号分隔清单）。AUTH 按核心的 broker 清单强校验，未知 BrokerID 按 CTP 语义拒登录。多 broker **共享同一路回放行情与虚拟时钟**——同一场景下不同经纪商的成交差异来自各自费率/保证金规则，这对多券商对比测试恰是有用属性。需要硬隔离（故障域/版本/管理边界）时可一个 broker 部署一个核心实例，两者只是运维选择、不动架构；下游单进程连多个柜台依赖 §5.3 的按实例端点解析；
@@ -533,10 +533,10 @@ assertions:             # 可选：场景内断言（CI 用）
 ### 8.7 结算
 
 - **结算确认前置（对齐真实 CTP，非 LocalCTP）**：每交易日首次登录成功后，必须 `ReqQrySettlementInfoConfirm` 查确认状态 → 未确认才 `ReqQrySettlementInfo`（不填日期取上一交易日）→ 展示确认 → `ReqSettlementInfoConfirm`，**完成后才能报单**（当天已确认的会话再次登录可直接交易）。LocalCTP「不校验结算单确认」是参考实现的简化，不作为 CTPBuddy 口径；
-- 日结当前为显式 `ADMIN settle_day`：用户供给结算价与下一期货交易日，并在 playback 暂停且无活动订单时执行；今仓转昨、按结算价重算持仓盈亏。不会按默认 17:00 自动触发。显式 `ADMIN settlement_report` 可在查询前供给真实/外部结算正文并持久化，字段以原始 GBK 字节保存。未供给正文时，`settle_day` 生成明确标注 `modeled_ledger_minimal` 的当前账本最小可审计文本，不伪造未建模字段。
+- 日结可显式 `ADMIN settle_day`，也可设置 `--auto-settle-at HH:MM` 与 dated `--auto-settle-prices FILE`：用户供给结算价与下一期货交易日，并在 playback 暂停且无活动订单时执行；今仓转昨、按结算价重算持仓盈亏。自动调度仅在 Asia/Shanghai 自然日期等于当前 TradingDay 且达到配置时间时执行；条件不满足每秒重试，下一交易日不按周末猜测，不补跑历史日期；未配置时不自动触发。显式 `ADMIN settlement_report` 可在查询前供给真实/外部结算正文并持久化，字段以原始 GBK 字节保存。未供给正文时，`settle_day` 生成明确标注 `modeled_ledger_minimal` 的当前账本最小可审计文本，不伪造未建模字段。
 - `ReqQrySettlementInfo/OnRspQrySettlementInfo` 按 `Content` 每段最多 500 字节返回，`SequenceNo` 从 1 递增；每段携带 `TradingDay/SettlementID/BrokerID/InvestorID`（以及已建模的 AccountID/CurrencyID），随后发送空 `QRY_LAST`，由 Shim 映射为 `pSettlementInfo=null,bIsLast=true`。未命中查询只返回该终止回调。
 - 已实现结算字段重置：`PreBalance=最终动态权益`、`PreSettlementPrice=供给结算价`、`YdPosition=剩余持仓`、`TodayPosition=0`，当日盈亏/手续费/冻结清零，TradingDay 推进；**存续持仓的保证金按供给结算价重估**（逐明细按剩余手数重算并刷新账户占用；§8.6「昨仓恒用昨结算价」在跨日后继续成立）。当交易日已到达合约 `ExpireDate` 时，`settle_day` 先用用户供给结算价生成带 `ForceCloseReason` 的平仓订单/成交并写入 journal；缺价则整批拒绝，重复恢复不重复执行。
-- 当前完成后写入 `settlement` journal 事件；PUB `sys` 广播属于规划，不按已实现描述。
+- 完成后写入 `settlement` journal 事件并发布 PUB `sys/settlement` 广播；自动与手动日结共用原子入口。
 - 长假/节假日不由核心按固定时刻自动推断；CTPBuddy 仅使用用户提供并校验的离线 `TradingCalendar` 快照，运行时不联网。
 
 #### 8.7.1 真实结算单对账（M3 落地，2026-10-02）
@@ -608,10 +608,10 @@ assertions:             # 可选：场景内断言（CI 用）
 | 查询在途流控（1 笔） | API 内置（客户端） | **Shim**：`send_request` 锁内闸门 `qry_in_flight_`，请求不上线 | 查询函数返回 **-2**「未处理请求超过许可数」 |
 | 查询每秒流控 `QryFreq` | 交易前置 `front_se` 配置 | **Core**：每会话 1s 窗口计数，`--qry-freq`（默认 2，env `CTPBUDDY_QRY_FREQ`） | `OnRspError`[90]「CTP：查询未就绪，请稍后重试」，查询不执行 |
 | 报单流控（报单/撤单每秒笔数） | CTP 柜台端【程序化交易频繁报撤单管理】 | **Core**（归入 §8.3 风控规则表，M2 实现） | `OnRspOrderAction`「CTP:下单频率限制」 |
-| FTD 报文流控 `FTDMaxCommFlux` | 交易前置 | Core（TODO） | 无错误返回，超限指令被前置缓存到下一秒发出（表现为延迟） |
-| 前置连接数流控 `ConnectFreq` | 交易前置 | Core（TODO） | 超限被主动断开，触发 `OnFrontDisconnected` |
+| FTD 报文流控 `FTDMaxCommFlux` | 交易前置 | Core：`--ftd-max-comm-flux`，每连接预算 | 超限指令按序缓存到下一秒；队列最多 1024，耗尽返回官方 90；默认 0 关闭 |
+| 前置连接数流控 `ConnectFreq` | 交易前置 | Core：`--connect-freq`，TD 新连接预算 | TCP 超限关闭；普通 ZMQ 首帧断开 peer，CURVE 在 ZAP 握手拒绝；默认 0 关闭 |
 | 同一用户最大在线会话数 | 柜台 / 交易核心 | **Core** 已实现：`max_user_sessions` 按 BrokerID+UserID 计，0 关闭（默认，兼容旧行为） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 |
-| 交易所 API 流控 | 交易所端（阈值经交易所 API 查询） | Core（TODO） | `OnRtnOrder` 报「CTP：交易所每秒发送请求数超过许可数」 |
+| 交易所 API 流控 | 交易所端（本地阈值显式供给） | Core：`--exchange-freq` / `--exchange-limits`；每 broker/investor/exchange 报撤独立预算 | 官方 41「CTP:交易所每秒发送请求数超过许可数」；报单前置接受后错单回报与拒单状态，撤单保留双面回报；默认 0 关闭 |
 
 - 刻意两边都实现而不是只做一边：只有 Shim 的 -2 闸门，Core 不答 90，那么「不懂重试 NEED_RETRY 的客户端」在 SimNow 上会暴露的缺陷，在 CTPBuddy 上会被掩盖——仿真环境失去暴露问题的意义。
 - **会话数的确定语义**：同一用户的在线会话数一般有上限 n，真实柜台后台可配置、常见默认 6；CTPBuddy 的 `max_user_sessions` 默认 0（不限制，兼容旧测试），需显式配置；一次会话由 `(FrontID, SessionID)` 共同确定——FrontID 标识一条前置连接，SessionID 是该连接上的登录计数（每连接从 1 起）。这也正是 journal `order_key = front/session/ref`（§11.4）与重放连接编号对齐（§11.2）的语义依据：多会话并行报单时，只有 front+session+ref 三元组能在会话内唯一定位一笔报单。
@@ -769,7 +769,7 @@ report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
 
 ### 9.3 Web 管理后台
 
-当前 Web 后台是 Python stdlib `ThreadingHTTPServer` 提供的原生浅色设置页与 SQLite 只读投影页，不是完整 FastAPI/htmx 后台。设置页另有实时回放状态面板：状态手动刷新，命令仅限 `pause` / `resume` / `step` / `set_speed`，并可选 `loop`；请求经 Host/Origin/CSRF、严格 body/schema、回环 ADMIN 与并发闸门校验，浏览器不模拟 tick。未加载场景、已完成或 ADMIN 离线时明确禁用/报错；SQLite 投影继续明确标为非实时。完整账户、订单、场景上传等后台仍未完成。
+当前 Web 后台是 Python stdlib `ThreadingHTTPServer` 提供的原生浅色设置页与 SQLite 只读投影页，不是完整 FastAPI/htmx 后台。设置页另有实时回放状态面板：状态手动刷新，命令仅限 `pause` / `resume` / `step` / `set_speed`，并可选 `loop`；请求经 Host/Origin/CSRF、严格 body/schema、回环 ADMIN 与并发闸门校验，浏览器不模拟 tick。未加载场景、已完成或 ADMIN 离线时明确禁用/报错；SQLite 投影继续明确标为非实时。实时账户/持仓/订单/成交通过 `/api/live` 定时刷新、筛选分页，核心离线保留旧读数并提示；场景上传与多角色远程管理未实现。
 
 ### 9.4 内部 ADMIN API
 
@@ -1038,7 +1038,7 @@ CREATE TABLE audit_log (
 | M3-3 四张费率查询接线 | ✅ 2026-10-03 | `ReqQryInstrumentMarginRate`/`CommissionRate`/`OrderCommRate`/`BrokerTradingParams` 四张查询从 `unsupported` 转为实装（shim 生成器 + 四处msg id 同步 + 查询在途闸门白名单）；官方语义逐字复刻（留空 = 持仓合约、必填项缺失 = 空流）；查询与账本共用同一张表并以 e2e 交叉核对；`m3_refdata.py` 八项断言，两种配置（随包 / `--refdata` 带费率）均绿 |
 | M3-4 持仓明细与先开先平逐明细盈亏 | ✅ 2026-10-02 | `PositionDetail`（OpenDate/TradeID/OpenPrice/Volume/Margin，每笔开仓成交一条）+ `take_details_filtered`（**先开先平只按开仓时间排序，平今/平昨只决定可动哪个年龄桶**——第一版写成「今仓取最新」被 e2e 抓出）；平仓盈亏逐明细算（昨仓按昨结算价、今仓按开仓价），**均价口径已删除**；保证金按该明细开仓实收额等比释放；`positions_of_ordered` 保证查询行序可复现；新增 `ReqQryInvestorPositionDetail`（0x1059/0x105A，四处 msg id 同步 + 生成器 + 闸门 + SDK）；`m3_detail.py` 五项断言；`tools/audit_real_accounts.py` 对 459 个真实账户日 + 770 份真实结算单逐项对账全绿（§8.7.1） |
 | M3-5 结算单供给与 SettlementInfo 分段查询 | ✅ 2026-10-04（本地验证） | ADMIN `settlement_report` 接受并持久化原始 GBK bytes；重复 `(broker, investor, trading_day)` 拒绝覆盖，非法 bytes（空/NUL/非 1..255）拒绝；`ReqQrySettlementInfo` 按 500 字节分段返回、`SequenceNo` 递增并发送空终止回调；未命中/空账户返回空流；默认日期选择最近的严格早于当前 `vt_trading_day` 的报告。新增测试覆盖供给→查询→拼接 SHA-256、core 重启/重新登录后的字节一致性。真实 `ctp_settlement` 仅可选读取一份样本的结构元数据与 TXT 原始文本 hash，不复制正文入仓库；这只是传输往返验证，不是账本重演或业务字段对账。 |
-| M3-6 Python SQLite journal 投影与可重建命令 | ✅ 2026-10-03（本地） | `py/ctpbuddy/store.py` 定义 schema/version、原子 rebuild、只读查询；SQLite 仅为 JSONL journal 投影，Rust 不依赖 SQLite；CLI `journal rebuild|query`，Web 配置 `--db` 后提供只读 `/api/projection`；设置页增加账户/订单/成交/审计浏览、筛选分页、快照与非实时提示；Python 单测 + `tests/e2e/m3_6_projection.py` 本地覆盖确定性、损坏库删除重建和查询，已加入 CI 矩阵。本地通过，远端已成功运行（37157525169 / 37124374367 / 37124336391 对应提交均 success）；完整 Web 后台未完成 |
+| M3-6 Python SQLite journal 投影与可重建命令 | ✅ 2026-10-03（本地） | `py/ctpbuddy/store.py` 定义 schema/version、原子 rebuild、只读查询；SQLite 仅为 JSONL journal 投影，Rust 不依赖 SQLite；CLI `journal rebuild|query`，Web 配置 `--db` 后提供只读 `/api/projection`；设置页增加账户/订单/成交/审计浏览、筛选分页、快照与非实时提示；Python 单测 + `tests/e2e/m3_6_projection.py` 本地覆盖确定性、损坏库删除重建和查询，已加入 CI 矩阵。本地通过，远端已成功运行（37157525169 / 37124374367 / 37124336391 对应提交均 success）；实时查询后台已补齐，扩展远程运营能力未实现 |
 
 **M4 子项进度**（当前仅有基础实现，不能将 M4 总项标为完成）：
 

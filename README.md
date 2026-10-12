@@ -8,13 +8,13 @@
 
 > 柜台运行所需的外部数据、目录格式、加载优先级和客户端挂载链路见 [`docs/CTP柜台外部数据与挂载说明.md`](docs/CTP柜台外部数据与挂载说明.md)。
 
-> 完整设计见 [DESIGN.md](DESIGN.md)。源码反向映射索引见 [`docs-site-oink/content/architecture/source-layout.md`](docs-site-oink/content/architecture/source-layout.md)，按协议、场景时间、撮合回报、账本日结、查询审计、Web 安全、Docker/Shim 发布和测试 CI 指向实际模块路径。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`（编号 01~05、09~14；06~08 跳号：06「API 文档 Markdown 转换」与 07「错误码全集」已分别上移为 `docs/api-doc-html/` 与 `docs/错误码全集.md`（提交 `17e2f8e`），08 从未发布，编号不回收）。官方资料可读版：SDK《6.7.13_API接口说明》HTML 版（405 页干净 HTML，剔除 CHM 主题框架、保留表格/代码/内嵌图片，页间链接与 `anchor-id-*` 锚点均已校验；另有 1 页目录漏收附录、8 个官方附件与 84 条官方源死链/1 条悬空锚点的公示）在 [docs/api-doc-html/](docs/api-doc-html/)，error.xml 错误码全集（299 条，逐条标注「已实现 23 / 可落地 47 / 暂不可达 229」+ 推送面，由 `tools/fill_errorcode_status.py` 全量重算、`--check` 可校验）在 [docs/错误码全集.md](docs/错误码全集.md)，双推送面口径见 [docs/notes/09](docs/notes/09-错单推送面与错误码对账.md)；FAK 部成部撤的**三所分流**回报（上期所/大商所+广期所/郑商所三种不同形状）见 [docs/notes/10](docs/notes/10-FAK回报按交易所分流.md)；程序化交易入门系列 17 份客户端实操资料（连接认证/穿透式监管、行情现手开平、报撤单成交回报、查询流控与持仓更新）的整理与实现影响清单见 [docs/notes/11](docs/notes/11-入门系列-连接认证与穿透式监管.md)~[docs/notes/14](docs/notes/14-入门系列-查询流控与持仓查询更新.md)（汇总登记在知识库 §10.4）。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；仓库**不包含** `ctpsdk/*/` 下的官方二进制 SDK（`.dll`/`.lib`，由使用者自备，`.gitignore` 禁止入库与分发），但 `docs/api-doc-html/files/` 附带了由官方 CHM 文档转换得到的头文件、`error.xml` 与 PDF，仅供文档交叉引用（许可与来源说明见下文「许可」）。
+> 完整设计见 [DESIGN.md](DESIGN.md)。源码反向映射索引见 [`docs-site-oink/content/architecture/source-layout.md`](docs-site-oink/content/architecture/source-layout.md)，按协议、场景时间、撮合回报、账本日结、查询审计、Web 安全、Docker/Shim 发布和测试 CI 指向实际模块路径。**CTP 语义知识库（流控/生命周期/会话/报单回报时序/状态机/资金持仓/保证金/行情/结算）见 [docs/CTP语义知识库.md](docs/CTP语义知识库.md)**，含 M2 实现清单；深度原始笔记在 `docs/notes/`（编号 01~05、09~14；06~08 跳号：06「API 文档 Markdown 转换」与 07「错误码全集」已分别上移为 `docs/api-doc-html/` 与 `docs/错误码全集.md`（提交 `17e2f8e`），08 从未发布，编号不回收）。官方资料可读版：SDK《6.7.13_API接口说明》HTML 版（405 页干净 HTML，剔除 CHM 主题框架、保留表格/代码/内嵌图片，页间链接与 `anchor-id-*` 锚点均已校验；另有 1 页目录漏收附录、8 个官方附件与 84 条官方源死链/1 条悬空锚点的公示）在 [docs/api-doc-html/](docs/api-doc-html/)，error.xml 错误码全集（299 条，逐条标注「已实现 24 / 可落地 47 / 暂不可达 228」+ 推送面，由 `tools/fill_errorcode_status.py` 全量重算、`--check` 可校验）在 [docs/错误码全集.md](docs/错误码全集.md)，双推送面口径见 [docs/notes/09](docs/notes/09-错单推送面与错误码对账.md)；FAK 部成部撤的**三所分流**回报（上期所/大商所+广期所/郑商所三种不同形状）见 [docs/notes/10](docs/notes/10-FAK回报按交易所分流.md)；程序化交易入门系列 17 份客户端实操资料（连接认证/穿透式监管、行情现手开平、报撤单成交回报、查询流控与持仓更新）的整理与实现影响清单见 [docs/notes/11](docs/notes/11-入门系列-连接认证与穿透式监管.md)~[docs/notes/14](docs/notes/14-入门系列-查询流控与持仓查询更新.md)（汇总登记在知识库 §10.4）。CTPBuddy 与上海期货信息技术有限公司无任何隶属关系；仓库**不包含** `ctpsdk/*/` 下的官方二进制 SDK（`.dll`/`.lib`，由使用者自备，`.gitignore` 禁止入库与分发），但 `docs/api-doc-html/files/` 附带了由官方 CHM 文档转换得到的头文件、`error.xml` 与 PDF，仅供文档交叉引用（许可与来源说明见下文「许可」）。
 
 ## 它解决什么问题
 
 SimNow / openctp 都是远程 CS 模式：网络绑死、无法注入极端行情、不可复现、无管理面。CTPBuddy 把柜台搬到本地：替换同名 DLL 即可接入，行情可回放、场景可注入、账户可管理、团队可共用。
 
-> **当前边界（请先读）**：交易端支持明文 TCP，也支持以 `zmq://tcp://host:port`（或 `zmq://host:port`）启用 ZeroMQ ROUTER/DEALER 传输；仅在 TD 使用 `zmq://` 时设置 `CTPBUDDY_ZMQ_PUB_ADDR=tcp://host:port` 才会额外提供按 `md/...`、`td/...` topic 发布的 PUB/SUB 广播，广播采用有界 best-effort 队列，满载时允许丢帧，ADMIN status 的 `pubsub` 字段暴露队列容量、已发布和丢弃计数；ADMIN 仍为明文 TCP 且**无认证**（TD 登录不校验密码）。核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 已支持 TCP 与 `zmq://`（ZeroMQ 通过运行时加载的 libzmq，PUB/SUB 可选）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port` / `CTPBUDDY_ADDR=zmq://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，实时持仓从 ADMIN status 与 Web 回放状态读取，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。「团队共用」目前仅适用于受信内网并自行做网络隔离。
+> **当前边界（请先读）**：交易端支持明文 TCP，也支持以 `zmq://tcp://host:port`（或 `zmq://host:port`）启用 ZeroMQ ROUTER/DEALER 传输；仅在 TD 使用 `zmq://` 时设置 `CTPBUDDY_ZMQ_PUB_ADDR=tcp://host:port` 才会额外提供按 `md/...`、`td/...` topic 发布的 PUB/SUB 广播，广播采用有界 best-effort 队列，满载时允许丢帧，ADMIN status 的 `pubsub` 字段暴露队列容量、已发布和丢弃计数；ADMIN 仍为 TCP，可用 `CTPBUDDY_ADMIN_TOKEN` 启用认证；远程绑定同时要求 `CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 与非空 token，跨机需可信隧道（TD 登录不校验密码）。ZeroMQ 可通过真实 native libzmq 启用 CURVE，并以 ZAP 公钥白名单保护 ROUTER/PUB。Shim 已支持 TCP 与 `zmq://`（ZeroMQ 通过运行时加载的 libzmq，PUB/SUB 可选）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port` / `CTPBUDDY_ADDR=zmq://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，实时持仓从 ADMIN status 与 Web 回放状态读取，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。「团队共用」目前仅适用于受信内网并自行做网络隔离。
 
 ## 架构速览
 
@@ -45,7 +45,8 @@ Wire v1 保持现有小端 C 布局和字段偏移，Rust 编解码按字段处�
 
 - M1 核心闭环 + Shim 全链路、M2 撮合/流控、M3 参考数据/显式日结/OrderSysID/结算单/journal 投影：已完成。
 - 近期已补齐：交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 写入口；真实 release package 与 Hugo 文档站已在本机验收。
-- 未完成：M4 三渠道正式发布流程和完整 Web 运营后台；Shim 已支持 `ctpbuddy.ini` `[fronts]` 别名与 ZeroMQ IPC；Windows release package 构建与真实产物验收已在本机通过，Docker acceptance 已接入 CI（本机仍因 daemon 不可用而 SKIP）。详见 DESIGN §0.6。
+- 本轮已完成：CURVE/ADMIN 认证、墙钟自动日结与到期强平、实时账户/持仓/订单/成交后台，以及 FTD/连接/交易所限流；配置与验收见 [docs/operations.md](docs/operations.md)。
+- 未完成：M4 三渠道正式发布流程及多角色远程运营、场景上传等扩展后台；Shim 已支持 `ctpbuddy.ini` `[fronts]` 别名与 ZeroMQ IPC；Windows release package 构建与真实产物验收已在本机通过，Docker acceptance 已接入 CI（本机仍因 daemon 不可用而 SKIP）。详见 DESIGN §0.6。
 
 ## 快速开始
 
@@ -166,7 +167,7 @@ with Admin(calendar=calendar) as admin:
 
 生产目录仍保留 `shfe-2026-new-year.sample.json`：固定来源为上期所 2025-12-17〔2025〕157号公告，覆盖 2025-12-31 至 2026-01-05 的元旦样本及 2025-12-31 夜盘关闭边界，SHA256 为 `3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a`。新增全年日盘快照 SHA256 为 `b9217ede09a806e99d3819331367b76731bf4407fade96f2a02ed3123fdb71e3`，覆盖 365 自然日、24 条显式夜盘关闭记录；完整逐日夜盘仍未取得，manifest 明确记录缺口。不能把缺失夜盘解释为关闭或开放。
 
-Web 启动可指定 `ctpbuddy web --workspace . --db data/ctpbuddy.db`；目录与详情为只读，场景加载只接受 `scenarios/<name>` 和 `confirmed=true`。加载前必须暂停已有回放、无活动订单且无持仓保证金，不自动重置账户；账户实时摘要、初始持仓与历史投影各有独立状态标识。页面提供场景、账户/持仓、订单/成交、结算/审计和回放导航，不实现 Core 不存在的功能。
+Web 启动可指定 `ctpbuddy web --workspace . --db data/ctpbuddy.db`；目录与详情为只读，场景加载只接受 `scenarios/<name>` 和 `confirmed=true`。加载前必须暂停已有回放、无活动订单且无持仓保证金，不自动重置账户；账户、持仓明细、最新订单状态和当日成交通过 `/api/live` 每两秒从核心刷新，支持 broker/investor 筛选和分页；初始持仓与历史投影各有独立状态标识。页面提供场景、账户/持仓、订单/成交、结算/审计和回放导航，不实现 Core 不存在的功能。
 
 用户覆盖通过 `calendar.with_overrides(user_snapshot)` 或 `load_calendar(path, override=...)` 完成，按自然日整条替换并重新计算快照 SHA256。推荐在 CI 中固定并校验 SHA256；不要把未核验的外部数据写入仓库。
 

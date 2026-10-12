@@ -1,6 +1,7 @@
 {
-  "contract_version": 1,
+  "contract_version": 2,
   "canonical": [
+    {"event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "system_announcement", "contract_version": 2, "data": {"type": "announcement", "severity": "info", "message": "notice", "trading_day": "20261012"}}, "expected": "{\"contract_version\":2,\"data\":{\"message\":\"notice\",\"severity\":\"info\",\"trading_day\":\"20261012\",\"type\":\"announcement\"},\"seq\":1,\"trading_day\":\"20261012\",\"type\":\"system_announcement\",\"vt_ms\":0}"},
     {
       "event": {
         "seq": 1,
@@ -14,6 +15,11 @@
     }
   ],
   "validation": [
+    {"name": "v2_announcement", "event_valid": true, "event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "system_announcement", "contract_version": 2, "data": {"type": "announcement", "severity": "info", "message": "notice", "trading_day": "20261012"}}},
+    {"name": "v1_legacy_event", "event_valid": true, "event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "server_start", "contract_version": 1, "data": {}}},
+    {"name": "v1_cannot_declare_v2_announcement", "event_valid": false, "event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "system_announcement", "contract_version": 1, "data": {"type": "announcement", "severity": "info", "message": "notice", "trading_day": "20261012"}}},
+    {"name": "announcement_invalid_message_type", "event_valid": false, "event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "system_announcement", "contract_version": 2, "data": {"type": "announcement", "severity": "info", "message": 5, "trading_day": "20261012"}}},
+
     {
       "name": "order_insert_with_fill",
       "event_valid": true,

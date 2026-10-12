@@ -6,20 +6,25 @@
 //! protocol and world semantics are independent of the transport.
 
 pub mod admin;
+mod auto_settlement;
 pub mod calendar;
 pub mod dtime;
+mod flow;
 pub mod handlers;
 pub mod journal;
 pub mod journal_contract;
 pub mod json;
+mod live;
 mod private_flow;
 pub mod scenario;
+mod security;
 pub mod settings;
 mod settlement;
 pub mod state;
 mod transport_zmq;
+mod transport_zmq_native;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -157,6 +162,17 @@ pub struct Config {
     pub calendar: Option<CalendarMetadata>,
     /// Parsed offline calendar snapshot used for core-side TradingDay derivation.
     pub calendar_snapshot: Option<calendar::CalendarSnapshot>,
+    /// Optional wall-clock auto-settlement trigger in `HH:MM` (China time).
+    /// Settlement prices remain explicit and are never inferred.
+    pub auto_settle_at: Option<String>,
+    pub auto_settle_prices: Option<String>,
+    /// Front total-message flow budget per connection, per second. Zero disables.
+    pub ftd_max_comm_flux: u32,
+    /// New connection acceptance budget per second. Zero disables.
+    pub connect_freq: u32,
+    /// Exchange-level order budget per second. Zero disables.
+    pub exchange_freq: u32,
+    pub exchange_limits: HashMap<String, u32>,
 }
 
 impl Default for Config {
@@ -179,6 +195,12 @@ impl Default for Config {
             recover: false,
             calendar: None,
             calendar_snapshot: None,
+            auto_settle_at: None,
+            auto_settle_prices: None,
+            ftd_max_comm_flux: 0,
+            connect_freq: 0,
+            exchange_freq: 0,
+            exchange_limits: HashMap::new(),
         }
     }
 }
@@ -208,24 +230,31 @@ impl Config {
 pub fn run(mut cfg: Config) -> std::io::Result<()> {
     settings::load(&mut cfg)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    // The ADMIN channel has no authentication: whoever can connect can reset
-    // the book or shut the core down. Refuse non-loopback binds unless the
-    // operator opts in explicitly (e.g. behind a VPN / container network).
+    // Remote ADMIN requires both an explicit bind opt-in and a token.
+    // TCP ADMIN remains plaintext and must use a trusted tunnel across hosts.
     ensure_admin_loopback(&cfg.admin_endpoint)?;
+
     let admin = TcpListener::bind(&cfg.admin_endpoint)?;
     let mut world = World::new(cfg.clone())?;
     let (tx, rx) = mpsc::channel::<WorldMsg>();
 
     if cfg.td_endpoint.starts_with("zmq://") {
-        let pub_tx = transport_zmq::start(&cfg.td_endpoint, tx.clone())?;
+        let pub_tx = transport_zmq::start(
+            &cfg.td_endpoint,
+            tx.clone(),
+            cfg.connect_freq,
+            world.security.curve_secret.clone(),
+            world.security.curve_clients.clone(),
+        )?;
         world.broadcast_tx = pub_tx;
     } else {
         let td = TcpListener::bind(&cfg.td_endpoint)?;
         let tx_td = tx.clone();
-        thread::spawn(move || accept_loop(td, tx_td, false));
+        let connect_freq = cfg.connect_freq;
+        thread::spawn(move || accept_loop(td, tx_td, false, connect_freq));
     }
     let tx_admin = tx.clone();
-    thread::spawn(move || accept_loop(admin, tx_admin, true));
+    thread::spawn(move || accept_loop(admin, tx_admin, true, 0));
     drop(tx); // keep only the acceptor/conn threads' clones alive
 
     println!(
@@ -248,15 +277,27 @@ pub const ALLOW_REMOTE_ADMIN_ENV: &str = "CTPBUDDY_ALLOW_REMOTE_ADMIN";
 pub const ZMQ_PUB_ADDR_ENV: &str = "CTPBUDDY_ZMQ_PUB_ADDR";
 /// Bounded queue between the world thread and the ZeroMQ PUB writer.
 pub const ZMQ_PUB_QUEUE_CAPACITY: usize = 1024;
+pub const ADMIN_TOKEN_ENV: &str = "CTPBUDDY_ADMIN_TOKEN";
+pub const ZMQ_CURVE_SERVER_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_SERVER_KEY";
+pub const ZMQ_CURVE_PUBLIC_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY";
+pub const ZMQ_CURVE_SECRET_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_SECRET_KEY";
+pub const AUTO_SETTLE_AT_ENV: &str = "CTPBUDDY_AUTO_SETTLE_AT";
+pub const AUTO_SETTLE_PRICES_ENV: &str = "CTPBUDDY_AUTO_SETTLE_PRICES";
+pub const FTD_MAX_COMM_FLUX_ENV: &str = "CTPBUDDY_FTD_MAX_COMM_FLUX";
+pub const CONNECT_FREQ_ENV: &str = "CTPBUDDY_CONNECT_FREQ";
+pub const EXCHANGE_FREQ_ENV: &str = "CTPBUDDY_EXCHANGE_FREQ";
 
 /// Err unless every address `endpoint` resolves to is loopback (or the
 /// operator set `CTPBUDDY_ALLOW_REMOTE_ADMIN=1`).
 pub fn ensure_admin_loopback(endpoint: &str) -> std::io::Result<()> {
     use std::net::ToSocketAddrs;
     if std::env::var(ALLOW_REMOTE_ADMIN_ENV).is_ok_and(|v| v == "1") {
-        eprintln!(
-            "[ctpbuddy] WARNING: {ALLOW_REMOTE_ADMIN_ENV}=1 — unauthenticated ADMIN on {endpoint}"
-        );
+        if security::configured_secret(ADMIN_TOKEN_ENV)?.is_none() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "remote ADMIN opt-in requires CTPBUDDY_ADMIN_TOKEN",
+            ));
+        }
         return Ok(());
     }
     let addrs: Vec<_> = endpoint.to_socket_addrs()?.collect();
@@ -296,6 +337,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone)]
 struct ConnLimits {
     max_conns: usize,
+    connect_freq: u32,
     write_timeout: Duration,
     live: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -307,6 +349,25 @@ pub(crate) fn shared_connection_counter() -> Arc<std::sync::atomic::AtomicUsize>
     SHARED_CONN_COUNT
         .get_or_init(|| Arc::new(std::sync::atomic::AtomicUsize::new(0)))
         .clone()
+}
+
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
+}
+
+pub fn validate_auto_settle_at(value: &str) -> Result<String, String> {
+    let mut parts = value.trim().split(':');
+    let hour = parts.next().and_then(|v| v.parse::<u32>().ok());
+    let minute = parts.next().and_then(|v| v.parse::<u32>().ok());
+    if parts.next().is_some() || hour.is_none() || minute.is_none() {
+        return Err("auto settle time must be HH:MM".into());
+    }
+    let (hour, minute) = (hour.unwrap(), minute.unwrap());
+    if hour > 23 || minute > 59 {
+        return Err("auto settle time must be within 00:00..23:59".into());
+    }
+    Ok(format!("{hour:02}:{minute:02}"))
 }
 
 pub(crate) fn configured_max_conns() -> usize {
@@ -327,11 +388,12 @@ impl Drop for ConnGuard {
     }
 }
 
-fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
+fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool, connect_freq: u32) {
     // The counter is process-global so TCP and ZeroMQ listeners share one cap.
     let live = shared_connection_counter();
     let limits = ConnLimits {
         max_conns: configured_max_conns(),
+        connect_freq,
         write_timeout: WRITE_TIMEOUT,
         live,
     };
@@ -340,9 +402,13 @@ fn accept_loop(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool) {
 
 fn accept_loop_with(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool, lim: ConnLimits) {
     let max_conns = lim.max_conns;
+    let mut connections = flow::WindowBudget::default();
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
+                if !connections.take(Instant::now(), lim.connect_freq) {
+                    continue;
+                }
                 if lim.live.fetch_add(1, Ordering::SeqCst) >= max_conns {
                     lim.live.fetch_sub(1, Ordering::SeqCst);
                     eprintln!("[ctpbuddy] connection limit {max_conns} reached, rejecting peer");
@@ -529,6 +595,8 @@ struct Conn {
     /// 查询流控 window (CTP docs: per-session QryFreq per second).
     qry_window: Option<Instant>,
     qry_count: u32,
+    ftd_budget: flow::WindowBudget,
+    ftd_pending: VecDeque<Frame>,
 }
 
 /// Read + parse `scenario.json` (the compiled form of scenario.yaml) at
@@ -611,6 +679,7 @@ fn build_scenario(
 /// The whole world: market, matching, ledger, sessions, transports.
 /// State is mutated exclusively inside `run_loop`.
 pub struct World {
+    security: security::Security,
     cfg: Config,
     engine: MatchingEngine,
     ledger: Ledger,
@@ -642,6 +711,7 @@ pub struct World {
     /// budgets** (notes/14 §A.3-02), so the key carries the stream. Wall
     /// clock, exactly like `qry_gate` — real CTP throttles on real time.
     order_freq_windows: HashMap<(String, String, GateStream), (Instant, u32)>,
+    exchange_freq_windows: HashMap<(String, String, String, GateStream), flow::WindowBudget>,
     settlement_confirmed: HashMap<(String, String), String>,
     settlement_reports: Vec<settlement::Report>,
     /// Last ledger snapshot written to `<data_dir>/state/` and when.
@@ -654,6 +724,7 @@ pub struct World {
     broadcast_tx: Option<tokio::sync::mpsc::Sender<Broadcast>>,
     broadcast_published: u64,
     broadcast_dropped: u64,
+    auto_settlement: auto_settlement::AutoSettlement,
 }
 
 pub(crate) struct Broadcast {
@@ -668,7 +739,23 @@ struct PrivateNotification {
 }
 
 impl World {
-    pub fn new(cfg: Config) -> std::io::Result<Self> {
+    pub fn new(mut cfg: Config) -> std::io::Result<Self> {
+        let security = security::Security::load(&cfg.td_endpoint)?;
+        if cfg.exchange_limits.keys().any(|key| {
+            !matches!(
+                key.as_str(),
+                "SHFE" | "INE" | "DCE" | "CZCE" | "CFFEX" | "GFEX"
+            )
+        }) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "exchange limits require SHFE/INE/DCE/CZCE/CFFEX/GFEX keys",
+            ));
+        }
+        if let Some(at) = cfg.auto_settle_at.as_mut() {
+            *at = validate_auto_settle_at(at)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        }
         let mut journal = if cfg.data_dir.is_empty() {
             None
         } else {
@@ -773,6 +860,7 @@ impl World {
         engine.set_self_trade_prevention(cfg.self_trade_prevention);
         engine.set_maker_fill_at_limit(maker_at_limit_enabled());
         let mut world = World {
+            security,
             engine,
             ledger: Ledger::new(cfg.initial_funds),
             playback,
@@ -788,6 +876,7 @@ impl World {
             scenario_t0_ms,
             assertions,
             order_freq_windows: HashMap::new(),
+            exchange_freq_windows: HashMap::new(),
             settlement_confirmed: HashMap::new(),
             settlement_reports: settlement::load_reports(&cfg.data_dir, &cfg.broker_ids())
                 .unwrap_or_else(|e| {
@@ -802,6 +891,7 @@ impl World {
             broadcast_tx: None,
             broadcast_published: 0,
             broadcast_dropped: 0,
+            auto_settlement: auto_settlement::AutoSettlement::default(),
             cfg,
         };
         if world.cfg.recover && !world.cfg.data_dir.is_empty() {
@@ -1569,6 +1659,8 @@ impl World {
     /// Timer pulse: release due ticks, settle fills, mark to market, flush journal.
     fn pulse(&mut self) {
         let now = Instant::now();
+        self.drain_ftd(now);
+        self.poll_auto_settlement(now);
         let ticks = self.poll_playback(now);
         if !ticks.is_empty() {
             self.process_ticks(&ticks);
@@ -1589,6 +1681,72 @@ impl World {
             self.last_snapshot_at = now;
             self.persist_ledger();
         }
+    }
+
+    pub(crate) fn admit_td_frame(&mut self, conn_id: u64, frame: Frame) -> Option<Frame> {
+        let conn = self.conns.get_mut(&conn_id)?;
+        if conn.ftd_pending.is_empty()
+            && conn
+                .ftd_budget
+                .take(Instant::now(), self.cfg.ftd_max_comm_flux)
+        {
+            return Some(frame);
+        }
+        if conn.ftd_pending.len() >= 1024 {
+            self.send_error(conn_id, frame.req_id, 90, "CTP：查询未就绪，请稍后重试");
+        } else {
+            conn.ftd_pending.push_back(frame);
+        }
+        None
+    }
+
+    fn drain_ftd(&mut self, now: Instant) {
+        let mut ids: Vec<_> = self.conns.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            for _ in 0..1024 {
+                let frame = {
+                    let Some(conn) = self.conns.get_mut(&id) else {
+                        break;
+                    };
+                    if conn.ftd_pending.is_empty()
+                        || !conn.ftd_budget.take(now, self.cfg.ftd_max_comm_flux)
+                    {
+                        break;
+                    }
+                    conn.ftd_pending.pop_front().unwrap()
+                };
+                self.dispatch_td_frame(id, frame);
+            }
+        }
+    }
+
+    pub(crate) fn exchange_order_gate(
+        &mut self,
+        broker: &str,
+        investor: &str,
+        exchange: &str,
+        stream: GateStream,
+    ) -> bool {
+        let limit = self
+            .cfg
+            .exchange_limits
+            .get(exchange)
+            .copied()
+            .unwrap_or(self.cfg.exchange_freq);
+        if limit == 0 {
+            return true;
+        }
+        let key = (
+            broker.to_string(),
+            investor.to_string(),
+            exchange.to_string(),
+            stream,
+        );
+        self.exchange_freq_windows
+            .entry(key)
+            .or_default()
+            .take(Instant::now(), limit)
     }
 
     fn poll_playback(&mut self, now: Instant) -> Vec<Tick> {
@@ -1661,7 +1819,7 @@ impl World {
     }
 
     fn apply_order_event(&mut self, field: CThostFtdcOrderField) -> PrivateNotification {
-        if field.OrderStatus == b'5' {
+        if field.OrderStatus == b'5' && field.OrderSubmitStatus != b'4' {
             let key = format!(
                 "{}/{}/{}",
                 field.FrontID,
@@ -1738,7 +1896,7 @@ impl World {
             Conn {
                 writer,
                 is_admin,
-                authenticated: false,
+                authenticated: is_admin && self.security.admin_token.is_none(),
                 front_id: id as i32,
                 session_id: 0,
                 logins: 0,
@@ -1750,6 +1908,8 @@ impl World {
                 private_resume: 2,
                 qry_window: None,
                 qry_count: 0,
+                ftd_budget: flow::WindowBudget::default(),
+                ftd_pending: VecDeque::new(),
             },
         );
     }
@@ -1959,6 +2119,7 @@ mod tests {
     fn test_limits(max_conns: usize, write_timeout: Duration) -> ConnLimits {
         ConnLimits {
             max_conns,
+            connect_freq: 0,
             write_timeout,
             live: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
@@ -2171,7 +2332,7 @@ mod tests {
             Some("fixture-r1")
         );
         assert_eq!(value.get_str("calendar_sha256"), Some("b".repeat(64)));
-        assert_eq!(value.get_str("contract_version"), Some("1".into()));
+        assert_eq!(value.get_str("contract_version"), Some("2".into()));
         assert!(matches!(value.get("positions"), Some(json::Value::Arr(rows)) if rows.is_empty()));
     }
 

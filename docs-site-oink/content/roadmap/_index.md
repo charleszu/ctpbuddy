@@ -19,7 +19,8 @@ menus:
 
 ## 仍在推进
 
-- ZeroMQ 传输适配，替换当前 TCP 占位。
+- ZeroMQ ROUTER/DEALER 与 PUB/SUB、native CURVE/ZAP 白名单和 ADMIN token 已落地。
+- 墙钟自动日结/到期强平、实时 Web 查询及 FTD/连接/交易所限流已补齐，验收见仓库 `docs/operations.md`。
 - Web 当前是仅回环、本地控制面：投影只读，写入口白名单化；不等同于完整远程管理后台。
 - M4 三渠道发布与正式文档站发布流程；Hugo 文档站和 Windows release package（含真实产物 opt-in）已本机验收，Docker acceptance job 已接入 CI，仍需实际 CI run 留存结果。
 

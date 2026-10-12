@@ -53,6 +53,19 @@ options:
                           for ZeroMQ ROUTER/DEALER transport
                           (set CTPBUDDY_ZMQ_PUB_ADDR for optional PUB/SUB)
                           (default 127.0.0.1:5560)
+      --auto-settle-at <HH:MM>
+                          wall-clock automatic settlement trigger (CST)
+      --auto-settle-prices <file>
+                          dated settlement_prices JSON (required for scheduler)
+      --ftd-max-comm-flux <n>
+                          TD messages per connection per second; excess queued
+                          (0 = unlimited, default 0)
+      --connect-freq <n> new connections per second (0 = unlimited)
+      --exchange-freq <n>
+                          per broker/investor/exchange insert and cancel budgets
+                          (0 = unlimited, default 0)
+      --exchange-limits <json>
+                          exchange overrides, e.g. {\"SHFE\":20,\"DCE\":30}
   -v, --version          show version
 ";
 
@@ -80,6 +93,37 @@ fn apply_env(cfg: &mut Config) {
     if let Ok(v) = std::env::var("CTPBUDDY_SPEED") {
         if let Ok(n) = v.parse::<f64>() {
             cfg.playback_speed = Some(n);
+        }
+    }
+    if let Ok(v) = std::env::var(ctpbuddy_server::AUTO_SETTLE_AT_ENV) {
+        if !v.trim().is_empty() {
+            cfg.auto_settle_at = Some(v.trim().to_string());
+        }
+    }
+    if let Ok(v) = std::env::var(ctpbuddy_server::AUTO_SETTLE_PRICES_ENV) {
+        if !v.trim().is_empty() {
+            cfg.auto_settle_prices = Some(v);
+        }
+    }
+    if let Ok(value) = std::env::var("CTPBUDDY_EXCHANGE_LIMITS") {
+        cfg.exchange_limits = serde_json::from_str(&value).unwrap_or_else(|_| {
+            eprintln!("invalid CTPBUDDY_EXCHANGE_LIMITS: expected exchange/integer JSON map");
+            std::process::exit(1)
+        });
+    }
+    for (env, slot) in [
+        (
+            ctpbuddy_server::FTD_MAX_COMM_FLUX_ENV,
+            &mut cfg.ftd_max_comm_flux,
+        ),
+        (ctpbuddy_server::CONNECT_FREQ_ENV, &mut cfg.connect_freq),
+        (ctpbuddy_server::EXCHANGE_FREQ_ENV, &mut cfg.exchange_freq),
+    ] {
+        if let Ok(v) = std::env::var(env) {
+            *slot = v.parse::<u32>().unwrap_or_else(|_| {
+                eprintln!("invalid {env}");
+                std::process::exit(1)
+            });
         }
     }
     if let Ok(v) = std::env::var("CTPBUDDY_QRY_FREQ") {
@@ -260,6 +304,27 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 cfg.playback_speed = Some(n);
             }
             "--td" => cfg.td_endpoint = take("--td")?,
+            "--auto-settle-at" => cfg.auto_settle_at = Some(take("--auto-settle-at")?),
+            "--auto-settle-prices" => cfg.auto_settle_prices = Some(take("--auto-settle-prices")?),
+            "--ftd-max-comm-flux" => {
+                cfg.ftd_max_comm_flux = take("--ftd-max-comm-flux")?
+                    .parse()
+                    .map_err(|_| "invalid --ftd-max-comm-flux")?
+            }
+            "--connect-freq" => {
+                cfg.connect_freq = take("--connect-freq")?
+                    .parse()
+                    .map_err(|_| "invalid --connect-freq")?
+            }
+            "--exchange-limits" => {
+                cfg.exchange_limits = serde_json::from_str(&take("--exchange-limits")?)
+                    .map_err(|_| "invalid --exchange-limits: expected exchange/integer JSON map")?
+            }
+            "--exchange-freq" => {
+                cfg.exchange_freq = take("--exchange-freq")?
+                    .parse()
+                    .map_err(|_| "invalid --exchange-freq")?
+            }
             "--data-dir" => cfg.data_dir = take("--data-dir")?,
             "-h" | "--help" => {
                 print!("{USAGE}");

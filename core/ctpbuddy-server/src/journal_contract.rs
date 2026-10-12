@@ -20,7 +20,18 @@ fn validate_document(value: &Value) -> Result<(), String> {
         .get("contract_version")
         .and_then(Value::as_u64)
         .ok_or_else(|| "contract_version must be an integer".to_string())?;
-    let _ = version;
+    if let Some(versions) = value.get("read_versions") {
+        let versions = versions
+            .as_array()
+            .ok_or("read_versions must be an array")?;
+        if !versions.iter().any(|v| v.as_u64() == Some(version))
+            || versions
+                .iter()
+                .any(|v| v.as_u64().is_none_or(|v| v == 0 || v > version))
+        {
+            return Err("read_versions must contain supported integer versions".into());
+        }
+    }
     let envelope = value
         .get("envelope")
         .and_then(Value::as_object)
@@ -78,6 +89,12 @@ fn validate_document(value: &Value) -> Result<(), String> {
         let spec = spec
             .as_object()
             .ok_or_else(|| format!("{} must be an object", event_type))?;
+        if spec
+            .get("min_version")
+            .is_some_and(|v| v.as_u64().is_none_or(|v| v == 0 || v > version))
+        {
+            return Err("event min_version is invalid".into());
+        }
         for key in ["category", "replay", "hash"] {
             if spec
                 .iter()
@@ -347,7 +364,28 @@ pub fn validate_event(event: &crate::json::Value) -> bool {
         let Some(version) = version.as_num() else {
             return false;
         };
-        if !version.is_finite() || version.fract() != 0.0 || version != contract_version() as f64 {
+        let supported = document()
+            .get("read_versions")
+            .and_then(Value::as_array)
+            .map(|versions| {
+                versions
+                    .iter()
+                    .any(|v| v.as_u64().is_some_and(|v| v as f64 == version))
+            })
+            .unwrap_or(version == contract_version() as f64);
+        let minimum = event
+            .get("type")
+            .and_then(crate::json::Value::as_str)
+            .and_then(|name| {
+                document()
+                    .get("events")?
+                    .get(name)?
+                    .get("min_version")?
+                    .as_u64()
+            })
+            .unwrap_or(1);
+        if !version.is_finite() || version.fract() != 0.0 || !supported || version < minimum as f64
+        {
             return false;
         }
     }
@@ -591,7 +629,7 @@ mod tests {
 
     #[test]
     fn embedded_contract_declares_pilot_events() {
-        assert_eq!(contract_version(), 1);
+        assert_eq!(contract_version(), 2);
         assert!(knows_event("server_start"));
         assert!(knows_event("session_auth"));
         assert!(!knows_event("made_up_event"));

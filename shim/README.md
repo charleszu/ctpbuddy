@@ -70,3 +70,9 @@ harness 需在 `PYTHONUTF8=1` 下运行（CI 已设置）。
 - POSIX 路径：poll、MSG_NOSIGNAL（对端消失不触发 SIGPIPE）、iconv 做 UTF-8↔GBK。
 - 前置地址支持主机名；环境变量 `CTPBUDDY_ADDR=tcp://host:port` 覆盖应用注册的所有前置。`zmq://host:port`、`zmq://tcp://host:port`、`zmq://ipc:///path` 与 `ipc:///path` 也可作为前置地址；启用 ZeroMQ 时运行时加载 `libzmq.dll` / `libzmq.so.5`，未安装 libzmq 的 TCP 部署不受影响。`CTPBUDDY_ZMQ_PUB_ADDR` 可选订阅 `md/`、`td/` 与 `sys/` 广播，断线期间不补发历史帧。当前目录的 `ctpbuddy.ini` `[fronts]` 可把既有前置地址映射到 Buddy 端点，`CTPBUDDY_INI` 可指定配置文件路径；PUB 队列容量、已发布和丢弃计数可从 ADMIN status 的 `pubsub` 字段读取。
 - WSL 下 cargo 请设 `CARGO_TARGET_DIR` 到 Linux 文件系统，避免与 Windows 的 core/target 混用。
+
+## CURVE 可选加密
+
+Shim 的 DEALER/SUB 均支持 CURVE。客户端进程设置 `CTPBUDDY_ZMQ_LIBRARY`（支持 CURVE 的 native libzmq）以及 `CTPBUDDY_ZMQ_CURVE_SERVER_KEY`、`CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY`、`CTPBUDDY_ZMQ_CURVE_SECRET_KEY`；分别为服务端公钥、客户端公钥与私钥，40 字符 Z85。配置失败时拒绝连接。服务端另外使用自己的私钥和客户端公钥白名单，配置不可混用；完整说明见 [运维验收](../docs/operations.md)。`GetFrontInfo.FTDPkgFreq` 可通过客户端环境变量 `CTPBUDDY_FTD_MAX_COMM_FLUX` 与服务端配置对齐，默认 0。
+
+CTP 的行情和私有 SPI 回调来自当前会话的 DEALER；可选 SUB 不把共享 `md/td` 广播重复投递到 SPI，从而保留合法前态/新态回报并遵守订阅与账户范围。共享 PUB 的观察客户端可独立连接 SUB。

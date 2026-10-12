@@ -35,6 +35,9 @@ struct Outbound {
 pub(crate) fn start(
     endpoint: &str,
     world_tx: Sender<WorldMsg>,
+    connect_freq: u32,
+    curve_secret: Option<String>,
+    curve_clients: Vec<[u8; 32]>,
 ) -> io::Result<Option<tokio_mpsc::Sender<Broadcast>>> {
     let endpoint = normalize_endpoint(endpoint)?;
     let pub_endpoint = std::env::var(ZMQ_PUB_ADDR_ENV)
@@ -42,6 +45,16 @@ pub(crate) fn start(
         .filter(|value| !value.trim().is_empty())
         .map(|value| normalize_pub_endpoint(&value))
         .transpose()?;
+    if let Some(secret) = curve_secret {
+        return crate::transport_zmq_native::start(
+            endpoint,
+            pub_endpoint,
+            secret,
+            curve_clients,
+            connect_freq,
+            world_tx,
+        );
+    }
     let (broadcast_tx, broadcast_rx) = tokio_mpsc::channel(ZMQ_PUB_QUEUE_CAPACITY);
     let result_tx = pub_endpoint.as_ref().map(|_| broadcast_tx.clone());
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -83,6 +96,7 @@ pub(crate) fn start(
                 crate::shared_connection_counter(),
                 &mut publisher,
                 broadcast_rx,
+                connect_freq,
             )
             .await;
             let _ = world_tx.send(WorldMsg::TransportClosed);
@@ -136,11 +150,13 @@ async fn run_loop(
     live: Arc<AtomicUsize>,
     publisher: &mut Option<PubSocket>,
     mut broadcast_rx: tokio_mpsc::Receiver<Broadcast>,
+    connect_freq: u32,
 ) {
     const OUTBOUND_QUEUE: usize = 1024;
     const SEND_TIMEOUT: Duration = Duration::from_secs(5);
     let (out_tx, mut out_rx) = tokio_mpsc::channel::<Outbound>(OUTBOUND_QUEUE);
     let mut identities: HashMap<Vec<u8>, u64> = HashMap::new();
+    let mut connections = crate::flow::WindowBudget::default();
 
     loop {
         tokio::select! {
@@ -152,6 +168,12 @@ async fn run_loop(
                 let Some(identity_frame) = message.get(0) else { continue };
                 let Some(payload_frame) = message.get(1) else { continue };
                 let identity = identity_frame.to_vec();
+                if !identities.contains_key(&identity) && !connections.take(std::time::Instant::now(), connect_freq) {
+                    if let Ok(peer) = identity.clone().try_into() {
+                        socket.backend().peer_disconnected(&peer);
+                    }
+                    continue;
+                }
                 if !identities.contains_key(&identity)
                     && live.fetch_add(1, Ordering::SeqCst) >= max_conns
                 {

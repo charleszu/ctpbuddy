@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <string_view>
 
@@ -44,12 +45,19 @@ constexpr int ZMQ_SNDHWM = 23;
 constexpr int ZMQ_RCVHWM = 24;
 constexpr int ZMQ_LINGER = 17;
 constexpr int ZMQ_SUBSCRIBE = 6;
+constexpr int ZMQ_CURVE_SERVERKEY = 50;
+constexpr int ZMQ_CURVE_PUBLICKEY = 48;
+constexpr int ZMQ_CURVE_SECRETKEY = 49;
 constexpr int ZMQ_RCVMORE = 13;
 constexpr short ZMQ_POLLIN = 1;
 
 struct ZmqPollItem {
     void* socket;
+#ifdef _WIN32
+    SOCKET fd;
+#else
     int fd;
+#endif
     short events;
     short revents;
 };
@@ -81,7 +89,8 @@ struct ZmqLibrary {
     bool load() {
         if (handle) return true;
 #ifdef _WIN32
-        const char* names[] = {"libzmq.dll", "zmq.dll", nullptr};
+        const char* configured = std::getenv("CTPBUDDY_ZMQ_LIBRARY");
+        const char* names[] = {configured && *configured ? configured : "libzmq.dll", "zmq.dll", nullptr};
         for (const char** p = names; *p && !handle; ++p) {
             handle = static_cast<void*>(LoadLibraryA(*p));
         }
@@ -89,7 +98,8 @@ struct ZmqLibrary {
             return handle ? reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name)) : nullptr;
         };
 #else
-        const char* names[] = {"libzmq.so.5", "libzmq.so", nullptr};
+        const char* configured = std::getenv("CTPBUDDY_ZMQ_LIBRARY");
+        const char* names[] = {configured && *configured ? configured : "libzmq.so.5", "libzmq.so", nullptr};
         for (const char** p = names; *p && !handle; ++p) handle = dlopen(*p, RTLD_NOW | RTLD_LOCAL);
         auto symbol = [this](const char* name) -> void* { return handle ? dlsym(handle, name) : nullptr; };
 #endif
@@ -117,6 +127,21 @@ ZmqLibrary& zmq_library() {
 
 bool starts_with(const std::string& value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix.data(), prefix.size()) == 0;
+}
+
+bool apply_curve_options(ZmqLibrary& z, void* socket) {
+    const char* server = std::getenv("CTPBUDDY_ZMQ_CURVE_SERVER_KEY");
+    const char* pub = std::getenv("CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY");
+    const char* secret = std::getenv("CTPBUDDY_ZMQ_CURVE_SECRET_KEY");
+    const bool any = (server && *server) || (pub && *pub) || (secret && *secret);
+    if (!any) return true;
+    if (!server || !pub || !secret || std::strlen(server) != 40 || std::strlen(pub) != 40 ||
+        std::strlen(secret) != 40) {
+        return false;
+    }
+    return z.setsockopt(socket, ZMQ_CURVE_SERVERKEY, server, 40) == 0 &&
+           z.setsockopt(socket, ZMQ_CURVE_PUBLICKEY, pub, 40) == 0 &&
+           z.setsockopt(socket, ZMQ_CURVE_SECRETKEY, secret, 40) == 0;
 }
 
 std::string trim_ascii(std::string value) {
@@ -212,7 +237,11 @@ int qry_freq_env() {
     return 2;
 }
 const int kQryFreq = qry_freq_env();
-const int kFtdPkgFreq = 6;
+int ftd_freq_env() {
+    const char* v = std::getenv("CTPBUDDY_FTD_MAX_COMM_FLUX");
+    return v && *v ? (std::max)(0, std::atoi(v)) : 0;
+}
+const int kFtdPkgFreq = ftd_freq_env();
 
 }  // namespace
 
@@ -436,6 +465,11 @@ bool ApiCore::connect_front() {
         }
         const int zero = 0;
         const int hwm = 1000;
+        if (!apply_curve_options(z, dealer)) {
+            z.close(dealer);
+            z.ctx_term(ctx);
+            return false;
+        }
         z.setsockopt(dealer, ZMQ_LINGER, &zero, sizeof(zero));
         z.setsockopt(dealer, ZMQ_SNDHWM, &hwm, sizeof(hwm));
         z.setsockopt(dealer, ZMQ_RCVHWM, &hwm, sizeof(hwm));
@@ -454,6 +488,14 @@ bool ApiCore::connect_front() {
                     pub_endpoint = "tcp://" + pub_endpoint;
                 }
                 sub = z.socket(ctx, ZMQ_SUB);
+                if (sub) {
+                    if (!apply_curve_options(z, sub)) {
+                        z.close(sub);
+                        z.close(dealer);
+                        z.ctx_term(ctx);
+                        return false;
+                    }
+                }
                 if (sub) {
                     z.setsockopt(sub, ZMQ_LINGER, &zero, sizeof(zero));
                     z.setsockopt(sub, ZMQ_RCVHWM, &hwm, sizeof(hwm));
@@ -629,7 +671,15 @@ bool ApiCore::read_zmq_frame(Frame& out) {
                 std::vector<uint8_t> ignored;
                 if (!zmq_recv_part(z, selected, ignored)) return false;
             }
-            if (decode_frame_bytes(frame.data(), frame.size(), out)) return true;
+            if (decode_frame_bytes(frame.data(), frame.size(), out)) {
+                // The core already delivers subscribed MD and private CTP
+                // callbacks through this session's DEALER. PUB is a shared
+                // observer stream; replaying it into SPI duplicates callbacks
+                // and bypasses this session's subscription/account scope.
+                if (out.msg_type == msgs::RTN_DEPTH_MD || out.msg_type == msgs::RTN_ORDER ||
+                    out.msg_type == msgs::RTN_TRADE) continue;
+                return true;
+            }
         } else {
             while (zmq_more(z, selected)) {
                 std::vector<uint8_t> ignored;

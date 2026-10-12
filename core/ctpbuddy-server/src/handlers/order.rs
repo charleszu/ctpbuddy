@@ -2,6 +2,9 @@
 
 use super::*;
 
+const ERR_EXCHANGE_FREQ: i32 = 41; // CFFEX_OVER_REQUEST_PER_SECOND, SDK error.xml
+const EXCHANGE_FREQ_MSG: &str = "CTP:交易所每秒发送请求数超过许可数";
+
 #[derive(Debug)]
 struct OrderInsertCommand {
     input: CThostFtdcInputOrderField,
@@ -99,6 +102,19 @@ impl World {
             volume_condition: vc,
         } = command;
 
+        // Exchange-refused orders have already consumed their session ref even
+        // though they never entered the matching engine's used-ref set.
+        if self.orders_today.iter().any(|o| {
+            o.FrontID == intent.front_id
+                && o.SessionID == intent.session_id
+                && cstr(&o.OrderRef) == order_ref
+                && o.OrderSubmitStatus == b'4'
+        }) {
+            let msg = "CTP:报单错误：不允许重复报单";
+            self.journal_rejected_order(&broker, &investor, &intent, ERR_DUPLICATE_ORDER, msg);
+            return self.send_error(conn_id, frame.req_id, ERR_DUPLICATE_ORDER, msg);
+        }
+
         if self.cfg.settlement_required
             && self
                 .settlement_confirmed
@@ -124,6 +140,60 @@ impl World {
                 "CTP:下单频率限制",
             );
             return self.send_error(conn_id, frame.req_id, ERR_ORDER_FREQ, "CTP:下单频率限制");
+        }
+
+        if !self.exchange_order_gate(&broker, &investor, &exchange, GateStream::Insert) {
+            self.journal_rejected_order(
+                &broker,
+                &investor,
+                &intent,
+                ERR_EXCHANGE_FREQ,
+                EXCHANGE_FREQ_MSG,
+            );
+            self.reject_insert(
+                conn_id,
+                frame.req_id,
+                ERR_EXCHANGE_FREQ,
+                EXCHANGE_FREQ_MSG,
+                &frame.payload,
+            );
+            // An exchange refusal reports a terminal rejected order, with no
+            // reservation or fill. Never replace an already used order ref.
+            if !self.orders_today.iter().any(|o| {
+                o.FrontID == intent.front_id
+                    && o.SessionID == intent.session_id
+                    && cstr(&o.OrderRef) == order_ref
+            }) {
+                let mut order = CThostFtdcOrderField::zeroed();
+                order.BrokerID = intent.broker_id;
+                order.InvestorID = intent.investor_id;
+                order.UserID = intent.user_id;
+                order.OrderRef = intent.order_ref;
+                order.OrderLocalID = intent.order_local_id;
+                set_cstr(&mut order.InstrumentID, &instrument);
+                set_cstr(&mut order.ExchangeID, &exchange);
+                set_cstr(&mut order.TradingDay, &self.vt_day());
+                set_cstr(&mut order.InsertDate, &self.vt_day());
+                set_cstr(&mut order.InsertTime, &self.now_str());
+                set_cstr(&mut order.UpdateTime, &self.now_str());
+                set_cstr(&mut order.StatusMsg, EXCHANGE_FREQ_MSG);
+                order.FrontID = intent.front_id;
+                order.SessionID = intent.session_id;
+                order.RequestID = input.RequestID;
+                order.OrderPriceType = input.OrderPriceType;
+                order.Direction = input.Direction;
+                order.CombOffsetFlag = input.CombOffsetFlag;
+                order.CombHedgeFlag = input.CombHedgeFlag;
+                order.CombHedgeFlag[0] = intent.hedge_flag;
+                order.LimitPrice = input.LimitPrice;
+                order.VolumeTotalOriginal = input.VolumeTotalOriginal;
+                order.TimeCondition = intent.time_condition;
+                order.VolumeCondition = intent.volume_condition;
+                order.OrderStatus = b'5';
+                order.OrderSubmitStatus = b'4';
+                self.dispatch_event(ctpbuddy_matching::EngineEvent::Order(order));
+            }
+            return;
         }
 
         // 1) static validation (contract / price / volume)
@@ -399,6 +469,30 @@ impl World {
             self.journal_cancel_rejected(&broker, &investor, &q, code, msg);
             self.send_error(conn_id, frame.req_id, code, msg);
             return self.send_err_rtn_action(conn_id, frame.req_id, code, msg, &frame.payload);
+        }
+
+        let exchange = self
+            .engine
+            .catalog()
+            .get(&q.instrument_id)
+            .map(|info| info.exchange_id.clone())
+            .unwrap_or_else(|| cstr(&action.ExchangeID));
+        if !self.exchange_order_gate(&broker, &investor, &exchange, GateStream::Cancel) {
+            self.journal_cancel_rejected(
+                &broker,
+                &investor,
+                &q,
+                ERR_EXCHANGE_FREQ,
+                EXCHANGE_FREQ_MSG,
+            );
+            self.send_error(conn_id, frame.req_id, ERR_EXCHANGE_FREQ, EXCHANGE_FREQ_MSG);
+            return self.send_err_rtn_action(
+                conn_id,
+                frame.req_id,
+                ERR_EXCHANGE_FREQ,
+                EXCHANGE_FREQ_MSG,
+                &frame.payload,
+            );
         }
 
         let (day, now) = self.clock_owned();

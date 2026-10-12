@@ -5,6 +5,7 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.toml text eol=lf
+py/ctpbuddy/contracts/*.json text eol=lf
 *.md text
 *.cpp text
 *.hpp text

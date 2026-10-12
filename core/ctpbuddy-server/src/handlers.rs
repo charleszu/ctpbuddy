@@ -138,6 +138,13 @@ impl World {
             self.on_admin(conn_id, &frame);
             return;
         }
+        let Some(frame) = self.admit_td_frame(conn_id, frame) else {
+            return;
+        };
+        self.dispatch_td_frame(conn_id, frame);
+    }
+
+    pub(crate) fn dispatch_td_frame(&mut self, conn_id: u64, frame: Frame) {
         match client_route(frame.msg_type) {
             ClientRoute::Ping => self.send_frame(
                 conn_id,

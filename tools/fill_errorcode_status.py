@@ -59,6 +59,7 @@ IMPLEMENTED = OrderedDict([
     (27,  "不支持的功能：GTD/GTC、非法 TimeCondition/VolumeCondition、条件单（ContingentCondition≠立即）；CTP 层 · 仅 `OnRspOrderInsert`（原误用 41）"),
     (30,  "平仓量超过今+昨持仓；CTP 层 · 仅 `OnRspOrderInsert`"),
     (31,  "可用资金 < 冻结估算额；CTP 层 · 仅 `OnRspOrderInsert`"),
+    (41,  "显式交易所秒级额度耗尽（`--exchange-freq` / `--exchange-limits`）；报单 `OnRspOrderInsert{0}` → `OnErrRtnOrderInsert` → 终态拒单 `OnRtnOrder`，撤单双面拒绝；不冻结资金"),
     (42,  "`settlement_required=true`（默认）时当前交易日未确认结算单的报单前置拒绝；CTP 层 · 仅 `OnRspOrderInsert`"),
     (50,  "CloseToday 可用今仓不足；CTP 层 · 仅 `OnRspOrderInsert`"),
     (51,  "CloseYesterday 可用昨仓不足；CTP 层 · 仅 `OnRspOrderInsert`"),
@@ -80,7 +81,8 @@ SURFACES = [
     ("CTP 层拒绝（insert，仅 `OnRspOrderInsert`，无后续状态回报）",
      [3, 15, 16, 17, 22, 27, 148, 30, 31, 42, 50, 51, 116]),
     ("交易所层拒绝（insert，`OnRspOrderInsert{0}` → `OnErrRtnOrderInsert`）", [163, 164, 165]),
-    ("撤单拒绝（双面，`OnRspOrderAction` → `OnErrRtnOrderAction`）", [25, 26, 116]),
+    ("交易所流控（insert，前置响应 → 错单回报 → 终态拒单 `OnRtnOrder`）", [41]),
+    ("撤单拒绝（双面，`OnRspOrderAction` → `OnErrRtnOrderAction`）", [25, 26, 41, 116]),
     ("查询流控（`OnRspQry*`）", [90]),
     ("会话/登录（`OnRspUserLogin`）", [3, 60, 63, 64]),
     ("非错误", [0]),
@@ -250,8 +252,8 @@ def render_summary(states: dict, labels: dict) -> list:
         "",
     ]
     for label, codes in SURFACES:
-        out.append("**%s**：%s  " % (label, codes_str(codes)))
-    out[-1] = out[-1].rstrip()
+        out.append("**%s**：%s<br>" % (label, codes_str(codes)))
+    out[-1] = out[-1].removesuffix("<br>")
     out += [
         "",
         "`116` 同时出现在报单与撤单两行：两条流各自计数、互不挤占。`3` 同时出现在登录与报单两行：登录 UserID 为空与报单 BrokerID/InvestorID 与会话不一致同码；登录 BrokerID 不符回 `63`。",

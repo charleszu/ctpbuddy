@@ -20,6 +20,9 @@ use ctpbuddy_matching::{Direction, Fill, OffsetFlag};
 
 impl World {
     pub(crate) fn on_admin(&mut self, conn_id: u64, frame: &Frame) {
+        if frame.msg_type != msgs::ADMIN_REQ {
+            return self.admin_error(conn_id, frame.req_id, "需要 ADMIN_REQ frame");
+        }
         let text = String::from_utf8_lossy(&frame.payload).to_string();
         let v = match json::parse(&text) {
             Ok(v) => v,
@@ -28,6 +31,42 @@ impl World {
             }
         };
         let cmd = v.get_str("cmd").unwrap_or_default();
+        if let Some(expected) = self.security.admin_token.as_deref() {
+            let authenticated = self
+                .conns
+                .get(&conn_id)
+                .map(|c| c.authenticated && c.is_admin)
+                .unwrap_or(false);
+            if !authenticated {
+                if cmd != "auth" {
+                    return self.admin_error(conn_id, frame.req_id, "ADMIN 未认证：请先发送 auth");
+                }
+                if !matches!(&v, Value::Obj(fields) if fields.len() == 2
+                    && fields.iter().filter(|(key, _)| key == "cmd").count() == 1
+                    && fields.iter().filter(|(key, _)| key == "token").count() == 1)
+                {
+                    return self.admin_error(conn_id, frame.req_id, "auth 仅接受 cmd/token 字段");
+                }
+                let presented = v.get_str("token").unwrap_or_default();
+                if !crate::constant_time_eq(expected, &presented) {
+                    return self.admin_error(conn_id, frame.req_id, "ADMIN token 校验失败");
+                }
+                if let Some(conn) = self.conns.get_mut(&conn_id) {
+                    conn.authenticated = true;
+                }
+                return self.admin_reply(
+                    conn_id,
+                    frame.req_id,
+                    json::obj_sorted(vec![
+                        ("ok".into(), json::b(true)),
+                        ("cmd".into(), json::s("auth")),
+                    ]),
+                );
+            }
+            if cmd == "auth" {
+                return self.admin_error(conn_id, frame.req_id, "ADMIN 连接已认证");
+            }
+        }
         match cmd.as_str() {
             "ping" => {
                 self.admin_reply(
@@ -40,7 +79,11 @@ impl World {
                     ]),
                 );
             }
-            "status" => self.admin_status(conn_id, frame.req_id),
+            "status" => self.admin_status(conn_id, frame.req_id, None),
+            "live_status" => match crate::live::LiveQuery::parse(&v) {
+                Ok(query) => self.admin_status(conn_id, frame.req_id, Some(query)),
+                Err(error) => self.admin_error(conn_id, frame.req_id, &error),
+            },
             "settings_get" => {
                 if !matches!(&v, Value::Obj(p) if p.len() == 1) {
                     return self.admin_error(conn_id, frame.req_id, "settings_get 仅允许 cmd");
@@ -92,7 +135,7 @@ impl World {
         self.admin_reply(conn_id, req_id, v);
     }
 
-    fn admin_status(&mut self, conn_id: u64, req_id: u32) {
+    fn admin_status(&mut self, conn_id: u64, req_id: u32, live: Option<crate::live::LiveQuery>) {
         // ADMIN status is a live read model. Revalue the ledger immediately so
         // Web/CLI consumers see the same position profit as CTP queries.
         self.mark_to_market_now();
@@ -120,7 +163,15 @@ impl World {
             ("virtual_time".into(), json::s(&self.now_str())),
             ("trading_day".into(), json::s(&self.vt_day())),
         ]);
-        let mut account_rows: Vec<_> = self.ledger.accounts().collect();
+        let mut account_rows: Vec<_> = self
+            .ledger
+            .accounts()
+            .filter(|a| {
+                live.as_ref()
+                    .map(|q| q.matches(&a.broker_id, &a.investor_id))
+                    .unwrap_or(true)
+            })
+            .collect();
         account_rows.sort_by(|a, b| {
             a.broker_id
                 .cmp(&b.broker_id)
@@ -148,6 +199,13 @@ impl World {
             .collect();
         let mut position_rows = Vec::new();
         for account in self.ledger.accounts() {
+            if live
+                .as_ref()
+                .map(|q| !q.matches(&account.broker_id, &account.investor_id))
+                .unwrap_or(false)
+            {
+                continue;
+            }
             for (position, detail) in self
                 .ledger
                 .positions_of_ordered(&account.broker_id, &account.investor_id)
@@ -193,9 +251,41 @@ impl World {
             .collect();
         brokers.sort_unstable();
         brokers.dedup();
+        position_rows.sort_by_key(|r| {
+            (
+                r.get_str("broker"),
+                r.get_str("investor"),
+                r.get_str("instrument"),
+                r.get_str("side"),
+                r.get_str("open_date"),
+                r.get_str("trade_id"),
+            )
+        });
+        let account_count = accounts.len();
+        let position_count = position_rows.len();
+        let (accounts, position_rows) = match &live {
+            Some(query) => (query.page(accounts), query.page(position_rows)),
+            None => (Value::Arr(accounts), Value::Arr(position_rows)),
+        };
+        let open_orders = match &live {
+            Some(query) => self
+                .engine
+                .active_order_fields(&self.vt_day())
+                .iter()
+                .filter(|o| query.matches(&cstr(&o.BrokerID), &cstr(&o.InvestorID)))
+                .count(),
+            None => self.engine.open_order_count(),
+        };
         let mut fields = vec![
             ("ok".into(), json::b(true)),
-            ("cmd".into(), json::s("status")),
+            (
+                "cmd".into(),
+                json::s(if live.is_some() {
+                    "live_status"
+                } else {
+                    "status"
+                }),
+            ),
             (
                 "server".into(),
                 json::s(&format!("ctpbuddy/{SERVER_VERSION}")),
@@ -207,11 +297,45 @@ impl World {
                 "instruments".into(),
                 json::n(self.engine.catalog().len() as f64),
             ),
-            (
-                "open_orders".into(),
-                json::n(self.engine.open_order_count() as f64),
-            ),
+            ("open_orders".into(), json::n(open_orders as f64)),
             ("connections".into(), json::n(self.conns.len() as f64)),
+            (
+                "security".into(),
+                json::obj_sorted(vec![
+                    (
+                        "admin_token_required".into(),
+                        json::b(self.security.admin_token.is_some()),
+                    ),
+                    (
+                        "zmq_curve_enabled".into(),
+                        json::b(self.security.curve_secret.is_some()),
+                    ),
+                ]),
+            ),
+            (
+                "flow_control".into(),
+                json::obj_sorted(vec![
+                    (
+                        "ftd_max_comm_flux".into(),
+                        json::n(self.cfg.ftd_max_comm_flux as f64),
+                    ),
+                    ("connect_freq".into(), json::n(self.cfg.connect_freq as f64)),
+                    (
+                        "exchange_limits".into(),
+                        json::obj_sorted(
+                            self.cfg
+                                .exchange_limits
+                                .iter()
+                                .map(|(k, v)| (k.clone(), json::n(*v as f64)))
+                                .collect(),
+                        ),
+                    ),
+                    (
+                        "exchange_freq".into(),
+                        json::n(self.cfg.exchange_freq as f64),
+                    ),
+                ]),
+            ),
             (
                 // Id the NEXT accepted connection will get (a global counter,
                 // never reused — closed connections leave gaps). The replay
@@ -234,8 +358,8 @@ impl World {
                 "contract_version".into(),
                 json::s(&journal_contract::contract_version().to_string()),
             ),
-            ("accounts".into(), Value::Arr(accounts)),
-            ("positions".into(), Value::Arr(position_rows)),
+            ("accounts".into(), accounts),
+            ("positions".into(), position_rows),
             (
                 "pubsub".into(),
                 json::obj_sorted(vec![
@@ -253,10 +377,19 @@ impl World {
                 Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
             ),
             ("assertions".into(), self.assertions_status()),
+            ("auto_settlement".into(), self.auto_settlement_status()),
         ];
         if let Some(calendar) = &self.cfg.calendar {
             fields.push(("calendar_version".into(), json::s(&calendar.version)));
             fields.push(("calendar_sha256".into(), json::s(&calendar.sha256)));
+        }
+        if let Some(query) = live.as_ref() {
+            fields.extend(self.live_orders_trades(query));
+            fields.push(("account_count".into(), json::n(account_count as f64)));
+            fields.push(("position_count".into(), json::n(position_count as f64)));
+            fields.push(("limit".into(), json::n(query.limit as f64)));
+            fields.push(("offset".into(), json::n(query.offset as f64)));
+            fields.push(("source_kind".into(), json::s("realtime_core")));
         }
         let v = json::obj_sorted(fields);
         self.admin_reply(conn_id, req_id, v);
@@ -542,7 +675,14 @@ impl World {
         );
     }
 
-    fn admin_settle_day(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+    pub(crate) fn admin_settle_day(&mut self, conn_id: u64, req_id: u32, v: &Value) {
+        match self.settle_day(v) {
+            Ok(reply) => self.admin_reply(conn_id, req_id, reply),
+            Err(error) => self.admin_error(conn_id, req_id, &error),
+        }
+    }
+
+    pub(crate) fn settle_day(&mut self, v: &Value) -> Result<Value, String> {
         let next_day = match v.get_str("next_trading_day") {
             Some(day) => day.to_string(),
             None => match self
@@ -553,25 +693,23 @@ impl World {
             {
                 Some(day) => day,
                 None => {
-                    return self.admin_error(
-                        conn_id,
-                        req_id,
-                        "settle_day 需要 next_trading_day（或配置完整离线日历）",
+                    return Err(
+                        ("settle_day 需要 next_trading_day（或配置完整离线日历）").to_string()
                     )
                 }
             },
         };
         let Some(prices) = v.get("settlement_prices").and_then(Value::as_obj) else {
-            return self.admin_error(conn_id, req_id, "settle_day 需要 settlement_prices 对象");
+            return Err(("settle_day 需要 settlement_prices 对象").to_string());
         };
         if self.playback.as_ref().map(|p| !p.paused()).unwrap_or(false) {
-            return self.admin_error(conn_id, req_id, "日结前必须暂停 playback");
+            return Err(("日结前必须暂停 playback").to_string());
         }
         if self.engine.open_order_count() != 0 {
-            return self.admin_error(conn_id, req_id, "日结前不能存在活动订单");
+            return Err(("日结前不能存在活动订单").to_string());
         }
         let Some(fields) = v.as_obj() else {
-            return self.admin_error(conn_id, req_id, "settle_day 请求必须为对象");
+            return Err(("settle_day 请求必须为对象").to_string());
         };
         let mut seen = std::collections::HashSet::new();
         for (key, _) in fields {
@@ -580,20 +718,19 @@ impl World {
                 "cmd" | "settlement_prices" | "next_trading_day"
             ) || !seen.insert(key)
             {
-                return self.admin_error(conn_id, req_id, "settle_day 含未知或重复字段");
+                return Err(("settle_day 含未知或重复字段").to_string());
             }
         }
         let mut map = std::collections::HashMap::new();
         for (instrument, value) in prices {
             let Some(price) = value.as_num() else {
-                return self.admin_error(
-                    conn_id,
-                    req_id,
-                    &format!("结算价 {instrument} 必须为数字"),
-                );
+                return Err(format!("结算价 {instrument} 必须为数字"));
             };
+            if !price.is_finite() || price <= 0.0 {
+                return Err(format!("结算价 {instrument} 必须为有限正数"));
+            }
             if map.insert(instrument.clone(), price).is_some() {
-                return self.admin_error(conn_id, req_id, "结算价合约重复");
+                return Err(("结算价合约重复").to_string());
             }
         }
         let current_day = self.vt_trading_day.clone();
@@ -605,14 +742,11 @@ impl World {
             .collect();
         brokers.sort_unstable();
         let mut staged_ledger = self.ledger.clone();
-        let forced = match self.stage_expired_liquidations(&map, &current_day, &mut staged_ledger) {
-            Ok(forced) => forced,
-            Err(e) => return self.admin_error(conn_id, req_id, &e),
-        };
+        let forced = self.stage_expired_liquidations(&map, &current_day, &mut staged_ledger)?;
         if let Err(e) =
             staged_ledger.settle_trading_day(self.engine.catalog(), &map, &current_day, &next_day)
         {
-            return self.admin_error(conn_id, req_id, &e);
+            return Err(e.to_string());
         }
         let mut staged_engine = self.engine.clone();
         staged_engine.advance_trading_day();
@@ -707,7 +841,7 @@ impl World {
             })
             .collect();
         if let Err(e) = self.save_reports(generated) {
-            return self.admin_error(conn_id, req_id, &format!("保存结算报告失败: {e}"));
+            return Err(format!("保存结算报告失败: {e}"));
         }
         self.ledger = staged_ledger;
         self.record_forced_liquidations(&forced);
@@ -733,20 +867,16 @@ impl World {
         self.settlement_confirmed.clear();
         self.vt_trading_day = next_day.clone();
         self.persist_ledger();
-        self.admin_reply(
-            conn_id,
-            req_id,
-            json::obj_sorted(vec![
-                ("ok".into(), json::b(true)),
-                ("cmd".into(), json::s("settle_day")),
-                ("trading_day".into(), json::s(&next_day)),
-                ("forced_liquidations".into(), json::n(forced.len() as f64)),
-                (
-                    "brokers".into(),
-                    Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
-                ),
-            ]),
-        );
+        Ok(json::obj_sorted(vec![
+            ("ok".into(), json::b(true)),
+            ("cmd".into(), json::s("settle_day")),
+            ("trading_day".into(), json::s(&next_day)),
+            ("forced_liquidations".into(), json::n(forced.len() as f64)),
+            (
+                "brokers".into(),
+                Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
+            ),
+        ]))
     }
 
     fn admin_announce(&mut self, conn_id: u64, req_id: u32, v: &Value) {

@@ -15,6 +15,7 @@ from pathlib import Path
 from .scenario import ScenarioError, load_scenario_spec
 from .sdk import Admin
 from .store import ReadModelMetadata
+from .journal import JournalError
 
 MAX_BODY = 8192
 MAX_SCENARIO_NAME = 160
@@ -136,7 +137,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
         def do_GET(self):
             if not self.valid_source():
                 return self.reply(403, {"error": "Host/Origin 校验失败"})
-            assets = {"/": "settings.html", "/settings.js": "settings.js", "/settings.css": "settings.css"}
+            assets = {"/": "settings.html", "/settings.js": "settings.js", "/settings.css": "settings.css", "/live.js": "live.js"}
             if self.path in assets:
                 name = assets[self.path]
                 kind = "text/html" if name.endswith("html") else ("text/javascript" if name.endswith("js") else "text/css")
@@ -148,6 +149,8 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 return self.projection()
             if path == "/api/replay/status":
                 return self.playback_status()
+            if path == "/api/live":
+                return self.live_status()
             if path == "/api/scenarios":
                 return self.scenarios()
             if path == "/api/scenario":
@@ -195,7 +198,6 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             def one(name):
                 return query.get(name, [None])[0]
             try:
-                from .journal import JournalError
                 from .store import Projection
                 with Projection(database) as projection:
                     rows = projection.query(table, broker=one("broker"), investor=one("investor"),
@@ -335,6 +337,40 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             if self.path != "/api/replay/status":
                 return self.reply(400, {"error": "回放状态不接受查询参数"})
             self.invoke(playback={"cmd": "status"})
+
+        def live_status(self):
+            query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            if set(query) - {"broker", "investor", "limit", "offset"} or any(len(v) != 1 for v in query.values()):
+                return self.reply(400, {"error": "实时查询参数无效"})
+            filters = {key: values[0] for key, values in query.items()}
+            try:
+                for key, low, high in (("limit", 1, 200), ("offset", 0, 1000000000)):
+                    if key in filters:
+                        if not filters[key].isascii() or not filters[key].isdigit():
+                            raise ValueError()
+                        filters[key] = int(filters[key])
+                        if not low <= filters[key] <= high:
+                            raise ValueError()
+                if any(not filters[k] or len(filters[k].encode("utf-8")) > 64 for k in ("broker", "investor") if k in filters):
+                    raise ValueError()
+            except ValueError:
+                return self.reply(400, {"error": "实时查询参数无效"})
+            if not slots.acquire(blocking=False):
+                return self.reply(429, {"error": "并发请求过多"})
+            try:
+                with Admin(admin, timeout=3, calendar=calendar) as client:
+                    status = client.live_status(**filters)
+                result = {key: status.get(key) for key in (
+                    "accounts", "positions", "orders", "trades", "open_orders", "broker_id",
+                    "account_count", "position_count", "order_count", "trade_count", "limit", "offset")}
+                result.update({"ok": True, "source_kind": "realtime_core", "realtime": True,
+                               "trading_day": status.get("playback", {}).get("trading_day"),
+                               "metadata": ReadModelMetadata.from_admin_status(status).as_dict()})
+                return self.reply(200, result)
+            except (OSError, ValueError, ConnectionError, RuntimeError, JournalError):
+                return self.reply(503, {"error": "实时核心不可用"})
+            finally:
+                slots.release()
 
         def replay_view(self, client):
             status = client.status()

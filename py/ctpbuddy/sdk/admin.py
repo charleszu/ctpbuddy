@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 from typing import Any, Dict, Optional
 
@@ -15,12 +16,23 @@ class Admin:
         addr: str = "127.0.0.1:5561",
         timeout: float = 10.0,
         calendar: Optional[CalendarProvider] = None,
+        token: Optional[str] = None,
     ) -> None:
         host, _, port = addr.rpartition(":")
         self.sock = socket.create_connection((host, int(port)), timeout=timeout)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._seq = 0
         self.calendar = calendar
+        configured_token = os.environ.get("CTPBUDDY_ADMIN_TOKEN") if token is None else token
+        if configured_token is not None:
+            if not configured_token:
+                self.close()
+                raise ValueError("ADMIN token must not be empty")
+            try:
+                self.cmd("auth", token=configured_token)
+            except Exception:
+                self.close()
+                raise
 
     def close(self) -> None:
         self.sock.close()
@@ -52,13 +64,18 @@ class Admin:
         return self.cmd("ping")
 
     def status(self) -> Dict[str, Any]:
-        status = self.cmd("status")
+        return self._validate_status(self.cmd("status"))
+
+    def _validate_status(self, status: Dict[str, Any]) -> Dict[str, Any]:
         if self.calendar is not None:
             expected = (self.calendar.metadata["version"], self.calendar.sha256)
             actual = (status.get("calendar_version"), status.get("calendar_sha256"))
             if actual != expected:
                 raise RuntimeError("ADMIN calendar metadata 与本地日历不匹配")
         return status
+
+    def live_status(self, **filters: Any) -> Dict[str, Any]:
+        return self._validate_status(self.cmd("live_status", **filters))
 
     def settings(self) -> Dict[str, Any]:
         return self.cmd("settings_get")

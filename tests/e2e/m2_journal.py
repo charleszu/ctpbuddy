@@ -307,6 +307,7 @@ def record_run(core: str, scenario: str, rundir: str) -> tuple[str, int]:
             for cli in clients.values():
                 cli.close()
         time.sleep(0.2)
+        admin.cmd("announce", message="canonical notice", severity="info")
         admin.shutdown()
         try:
             out, _ = proc.communicate(timeout=5)
@@ -415,6 +416,7 @@ def main() -> int:
         assert res["replay_core"] == core1, (res["replay_core"], core1)
         assert res["replay_events"] == len(events1), (res["replay_events"], len(events1))
         c = res["counts"]
+        assert c["announcement"] == 1, c
         assert c["session"] == 6 and c["order"] == 5, c
         assert c["tick"] == TOTAL_TICKS and c["load"] == 1, c
         assert not res["problems"] and not res["notes"], res

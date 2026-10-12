@@ -7,7 +7,7 @@ description: 从仓库 DESIGN.md 提取的架构摘要。
 flowchart TB
   C[下游策略 / 终端 / 条件单]
   S[CTPBuddy Shim<br/>C++ DLL/SO<br/>CTP ABI + SPI]
-  TD[TCP TD 前置<br/>默认 127.0.0.1:5560]
+  TD[TCP / ZeroMQ TD 前置<br/>默认 127.0.0.1:5560]
   A[ADMIN JSON<br/>默认 127.0.0.1:5561]
   P[Python CLI / SDK / Web<br/>场景编译、回放、设置、日历、投影]
 
@@ -30,7 +30,7 @@ flowchart TB
   Q[data/ctpbuddy.db<br/>journal 投影]
 
   C <-->|CTP API| S
-  S <-->|CB 帧 over TCP| TD
+  S <-->|CB 帧 over TCP / ZeroMQ| TD
   TD <--> SV
   P <--> A
   A <--> SV
@@ -44,3 +44,5 @@ flowchart TB
 TD 是下游 CTP 应用的数据面，ADMIN 是 Python 控制面；两者使用独立端口。核心默认使用明文 TCP 承载 CB 帧，也支持 Shim 和原生客户端通过 `zmq://` 端点进入 ROUTER/DEALER 适配；设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后可订阅 `md/`、`td/` 与 `sys/` PUB/SUB 广播。Shim 不承载业务逻辑；Rust 核心保持确定性撮合和账户单写者边界；Python 控制面不实现撮合与账本。
 
 完整设计和 ADR 见仓库根 [`DESIGN.md`](https://github.com/charleszu/ctpbuddy/blob/main/DESIGN.md)。
+
+ZeroMQ 可选 native libzmq CURVE/ZAP 公钥白名单，ADMIN 可选 token；自动日结使用 dated 外部结算价文件，实时后台通过 live_status 获取同一次核心快照。配置与验收见仓库 `docs/operations.md`。

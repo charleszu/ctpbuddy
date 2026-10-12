@@ -206,7 +206,7 @@ class _Walker:
         self._load_checked = False
         self.counts = {"load": 0, "session": 0, "order": 0, "cancel": 0,
                        "reset": 0, "settle": 0, "report": 0, "settings": 0,
-                       "deposit": 0, "withdraw": 0,
+                       "deposit": 0, "withdraw": 0, "announcement": 0,
                        "not_replayed": 0, "tick": 0}
 
     # -- helpers ------------------------------------------------------------
@@ -512,6 +512,10 @@ class _Walker:
             self._admin_reissue(ev, "report", lambda: self.admin.settlement_report([report]))
             self._say("settlement_report %s/%s %s" % (
                 report["broker"], report["investor"], report["trading_day"]))
+        elif t == "system_announcement":
+            self._admin_reissue(ev, "announcement", lambda: self.admin.cmd(
+                "announce", message=d["message"], severity=d["severity"]))
+            self._say("system_announcement %s" % d["severity"])
         elif t == "settings_updated":
             after = d.get("after")
             if not isinstance(after, dict):
@@ -582,7 +586,7 @@ class _Walker:
                 self.on_order_insert(ev)
             elif t == "order_cancel":
                 self.on_order_cancel(ev)
-            elif t in ADMIN_INPUT_TYPES:
+            elif t in ADMIN_INPUT_TYPES or t == "system_announcement":
                 self.on_admin_input(ev)
 
     def close(self) -> None:

@@ -20,6 +20,10 @@ def _validate_contract_document(value: Dict[str, Any]) -> None:
     version = value.get("contract_version")
     if isinstance(version, bool) or not isinstance(version, int):
         raise RuntimeError("journal contract must contain an integer contract_version")
+    read_versions = value.get("read_versions", [version])
+    if (not isinstance(read_versions, list) or version not in read_versions
+            or any(isinstance(v, bool) or not isinstance(v, int) or v < 1 or v > version for v in read_versions)):
+        raise RuntimeError("journal contract read_versions must contain supported integer versions")
     envelope = value.get("envelope")
     events = value.get("events")
     if not isinstance(envelope, dict) or not isinstance(events, dict) or not events:
@@ -41,6 +45,9 @@ def _validate_contract_document(value: Dict[str, Any]) -> None:
     for event_type, spec in events.items():
         if not isinstance(event_type, str) or not isinstance(spec, dict):
             raise RuntimeError("journal contract event specs must be objects")
+        minimum = spec.get("min_version", 1)
+        if isinstance(minimum, bool) or not isinstance(minimum, int) or not 1 <= minimum <= version:
+            raise RuntimeError("journal contract event min_version is invalid")
         for key in ("category", "replay", "hash"):
             if not isinstance(spec.get(key), str):
                 raise RuntimeError("journal contract %s.%s must be a string" % (event_type, key))
@@ -173,13 +180,15 @@ def validate_event_contract(event: Dict[str, Any]) -> List[str]:
     event_type = event.get("type")
     if not isinstance(event_type, str) or event_type not in KNOWN_TYPES:
         problems.append("unknown event type %r" % event_type)
+    spec = EVENTS.get(event_type) if isinstance(event_type, str) else None
     if "contract_version" in event:
         version = event["contract_version"]
-        if isinstance(version, bool) or not isinstance(version, int) or version != CONTRACT_VERSION:
+        if (isinstance(version, bool) or not isinstance(version, int)
+                or version not in CONTRACT.get("read_versions", [CONTRACT_VERSION])
+                or version < (spec.get("min_version", 1) if spec else 1)):
             problems.append("contract_version %r does not match %d" % (version, CONTRACT_VERSION))
     if "data" in event and DATA_TYPE == "object_or_null" and event["data"] is not None and not isinstance(event["data"], dict):
         problems.append("data must be an object or null")
-    spec = EVENTS.get(event_type) if isinstance(event_type, str) else None
     required_data = spec.get("data_required", []) if spec else []
     data = event.get("data")
     if required_data:

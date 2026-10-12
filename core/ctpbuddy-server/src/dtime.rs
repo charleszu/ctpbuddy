@@ -80,6 +80,18 @@ pub fn today_natural_date() -> String {
     format!("{y:04}{m:02}{d:02}")
 }
 
+/// Current China Standard Time wall clock (`HH:MM:SS`) without trading-day
+/// rollover. Used only by operational schedulers; journal virtual time stays
+/// deterministic and never consults this helper.
+pub fn now_cst_time() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let cst = now.as_secs() as i64 + 8 * 3600;
+    let sod = cst.rem_euclid(86_400);
+    format!("{:02}:{:02}:{:02}", sod / 3600, (sod % 3600) / 60, sod % 60)
+}
+
 /// (year, month, day) -> days since 1970-01-01. Inverse of `civil_from_days`.
 pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };

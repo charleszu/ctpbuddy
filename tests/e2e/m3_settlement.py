@@ -36,6 +36,17 @@ def main() -> int:
         os.makedirs(sdir)
         scenario(sdir)
         shutil.copytree(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "refdata"), os.path.join(sdir, "refdata"))
+        # Fictional October carry-over fixture: these contracts must survive
+        # the settlement window. Real expiry liquidation has its own acceptance.
+        instruments = os.path.join(sdir, "refdata", "instruments.jsonl")
+        with open(instruments, encoding="utf-8") as f:
+            contracts = [json.loads(line) for line in f if line.strip()]
+        for contract in contracts:
+            if contract["instrument_id"] in (RB, M):
+                contract["expire_date"] = "20270115"
+        with open(instruments, "w", encoding="utf-8") as f:
+            for contract in contracts:
+                f.write(json.dumps(contract) + "\n")
         calendar = TradingCalendar.from_json({
             "schema": "ctpbuddy.trading-calendar/v1",
             "version": "e2e-2026-r1",
