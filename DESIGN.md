@@ -23,11 +23,11 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | 设计条目 | 当前实现 | 影响 |
 |---|---|---|
 | §6 ZeroMQ DEALER/ROUTER + PUB/SUB | TD 原生端点已支持 ZeroMQ ROUTER/DEALER；ZMQ TD 模式设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后支持 `md/...`、`td/...` PUB/SUB 广播；TCP 与 ZMQ 共用 CB 帧 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道；ZMQ/TCP 共用并发上限 |
-| §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | `CTPBUDDY_ADDR` 已支持 TCP、ZeroMQ TCP 与 ZeroMQ IPC；Shim 可直接连接 `zmq://ipc:///path`；`ctpbuddy.ini` 别名表仍未实现 | 下游仍需把生产前置别名改为显式 CTPBuddy 地址；IPC 传输已成立 |
+| §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | `CTPBUDDY_ADDR` 已支持 TCP、ZeroMQ TCP 与 ZeroMQ IPC；Shim 可直接连接 `zmq://ipc:///path`；`ctpbuddy.ini` `[fronts]` 别名表已支持；`CTPBUDDY_INI` 可指定路径，默认查找当前目录 | 生产前置地址需要由部署提供别名映射文件；IPC 传输已成立 |
 | §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离；ADMIN status 暴露稳定 broker scope；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 已完成单进程多 Broker 的运行与结算编排；需要故障域、版本或管理边界时仍应运行多个核心实例 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
 | §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，snapshot 前先 flush journal；`--recover` 会读取上一轮归档 journal，并把快照之后的 `fill`、`order_update`、`reset_account`、`settlement`、`settings_updated`、`deposit`、`withdraw` 尾部应用到账本和私有流；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；历史泛型 `settle` / `admin` 仍 fail closed |
-| §5 Shim DLL/so | Windows DLL 与 Linux `.so` 均支持 TCP 与运行时加载 libzmq 的 `zmq://` DEALER；可选订阅 `md/`、`td/` PUB/SUB；`CTPBUDDY_ADDR` 可整体重定向前置 | 前置别名表 `ctpbuddy.ini` 仍未实现；ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
+| §5 Shim DLL/so | Windows DLL 与 Linux `.so` 均支持 TCP 与运行时加载 libzmq 的 `zmq://` DEALER；可选订阅 `md/`、`td/`、`sys/` PUB/SUB；`ctpbuddy.ini` `[fronts]` 与 `CTPBUDDY_ADDR` 可整体重定向前置 | ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
 | RefData 供给与查询/计算一致性 | Rust/Python 共用 versioned `ctpbuddy.refdata` contract；表名、字段、默认值、枚举和 numeric 字段由单一 JSON contract 校验并生成 Rust 常量，fixture vectors 覆盖两侧解析 | 仍需使用者提供真实费率/申报费数据；核心不编造缺失费率，跨品种复杂组合与仓单折抵仍未建模 |
 | Live / projection read model provenance | ADMIN live status 与 SQLite journal projection 共用 `ReadModelMetadata` 字段形状；包含 source、journal/core/projection hash、calendar 与 contract provenance；Web 明确标示 realtime 与 snapshot；ADMIN/Web replay status 暴露实时持仓 rows | 完整实时账户/订单后台仍未提供；SQLite projection 仍是可重建的非实时读模型 |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | 暂不纳入当前实现范围 |

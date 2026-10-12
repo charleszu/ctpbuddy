@@ -45,7 +45,7 @@ Wire v1 保持现有小端 C 布局和字段偏移，Rust 编解码按字段处�
 
 - M1 核心闭环 + Shim 全链路、M2 撮合/流控、M3 参考数据/显式日结/OrderSysID/结算单/journal 投影：已完成。
 - 近期已补齐：交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 写入口；真实 release package 与 Hugo 文档站已在本机验收。
-- 未完成：`ctpbuddy.ini` 前置别名/IPC、M4 三渠道正式发布流程和完整 Web 运营后台；Windows release package 构建与真实产物验收已在本机通过，Docker acceptance 已接入 CI（本机仍因 daemon 不可用而 SKIP）。详见 DESIGN §0.6。
+- 未完成：M4 三渠道正式发布流程和完整 Web 运营后台；Shim 已支持 `ctpbuddy.ini` `[fronts]` 别名与 ZeroMQ IPC；Windows release package 构建与真实产物验收已在本机通过，Docker acceptance 已接入 CI（本机仍因 daemon 不可用而 SKIP）。详见 DESIGN §0.6。
 
 ## 快速开始
 

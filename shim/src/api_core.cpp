@@ -19,6 +19,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <string_view>
 
 #ifdef _WIN32
@@ -116,6 +117,40 @@ ZmqLibrary& zmq_library() {
 
 bool starts_with(const std::string& value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix.data(), prefix.size()) == 0;
+}
+
+std::string trim_ascii(std::string value) {
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    const auto last = value.find_last_not_of(" \t\r\n");
+    return value.substr(first, last - first + 1);
+}
+
+std::string resolve_front_alias(const std::string& addr) {
+    const char* configured = std::getenv("CTPBUDDY_INI");
+    const std::string path = configured && *configured ? configured : "ctpbuddy.ini";
+    std::ifstream input(path);
+    if (!input) return addr;
+    bool in_fronts = false;
+    std::string line;
+    while (std::getline(input, line)) {
+        line = trim_ascii(line);
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+        if (line.front() == '[' && line.back() == ']') {
+            in_fronts = trim_ascii(line.substr(1, line.size() - 2)) == "fronts";
+            continue;
+        }
+        if (!in_fronts) continue;
+        const auto equals = line.find('=');
+        if (equals == std::string::npos) continue;
+        const auto comment = line.find_first_of(";#", equals + 1);
+        const std::string key = trim_ascii(line.substr(0, equals));
+        const std::string value = trim_ascii(line.substr(equals + 1, comment == std::string::npos
+                                                               ? std::string::npos
+                                                               : comment - equals - 1));
+        if (!key.empty() && key == addr && !value.empty()) return value;
+    }
+    return addr;
 }
 
 #ifdef _WIN32
@@ -246,9 +281,9 @@ void ApiCore::parse_address(const std::string& addr, TransportKind& kind,
                             std::string& host, int& port, std::string& endpoint) {
     std::string s = addr;
     endpoint.clear();
-    if (starts_with(s, "zmq://")) {
+    if (starts_with(s, "zmq://") || starts_with(s, "ipc://")) {
         kind = TransportKind::Zmq;
-        endpoint = s.substr(6);
+        endpoint = starts_with(s, "zmq://") ? s.substr(6) : s;
         if (endpoint.empty()) {
             host.clear();
             port = 0;
@@ -285,7 +320,7 @@ void ApiCore::core_register_front(const char* addr) {
         transport_kind_ = TransportKind::Tcp;
         return;
     }
-    parse_address(front_addr_, transport_kind_, front_host_, front_port_, zmq_endpoint_);
+    parse_address(resolve_front_alias(front_addr_), transport_kind_, front_host_, front_port_, zmq_endpoint_);
 }
 
 void ApiCore::core_register_name_server(const char* addr) {
@@ -294,7 +329,7 @@ void ApiCore::core_register_name_server(const char* addr) {
     // No name-server resolution in M1: if the app only registered a name
     // server, treat it as the front (best effort).
     if (front_addr_.empty() && !ns_addr_.empty()) {
-        parse_address(ns_addr_, transport_kind_, front_host_, front_port_, zmq_endpoint_);
+        parse_address(resolve_front_alias(ns_addr_), transport_kind_, front_host_, front_port_, zmq_endpoint_);
     }
 }
 
