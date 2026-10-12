@@ -12,7 +12,7 @@
 
 Python 侧 `ctpbuddy.calendar.TradingCalendar` 使用固定版本 JSON 快照，运行时不联网。快照区分自然日（`YYYY-MM-DD`）、期货交易日（`TradingDay=YYYYMMDD`）和夜盘的 `ActionDay`/`TradingDay`；缺失日期不是休市，缺失夜盘映射也不允许推断。`Admin.settle_day` 的 `next_trading_day` 可省略，此时仅由已加载快照根据当前期货 TradingDay 推导；显式参数仍保留。
 
-官方交易日历只能按交易所/中期协公开公告固定版本落地；公告可能只给节假日休市安排，不等价于全年逐日交易日快照。当前 `calendar/production/` 有上期所公告〔2025〕157号的元旦样本，以及 2026 全年日盘候选快照（`scope: day-session-only`，夜盘只固化公告明确的 closed 边界）；manifest 记录公告 URL、固定摘录 revision、覆盖范围、SHA256 和缺口。未取得完整逐日资料时不得用股票日历或周末规则伪造夜盘映射。夜盘开放记录必须同时给出 ActionDay/TradingDay；官方明确关闭记录用 `status: closed`，其余缺失一律拒绝查询。
+官方交易日历只能按交易所/中期协公开公告固定版本落地；公告可能只给节假日休市安排，不等价于全年逐日交易日快照。六所日盘休市/开市安排按统一 contract 处理，manifest 以 SHFE 作为 canonical exchange；夜盘仍按交易所分别记录。当前 `calendar/production/` 有上期所公告〔2025〕157号的元旦样本，以及 2026 全年日盘候选快照（`scope: day-session-only`，夜盘只固化公告明确的 closed 边界）；manifest 记录公告 URL、固定摘录 revision、覆盖范围、SHA256 和缺口。未取得完整逐日资料时不得用股票日历或周末规则伪造夜盘映射。夜盘开放记录必须同时给出 ActionDay/TradingDay；官方明确关闭记录用 `status: closed`，其余缺失一律拒绝查询。
 
 GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 commit、许可证和覆盖边界后人工生成快照。已核查 `gerrymanoim/exchange_calendars`（Apache-2.0，commit `bbda29fed902374bdb75acab008f421fbd567823`）：其 README 说明这是证券交易所常规时段日历，且用户贡献维护；不含 CTP 期货夜盘字段，因此不能直接替代期货日历。用户快照可通过 `with_overrides` 按自然日整条覆盖，并用 SHA256 固定复现。
 

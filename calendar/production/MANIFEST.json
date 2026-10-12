@@ -95,5 +95,18 @@
     "SHFE/INE/CFFEX 已固定官方正文 hash；DCE 为动态/不可达参考页，CZCE/GFEX 未取得可固定的休市正文。需使用者复核后用于生产。",
     "不覆盖临时停市、品种交易时段、公告后修订、2027下一交易日；快照年末next_trading_day超范围必须失败。"
   ],
-  "research": "official-calendar-2026-research.md"
+  "research": "official-calendar-2026-research.md",
+  "day_session_basis": {
+    "kind": "uniform-six-exchange",
+    "canonical_exchange": "SHFE",
+    "scope": "day-session-only",
+    "exchanges": [
+      "SHFE",
+      "INE",
+      "CZCE",
+      "DCE",
+      "CFFEX",
+      "GFEX"
+    ]
+  }
 }

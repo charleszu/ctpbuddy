@@ -510,6 +510,12 @@ def test_calendar() -> None:
         manifest = validate_manifest(fh.read(), snapshot_path=production_path)
     assert manifest["status"] == "complete-day-session-partial-night"
     assert manifest["research"] == "official-calendar-2026-research.md"
+    assert manifest["day_session_basis"] == {
+        "kind": "uniform-six-exchange",
+        "canonical_exchange": "SHFE",
+        "scope": "day-session-only",
+        "exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"],
+    }
     assert cli_main(["calendar", "validate", production_path, "--manifest", manifest_path]) == 0
     with tempfile.TemporaryDirectory() as root:
         broken_manifest = os.path.join(root, "MANIFEST.json")

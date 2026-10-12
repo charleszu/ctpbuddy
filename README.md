@@ -169,7 +169,7 @@ with Admin(calendar=calendar) as admin:
 
 自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中显式标记：开放时同时提供 `night_action_day` 和 `night_trading_day`，官方明确关闭时使用 `{"status":"closed"}`；缺失时拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
 
-`calendar/production/cn-futures-day-2026.snapshot.json` 是项目离线快照：完整覆盖 2026 自然日的“周一至周五且不在六所同日公开节假日区间”的日盘候选，并将其明确标为 `scope: day-session-only`；它不是六所官方逐日 TradingDay 数据库，也不把民用调休工作日直接当期货交易日。六所来源、提取 revision、事实 hash、DCE 动态参考页及夜盘缺口均登记在 `calendar/production/MANIFEST.json`。夜盘只固化公告明确的 closed 边界，未知 open/closed 一律拒绝推断；生产使用前须复核公告并固定 SHA256。`build_2026.py` 仅是可审计的离线生成器，不访问网络。
+`calendar/production/cn-futures-day-2026.snapshot.json` 是项目离线快照：完整覆盖 2026 自然日的“周一至周五且不在六所同日公开节假日区间”的统一日盘候选，并将其明确标为 `scope: day-session-only`；六所日盘休市/开市日历按统一 contract 处理，manifest 以 SHFE 作为 canonical exchange，无需重复维护六份相同日盘表。它不是六所官方逐日 TradingDay 数据库，也不把民用调休工作日直接当期货交易日。六所来源、提取 revision、事实 hash、DCE 动态参考页及夜盘缺口均登记在 `calendar/production/MANIFEST.json`。夜盘只固化公告明确的 closed 边界，未知 open/closed 一律拒绝推断；生产使用前须复核公告并固定 SHA256。`build_2026.py` 仅是可审计的离线生成器，不访问网络。
 
 生产目录仍保留 `shfe-2026-new-year.sample.json`：固定来源为上期所 2025-12-17〔2025〕157号公告，覆盖 2025-12-31 至 2026-01-05 的元旦样本及 2025-12-31 夜盘关闭边界，SHA256 为 `3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a`。新增全年日盘快照 SHA256 为 `b9217ede09a806e99d3819331367b76731bf4407fade96f2a02ed3123fdb71e3`，覆盖 365 自然日、24 条显式夜盘关闭记录；完整逐日夜盘仍未取得，manifest 明确记录缺口。不能把缺失夜盘解释为关闭或开放。
 

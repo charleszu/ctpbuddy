@@ -237,7 +237,7 @@ def validate_manifest(
         raise CalendarError("交易日历 manifest JSON 无法解析") from exc
     _keys(raw, {
         "schema", "version", "created_at", "scope", "runtime", "status",
-        "coverage", "snapshots", "not_authoritative", "gaps", "research",
+        "coverage", "day_session_basis", "snapshots", "not_authoritative", "gaps", "research",
     }, "manifest")
     if raw.get("schema") != "ctpbuddy.trading-calendar-manifest/v1":
         raise CalendarError("不支持的交易日历 manifest schema")
@@ -260,6 +260,17 @@ def validate_manifest(
         raise CalendarError("manifest.coverage.complete_range/night_complete 必须是布尔值")
     if coverage.get("scope") != "day-session-only":
         raise CalendarError("manifest.coverage.scope 必须是 day-session-only")
+    basis = raw.get("day_session_basis")
+    if basis is not None:
+        _keys(basis, {"kind", "canonical_exchange", "scope", "exchanges"}, "manifest.day_session_basis")
+        if basis.get("kind") != "uniform-six-exchange":
+            raise CalendarError("manifest.day_session_basis.kind 必须是 uniform-six-exchange")
+        if basis.get("canonical_exchange") != "SHFE":
+            raise CalendarError("manifest.day_session_basis.canonical_exchange 必须是 SHFE")
+        if basis.get("scope") != "day-session-only":
+            raise CalendarError("manifest.day_session_basis.scope 必须是 day-session-only")
+        if basis.get("exchanges") != ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"]:
+            raise CalendarError("manifest.day_session_basis.exchanges 必须列出六所固定顺序")
     snapshots = raw.get("snapshots")
     if not isinstance(snapshots, list) or not snapshots:
         raise CalendarError("manifest.snapshots 必须是非空数组")

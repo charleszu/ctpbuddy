@@ -48,6 +48,12 @@ def build():
     manifest.update(version="2026-10-04-r2", status="complete-day-session-partial-night",
                     coverage={"start": "2026-01-01", "end": "2026-12-31", "complete_range": True,
                               "scope": "day-session-only", "night_complete": False})
+    manifest["day_session_basis"] = {
+        "kind": "uniform-six-exchange",
+        "canonical_exchange": "SHFE",
+        "scope": "day-session-only",
+        "exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"],
+    }
     manifest["snapshots"] = [manifest["snapshots"][0], {"path": path.name, "sha256": sha,
         "source_revision": "six-exchange-extract-20261004-r1", "sources": SOURCES,
         "facts_sha256": hashlib.sha256(canonical({"sources": SOURCES, "holidays": HOLIDAYS, "night_closed": NIGHT_CLOSED})).hexdigest(),
