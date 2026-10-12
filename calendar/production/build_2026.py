@@ -63,7 +63,7 @@ def build():
         "六所公布的节假日日盘关闭区间一致；周末不因民用调休上班而开市，不供给民用工作日日历。",
         "SHFE/INE/CZCE/DCE仅记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。其他夜盘未知，不由日盘或周末推断。",
         "GFEX/CFFEX未在本快照填充夜盘；未核验官方逐日open映射，绝不推断。",
-        "SHFE/INE/CFFEX 已固定官方正文 hash；DCE 为动态/不可达参考页，CZCE/GFEX 未取得可固定的休市正文。需使用者复核后用于生产。",
+        "SHFE/INE/CFFEX 已固定官方正文 hash；DCE 的 18631023 页面是端午风险管理通知而非全年休市安排且直连受限，CZCE/GFEX 未取得可固定的休市正文。需使用者复核后用于生产。",
         "不覆盖临时停市、品种交易时段、公告后修订、2027下一交易日；快照年末next_trading_day超范围必须失败。"]
     (ROOT / "MANIFEST.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(sha)
