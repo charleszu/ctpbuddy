@@ -201,7 +201,7 @@ fn valid_day(day: &str) -> bool {
     }
 }
 
-pub(crate) fn load_reports(dir: &str, broker: &str) -> Result<Vec<Report>, String> {
+pub(crate) fn load_reports(dir: &str, brokers: &[&str]) -> Result<Vec<Report>, String> {
     let path = std::path::Path::new(dir).join("settlement_reports");
     if dir.is_empty() || !path.exists() {
         return Ok(Vec::new());
@@ -222,7 +222,13 @@ pub(crate) fn load_reports(dir: &str, broker: &str) -> Result<Vec<Report>, Strin
             return Err("报告存储格式错误".into());
         };
         for row in rows {
-            let report = Report::parse(&row, broker)?;
+            let broker = row
+                .get_str("broker")
+                .ok_or_else(|| "报告存储缺少 broker".to_string())?;
+            if !brokers.iter().any(|allowed| *allowed == broker) {
+                return Err(format!("报告存储含不支持的 BrokerID: {broker}"));
+            }
+            let report = Report::parse(&row, &broker)?;
             if !keys.insert((
                 report.broker.clone(),
                 report.investor.clone(),

@@ -371,7 +371,18 @@ impl World {
         };
         let mut reports = Vec::new();
         for item in items {
-            match crate::settlement::Report::parse(item, self.cfg.primary_broker()) {
+            let broker = match item.get_str("broker") {
+                Some(value) if self.cfg.supports_broker(&value) => value,
+                Some(value) => {
+                    return self.admin_error(
+                        conn_id,
+                        req_id,
+                        &format!("不支持的 BrokerID: {value}"),
+                    )
+                }
+                None => return self.admin_error(conn_id, req_id, "报告缺少 broker"),
+            };
+            match crate::settlement::Report::parse(item, &broker) {
                 Ok(r) => reports.push(r),
                 Err(e) => return self.admin_error(conn_id, req_id, &e),
             }
@@ -509,6 +520,13 @@ impl World {
             }
         }
         let current_day = self.vt_trading_day.clone();
+        let mut brokers: Vec<String> = self
+            .cfg
+            .broker_ids()
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        brokers.sort_unstable();
         let mut staged_ledger = self.ledger.clone();
         if let Err(e) =
             staged_ledger.settle_trading_day(self.engine.catalog(), &map, &current_day, &next_day)
@@ -593,6 +611,10 @@ impl World {
                 "cleared_confirmations".into(),
                 json::n(self.settlement_confirmed.len() as f64),
             ),
+            (
+                "brokers".into(),
+                Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
+            ),
         ]);
         let generated = World::minimal_reports(&staged_ledger, &current_day)
             .into_iter()
@@ -621,6 +643,10 @@ impl World {
                 ("ok".into(), json::b(true)),
                 ("cmd".into(), json::s("settle_day")),
                 ("trading_day".into(), json::s(&next_day)),
+                (
+                    "brokers".into(),
+                    Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
+                ),
             ]),
         );
     }

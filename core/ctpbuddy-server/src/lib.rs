@@ -755,7 +755,7 @@ impl World {
             assertions,
             order_freq_windows: HashMap::new(),
             settlement_confirmed: HashMap::new(),
-            settlement_reports: settlement::load_reports(&cfg.data_dir, cfg.primary_broker())
+            settlement_reports: settlement::load_reports(&cfg.data_dir, &cfg.broker_ids())
                 .unwrap_or_else(|e| {
                     eprintln!("[ctpbuddy] settlement reports disabled: {e}");
                     Vec::new()
@@ -2216,6 +2216,61 @@ mod tests {
         assert!(journal.contains("\"type\":\"withdraw\""));
         assert!(journal.contains("\"broker\":\"8888\""));
         assert!(journal.contains("\"investor\":\"u\""));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn multi_broker_admin_settlement_and_reports_are_scoped() {
+        let dir = std::env::temp_dir().join(format!(
+            "ctpbuddy-multi-broker-settlement-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut cfg = Config::default();
+        cfg.broker_id = "B1,B2".into();
+        cfg.data_dir = dir.to_string_lossy().into_owned();
+        let mut world = World::new(cfg).expect("world");
+        let (tx, rx) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, tx, true);
+        world.on_frame(
+            1,
+            Frame::new(
+                msgs::ADMIN_REQ,
+                1,
+                br#"{"cmd":"settlement_report","reports":[{"broker":"B2","investor":"u2","trading_day":"20261012","settlement_id":1,"account_id":"u2","currency_id":"CNY","content_bytes":[65]}]}"#.to_vec(),
+            ),
+        );
+        let report = rx.try_iter().next().expect("report response");
+        let report_value = json::parse(&String::from_utf8(report.payload).unwrap()).unwrap();
+        assert!(matches!(report_value.get("ok"), Some(Value::Bool(true))));
+        assert_eq!(world.settlement_reports.len(), 1);
+        assert_eq!(world.settlement_reports[0].broker, "B2");
+
+        let next_day = "29990101";
+        world.on_frame(
+            1,
+            Frame::new(
+                msgs::ADMIN_REQ,
+                2,
+                format!(
+                    "{{\"cmd\":\"settle_day\",\"settlement_prices\":{{}},\"next_trading_day\":\"{next_day}\"}}"
+                )
+                .into_bytes(),
+            ),
+        );
+        let settle = rx.try_iter().next().expect("settle response");
+        let settle_value = json::parse(&String::from_utf8(settle.payload).unwrap()).unwrap();
+        assert!(matches!(settle_value.get("ok"), Some(Value::Bool(true))));
+        assert_eq!(world.vt_trading_day, next_day);
+        drop(world);
+
+        let journal_dir = std::fs::read_dir(dir.join("journal")).unwrap();
+        let journal = journal_dir
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .expect("settlement journal");
+        assert!(journal.contains("\"brokers\":[\"B1\",\"B2\"]"), "{journal}");
         let _ = std::fs::remove_dir_all(dir);
     }
 
