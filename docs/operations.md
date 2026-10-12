@@ -69,7 +69,7 @@ ADMIN 新增 `live_status`，Web 提供 `GET /api/live`；筛选 `broker` / `inv
 
 - `tests/e2e/operations.py`：真实核心与 HTTP/CB 边界验证令牌、排队时序、连接窗口恢复、交易所/报撤/身份隔离、实时筛选分页、离线状态，以及日期校验、自动强平、单次结算与恢复。
 - `tests/e2e/curve.py`：真实 CURVE DEALER/PUB，明文/错误服务端公钥/非白名单客户端拒绝，断线计数与重连；`CTPBUDDY_TEST_CURVE_SHIM=1` 额外运行真实 C++ demo。
-- Windows CI 增加 operations；Linux CI 安装 native libzmq 与 pyzmq，执行 CURVE/真实 Shim。缺依赖或验收失败不会静默跳过。本地验收与远端 CI 成功分别记录，不把待跑 CI 称为已成功。
+- CI 工作流已包含 Windows operations、Windows Shim/真实下游、Linux native libzmq/pyzmq CURVE 与真实 Shim；缺依赖或验收失败不会静默跳过。本地验收与远端 CI 结果分开记录，本轮不把未核验的远端 CI 称为已成功。
 
 2026-10-12 本地验证：152 项 Rust 测试、clippy/rustfmt、Python 完整单测与 13 项查询断言测试通过；operations、CURVE（含真实 MSVC Shim 与精确回调次数）、m2_flow、m2_journal、m3_settlement、m3_6_projection、settings、m1_shim_e2e、review_regressions 通过。错误码全集生成检查、JavaScript 语法检查通过。Windows CURVE 验收使用实际编译的 libzmq 4.3.5 + libsodium 与 pyzmq；这些临时验证依赖不入库。
 

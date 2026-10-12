@@ -1046,8 +1046,8 @@ CREATE TABLE audit_log (
 
 | 子项 | 状态 | 交付物 / 出口标准 |
 |---|---|---|
-| M4-1 断言 DSL 与断言 CLI | 🟡 本地实现 | 场景断言规范化、服务端求值、`ctpbuddy assertions check` 退出码与 `--total` 校验已有 Python 单测；CI 目前只执行 `--help` 入口检查，尚无真实场景中的 CLI 断言 e2e |
-| M4-2 e2e CI | 🟡 部分实现 | `.github/workflows/core-tests.yml` 已加入显式 `cargo build`，并覆盖 Rust/Python 单测、M1/M2、M3 bootstrap/settlement/order_sysid/投影/结算单及 settings e2e；已核实远端 runs `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success，仍未覆盖 Shim/真实下游/fresh venv demo 策略，因此 M4 总项不标完成 |
+| M4-1 断言 DSL 与断言 CLI | 🟡 本地通过，CI 入口已接入 | 场景断言规范化、服务端求值、`ctpbuddy assertions check` 退出码与 `--total` 校验已有 Python 单测；`m1_smoke.py` 与 `m2_scenario.py` 已在真实核心场景中覆盖 pending/pass/fail/total 语义。CI 当前保留 `--help` 入口检查，断言场景本身由 e2e 矩阵间接验证；M4 总项仍不标完成 |
+| M4-2 e2e CI | 🟡 工作流已覆盖，本轮远端结果未核验 | `.github/workflows/core-tests.yml` 已覆盖 Rust/Python 单测、M1/M2/M3、operations、flow replay、Windows Shim/真实下游、Linux Shim/CURVE 与 Docker acceptance；本轮按用户要求不处理远端 CI，因此不把未核验的 run 写成成功。fresh venv / demo 策略仍未形成独立门禁，M4 总项不标完成 |
 | M4-3 三渠道发布与文档站 | 🟡 文档站已具备 | `docs-site-oink/` 使用 OINK v1.1.0、Hugo Extended 0.167.0，80 pages/22 static 严格构建；`.github/workflows/docs-site.yml` 已远端成功（37173389551）；发布渠道和真实域名授权仍未完成 |
 | M4-4 Shim 安全安装与真实构建验收 | 🟡 基础+本机真实构建 | CLI `install-shim --target-dir DIR --shim-dir DIR` 默认 dry-run，只有显式 `--apply` 才替换；仅接受 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 白名单，支持 manifest 版本/架构元数据，安装前备份、原子复制、恢复和 SHA 保护。已在本机用 MSVC 实际构建两个 x64 DLL 与 `demo_td.exe`；PE Machine=0x8664，真实 DLL 临时目录 dry-run/apply/restore 与 SHA 校验通过；`m1_shim_e2e.py` 真实下游全链路 PASS。产物仍被 `.gitignore` 忽略，未触碰真实 CTP 安装目录。Linux Docker 验收明确不运行 Windows Shim。 |
 | M4-5 真实导出回放审计 | 🟡 受控成交回放已实现 | `tools/real_replay_audit.py` 严格扫描432个真实交易文件；完整账户重演仍无候选（期权/RefData缺口），不伪造通过。新增 `tests/e2e/m4_real_replay.py`：从真实导出动态选取一笔普通期货成交，重建最小行情/报单并逐字段核对 ExchangeID/InstrumentID/Direction/OffsetFlag/Price/Volume；无外部真实数据时安全 SKIP，已加入CI矩阵。该项证明成交ABI路径，不等价于整账户日结重演。 |

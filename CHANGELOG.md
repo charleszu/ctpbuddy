@@ -4,6 +4,7 @@
 
 ## 2026-10（本轮）
 
+- **文档状态校准（2026-10-13）**：修正 ZeroMQ 已完成却仍列为未完成的历史清单；更新 M4 断言 CLI、e2e/ Shim 覆盖和 Docker 本机验收口径；路线图将已落地的 ZeroMQ、运营控制、uv/Docker 验收移入已验证区，并明确完整夜盘日历、整账户回放、远程运营、三渠道发布及本轮未核验远端 CI 的边界。
 - **项目级 uv 环境与本机 Docker 验收（2026-10-13）**：根目录新增 uv workspace、`uv.lock` 与 Python 3.13 选择，`uv sync --locked --all-packages` 安装至 `.venv`；修复 Python package-data 中 dotted key 的 TOML 解析错误，干净 wheel 在独立环境和仓库外通过 CLI、共享契约向量及 Web 资源验证。Docker builder 补齐 Rust 所需的共享契约输入，本机 Docker Desktop Linux 实际构建与验收通过；安装后移除源码，验证 wheel/CLI、契约向量、Rust core、refdata、Web 页面/资源/实时 API。镜像未内置 Hugo，明确 SKIP；远端 CI 按用户要求暂不处理。
 - **架构状态与验收口径对齐**：补记交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 外部资金入口；本机执行 `CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py`（fixture/real 均 PASS）与 `hugo --cleanDestinationDir --gc --minify --environment production`（80 pages/22 static）通过；`python tools/docker_acceptance.py` 因本机 Docker daemon 不可用按设计 SKIP，现已由 `.github/workflows/core-tests.yml` 的 `docker` job 接管 CI 验收。
 - **中金所平今费时间序池落地**（知识库 §10.4 #10 修正，生产数据 81/81 判别）：`ExchangeRules.fee_close_pool`（仅 CFFEX）+ `Position.fee_open_pool`——开仓逐笔累池、平仓取 `min(手数, 池)` 作平今手数，与明细的先开先平消耗正交（昨仓被平收平今费、池尽后平今仓收平昨费）；日结随 `today_position` 同点清池；快照 v2 携带池状态，恢复兼容 v1 并按交易日重建当日开仓池。锁定：ledger 单测（三段分叉 + DCE 对照 + 日结清池）、e2e `m3_fee_cffex.py`（bootstrap 昨仓 + scenario 自带 `refdata/commission_rates.jsonl` 走完整 server）、`tools/audit_real_accounts.py` 复跑全绿（459/459、976/983、64/64）。
@@ -23,7 +24,7 @@ M1（核心闭环 + Shim 全链路）已完成：
 - [x] Python 包：wire / SDK / CLI / 场景源（SDK 对查询流控 90 透明重试）
 - [x] e2e 冒烟测试（SDK 登录 → 订阅 → 报单穿透 → 断言成交与资金扣减）
 - [x] C++ Shim：139+14 个纯虚方法全 override、519 项编译期布局校验、真实下游 demo（stock 厂商头文件 + 链接 Shim import lib）全链路通过 `tests/e2e/m1_shim_e2e.py`——含 CTP 两类查询流控真实触发（在途 -2 + 每秒 QryFreq 90 重试）
-- [ ] ZeroMQ 传输适配（当前为 TCP 占位，帧协议一致）
+- [x] ZeroMQ 传输适配（后续已完成 ROUTER/DEALER、可选 PUB/SUB、IPC、CURVE/ZAP；此处保留为 M1 历史清单项）
 - [x] 任务41最小初仓闭环：真实 core 启动导入逐笔 SHFE 昨仓、静态 `YdPosition`、平昨保持静态值、零余量 detail 过滤、无初仓流水；SHFE/INE 查询按逐笔 detail 年龄桶聚合，非 SHFE 单行
 - [x] 任务42第一阶段显式日结：ADMIN `settle_day` 接收用户供给的 `settlement_prices` 与严格递增 `next_trading_day`；要求 playback 暂停且无活动订单；账本先暂存校验再原子替换，最终按供给结算价盯市，动态权益滚存至 `PreBalance`，清零当日资金/盈亏/手续费/冻结，今仓转静态昨仓，清理当日订单成交与旧确认；不自动按固定时刻触发、不复用 `reset_account`、不伪造 SettlementInfo 查询
 - [x] 任务43 `OrderSysID`：内部订单号继续用于引擎/账本/journal关联；首条对外 OrderSysID 为空，按交易所布局在 accepted 边界后填充，交易所拒单全程为空；Trade/QryOrder/撤单使用最终非空系统号，覆盖 SHFE GFD、拒单、DCE/FAK 布局与最终关联
