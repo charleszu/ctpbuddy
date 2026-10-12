@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -289,9 +290,13 @@ protected:
     ApiCore();
 
 private:
+    enum class TransportKind { Tcp, Zmq };
+
     void reader_main();
     bool connect_front();
     bool read_exact(uint8_t* buf, size_t n);
+    bool read_zmq_frame(Frame& out);
+    void flush_zmq_outbound();
     void close_socket_locked();
     void write_frame_locked(const Frame& f);
     void send_auth_locked(const char* broker, const char* user);
@@ -304,7 +309,9 @@ private:
     const DispatchRow* find_row(uint16_t msg) const;
     const DispatchRow* find_row_by_req(uint16_t req_msg) const;
     void sleep_chunks(double seconds);
-    static void parse_address(const std::string& addr, std::string& host, int& port);
+    static void parse_address(const std::string& addr, TransportKind& kind,
+                              std::string& host, int& port, std::string& endpoint);
+    bool connected_locked() const;
 
     /// True for the ReqQry* family (CTP "查询流控" applies to these; the
     /// ReqQuery* core-processed family and all non-query requests are exempt).
@@ -313,6 +320,13 @@ private:
     std::mutex mu_;
     void* spi_ = nullptr;
     SOCKET sock_ = INVALID_SOCKET;
+    TransportKind transport_kind_ = TransportKind::Tcp;
+    std::string zmq_endpoint_;
+    void* zmq_context_ = nullptr;
+    void* zmq_dealer_ = nullptr;
+    void* zmq_sub_ = nullptr;
+    bool transport_connected_ = false;
+    std::deque<std::vector<uint8_t>> zmq_outbound_;
     std::thread reader_;
     std::atomic<bool> started_{false};
     std::atomic<bool> stopped_{false};

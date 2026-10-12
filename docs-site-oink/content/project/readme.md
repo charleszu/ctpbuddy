@@ -9,7 +9,7 @@ SimNow / openctp 依赖远程网络，难以注入极端行情和复现实验。
 
 ## 当前状态
 
-M1 核心闭环与 Shim 全链路已完成；限价簿、场景 DSL、journal、查询与结算相关的 M2/M3 能力按根目录 [`README.md`](https://github.com/charleszu/ctpbuddy/blob/main/README.md) 维护。ZeroMQ 适配、完整 Web 后台和 M4 发布工作仍按路线图推进。
+M1 核心闭环与 Shim 全链路已完成；限价簿、场景 DSL、journal、查询与结算相关的 M2/M3 能力按根目录 [`README.md`](https://github.com/charleszu/ctpbuddy/blob/main/README.md) 维护。完整 Web 后台和 M4 发布工作仍按路线图推进；ZeroMQ TCP/IPC、Shim DEALER 与可选 PUB/SUB 适配已落地。
 
 ## 本地入口
 

@@ -1,8 +1,8 @@
 # CTPBuddy Shim（CTP ABI 同名替换 DLL）
 
 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 的 drop-in 替换：vtable 与 CTP 6.7.13
-官方头文件逐项一致，请求结构体按原始字节经 winsock TCP 送到 `ctpbuddy-server`，
-响应帧由 reader 线程派发为 SPI 回调。
+官方头文件逐项一致，请求结构体按原始字节经 TCP 或 ZeroMQ DEALER 送到 `ctpbuddy-server`，
+响应帧由 reader 线程派发为 SPI 回调。ZeroMQ socket 由 reader 线程独占，应用线程只向有界发送队列投递 CB 帧。
 
 ## 构建
 
@@ -68,5 +68,5 @@ harness 需在 `PYTHONUTF8=1` 下运行（CI 已设置）。
 ```n
 - 头文件取 `ctpsdk/.../td/linux64`（亦接受 win64 / 平铺目录）；产物名与厂商 .so 相同，符号 mangling 一致（已用 nm 对照）。
 - POSIX 路径：poll、MSG_NOSIGNAL（对端消失不触发 SIGPIPE）、iconv 做 UTF-8↔GBK。
-- 前置地址支持主机名；环境变量 `CTPBUDDY_ADDR=tcp://host:port` 覆盖应用注册的所有前置。
+- 前置地址支持主机名；环境变量 `CTPBUDDY_ADDR=tcp://host:port` 覆盖应用注册的所有前置。`zmq://host:port`、`zmq://tcp://host:port` 与 `zmq://ipc:///path` 也可作为前置地址；启用 ZeroMQ 时运行时加载 `libzmq.dll` / `libzmq.so.5`，未安装 libzmq 的 TCP 部署不受影响。`CTPBUDDY_ZMQ_PUB_ADDR` 可选订阅 `md/` 与 `td/` 广播，断线期间不补发历史帧。
 - WSL 下 cargo 请设 `CARGO_TARGET_DIR` 到 Linux 文件系统，避免与 Windows 的 core/target 混用。

@@ -95,7 +95,7 @@ def main():
             objs.append(obj)
             run(common + ["-c", os.path.join(HERE, "src", src), "-o", obj])
         out = os.path.join(bin_dir, so + ".so")
-        run(common + ["-shared", "-Wl,--no-undefined", "-Wl,-soname," + so + ".so", "-o", out] + objs)
+        run(common + ["-shared", "-Wl,--no-undefined", "-Wl,-soname," + so + ".so", "-o", out] + objs + ["-ldl"])
         print("[built] %s" % out)
 
     if args.demo:

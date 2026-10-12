@@ -19,14 +19,104 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <string_view>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #ifndef _WIN32
+#include <dlfcn.h>
 #include <iconv.h>
 #endif
 
 namespace ctpbuddy {
 
 namespace {
+
+// libzmq is intentionally loaded at runtime. The shim remains drop-in
+// deployable on hosts that only use TCP, while a host opting into zmq:// only
+// needs libzmq at runtime. All socket calls stay on the reader thread.
+constexpr int ZMQ_SUB = 2;
+constexpr int ZMQ_DEALER = 5;
+constexpr int ZMQ_DONTWAIT = 1;
+constexpr int ZMQ_SNDHWM = 23;
+constexpr int ZMQ_RCVHWM = 24;
+constexpr int ZMQ_LINGER = 17;
+constexpr int ZMQ_SUBSCRIBE = 6;
+constexpr int ZMQ_RCVMORE = 13;
+constexpr short ZMQ_POLLIN = 1;
+
+struct ZmqPollItem {
+    void* socket;
+    int fd;
+    short events;
+    short revents;
+};
+
+struct ZmqLibrary {
+    using CtxNew = void* (*)();
+    using CtxTerm = int (*)(void*);
+    using Socket = void* (*)(void*, int);
+    using Close = int (*)(void*);
+    using Connect = int (*)(void*, const char*);
+    using Send = int (*)(void*, const void*, size_t, int);
+    using Recv = int (*)(void*, void*, size_t, int);
+    using SetSockOpt = int (*)(void*, int, const void*, size_t);
+    using GetSockOpt = int (*)(void*, int, void*, size_t*);
+    using Poll = int (*)(ZmqPollItem*, int, long);
+
+    void* handle = nullptr;
+    CtxNew ctx_new = nullptr;
+    CtxTerm ctx_term = nullptr;
+    Socket socket = nullptr;
+    Close close = nullptr;
+    Connect connect = nullptr;
+    Send send = nullptr;
+    Recv recv = nullptr;
+    SetSockOpt setsockopt = nullptr;
+    GetSockOpt getsockopt = nullptr;
+    Poll poll = nullptr;
+
+    bool load() {
+        if (handle) return true;
+#ifdef _WIN32
+        const char* names[] = {"libzmq.dll", "zmq.dll", nullptr};
+        for (const char** p = names; *p && !handle; ++p) {
+            handle = static_cast<void*>(LoadLibraryA(*p));
+        }
+        auto symbol = [this](const char* name) -> void* {
+            return handle ? reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name)) : nullptr;
+        };
+#else
+        const char* names[] = {"libzmq.so.5", "libzmq.so", nullptr};
+        for (const char** p = names; *p && !handle; ++p) handle = dlopen(*p, RTLD_NOW | RTLD_LOCAL);
+        auto symbol = [this](const char* name) -> void* { return handle ? dlsym(handle, name) : nullptr; };
+#endif
+        if (!handle) return false;
+#define ZMQ_LOAD(name) name = reinterpret_cast<decltype(name)>(symbol("zmq_" #name))
+        ZMQ_LOAD(ctx_new);
+        ZMQ_LOAD(ctx_term);
+        ZMQ_LOAD(socket);
+        ZMQ_LOAD(close);
+        ZMQ_LOAD(connect);
+        ZMQ_LOAD(send);
+        ZMQ_LOAD(recv);
+        ZMQ_LOAD(setsockopt);
+        ZMQ_LOAD(getsockopt);
+        ZMQ_LOAD(poll);
+#undef ZMQ_LOAD
+        return ctx_new && ctx_term && socket && close && connect && send && recv && setsockopt && getsockopt && poll;
+    }
+};
+
+ZmqLibrary& zmq_library() {
+    static ZmqLibrary library;
+    return library;
+}
+
+bool starts_with(const std::string& value, std::string_view prefix) {
+    return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix.data(), prefix.size()) == 0;
+}
 
 #ifdef _WIN32
 // One WSAStartup/WSACleanup pair per DLL; both shim DLLs link this file, so a
@@ -152,8 +242,26 @@ ApiCore::~ApiCore() {
 
 // ---- registration -----------------------------------------------------------
 
-void ApiCore::parse_address(const std::string& addr, std::string& host, int& port) {
+void ApiCore::parse_address(const std::string& addr, TransportKind& kind,
+                            std::string& host, int& port, std::string& endpoint) {
     std::string s = addr;
+    endpoint.clear();
+    if (starts_with(s, "zmq://")) {
+        kind = TransportKind::Zmq;
+        endpoint = s.substr(6);
+        if (endpoint.empty()) {
+            host.clear();
+            port = 0;
+            return;
+        }
+        if (!starts_with(endpoint, "tcp://") && !starts_with(endpoint, "ipc://")) {
+            endpoint = "tcp://" + endpoint;
+        }
+        host.clear();
+        port = 0;
+        return;
+    }
+    kind = TransportKind::Tcp;
     const std::string tcp = "tcp://";
     if (s.rfind(tcp, 0) == 0) s = s.substr(tcp.size());
     auto colon = s.rfind(':');
@@ -173,9 +281,11 @@ void ApiCore::core_register_front(const char* addr) {
     if (front_addr_.empty()) {
         front_host_.clear();
         front_port_ = 0;
+        zmq_endpoint_.clear();
+        transport_kind_ = TransportKind::Tcp;
         return;
     }
-    parse_address(front_addr_, front_host_, front_port_);
+    parse_address(front_addr_, transport_kind_, front_host_, front_port_, zmq_endpoint_);
 }
 
 void ApiCore::core_register_name_server(const char* addr) {
@@ -184,7 +294,7 @@ void ApiCore::core_register_name_server(const char* addr) {
     // No name-server resolution in M1: if the app only registered a name
     // server, treat it as the front (best effort).
     if (front_addr_.empty() && !ns_addr_.empty()) {
-        parse_address(ns_addr_, front_host_, front_port_);
+        parse_address(ns_addr_, transport_kind_, front_host_, front_port_, zmq_endpoint_);
     }
 }
 
@@ -265,15 +375,74 @@ void ApiCore::core_front_info(CThostFtdcFrontInfoField* out) {
 bool ApiCore::connect_front() {
     std::string host;
     int port = 0;
+    TransportKind kind = TransportKind::Tcp;
+    std::string endpoint;
     {
         std::lock_guard<std::mutex> g(mu_);
+        kind = transport_kind_;
         host = front_host_;
         port = front_port_;
+        endpoint = zmq_endpoint_;
     }
     // CTPBUDDY_ADDR redirects every front to a CTPBuddy core without touching
     // the downstream's own (production) front configuration -- DESIGN §5.3.
     if (const char* over = std::getenv("CTPBUDDY_ADDR")) {
-        if (*over) parse_address(over, host, port);
+        if (*over) parse_address(over, kind, host, port, endpoint);
+    }
+    if (kind == TransportKind::Zmq) {
+        auto& z = zmq_library();
+        if (!z.load() || endpoint.empty()) return false;
+        void* ctx = z.ctx_new();
+        if (!ctx) return false;
+        void* dealer = z.socket(ctx, ZMQ_DEALER);
+        if (!dealer) {
+            z.ctx_term(ctx);
+            return false;
+        }
+        const int zero = 0;
+        const int hwm = 1000;
+        z.setsockopt(dealer, ZMQ_LINGER, &zero, sizeof(zero));
+        z.setsockopt(dealer, ZMQ_SNDHWM, &hwm, sizeof(hwm));
+        z.setsockopt(dealer, ZMQ_RCVHWM, &hwm, sizeof(hwm));
+        if (z.connect(dealer, endpoint.c_str()) != 0) {
+            z.close(dealer);
+            z.ctx_term(ctx);
+            return false;
+        }
+
+        void* sub = nullptr;
+        if (const char* pub = std::getenv("CTPBUDDY_ZMQ_PUB_ADDR")) {
+            std::string pub_endpoint = pub;
+            if (!pub_endpoint.empty()) {
+                if (starts_with(pub_endpoint, "zmq://")) pub_endpoint = pub_endpoint.substr(6);
+                if (!starts_with(pub_endpoint, "tcp://") && !starts_with(pub_endpoint, "ipc://")) {
+                    pub_endpoint = "tcp://" + pub_endpoint;
+                }
+                sub = z.socket(ctx, ZMQ_SUB);
+                if (sub) {
+                    z.setsockopt(sub, ZMQ_LINGER, &zero, sizeof(zero));
+                    z.setsockopt(sub, ZMQ_RCVHWM, &hwm, sizeof(hwm));
+                    const char md[] = "md/";
+                    const char td[] = "td/";
+                    z.setsockopt(sub, ZMQ_SUBSCRIBE, md, sizeof(md) - 1);
+                    z.setsockopt(sub, ZMQ_SUBSCRIBE, td, sizeof(td) - 1);
+                    if (z.connect(sub, pub_endpoint.c_str()) != 0) {
+                        z.close(sub);
+                        sub = nullptr;
+                    }
+                }
+            }
+        }
+        {
+            std::lock_guard<std::mutex> g(mu_);
+            close_socket_locked();
+            zmq_context_ = ctx;
+            zmq_dealer_ = dealer;
+            zmq_sub_ = sub;
+            transport_connected_ = true;
+            transport_kind_ = TransportKind::Zmq;
+        }
+        return true;
     }
     if (host.empty() || port == 0) return false;
     // getaddrinfo: accepts IPv4/IPv6 literals and host names ("localhost",
@@ -307,9 +476,132 @@ bool ApiCore::connect_front() {
     {
         std::lock_guard<std::mutex> g(mu_);
         if (sock_ != INVALID_SOCKET) closesocket(sock_);
+        transport_kind_ = TransportKind::Tcp;
+        transport_connected_ = false;
         sock_ = s;
     }
     return true;
+}
+
+bool ApiCore::connected_locked() const {
+    return transport_kind_ == TransportKind::Zmq ? transport_connected_ && zmq_dealer_ != nullptr
+                                                  : sock_ != INVALID_SOCKET;
+}
+
+void ApiCore::flush_zmq_outbound() {
+    auto& z = zmq_library();
+    std::deque<std::vector<uint8_t>> pending;
+    void* dealer = nullptr;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        if (transport_kind_ != TransportKind::Zmq || !transport_connected_ || !zmq_dealer_) return;
+        pending.swap(zmq_outbound_);
+        dealer = zmq_dealer_;
+    }
+    while (!pending.empty()) {
+        std::vector<uint8_t> bytes = std::move(pending.front());
+        pending.pop_front();
+        int rc = z.send(dealer, bytes.data(), bytes.size(), ZMQ_DONTWAIT);
+        if (rc < 0) {
+            // EAGAIN means the peer's HWM is full. Preserve ordering and try
+            // again on the next poll tick; a hard error ends the connection.
+            std::lock_guard<std::mutex> g(mu_);
+            if (transport_connected_) {
+                while (!pending.empty()) {
+                    zmq_outbound_.push_front(std::move(pending.back()));
+                    pending.pop_back();
+                }
+                zmq_outbound_.push_front(std::move(bytes));
+            }
+            return;
+        }
+    }
+}
+
+namespace {
+
+bool decode_frame_bytes(const uint8_t* bytes, size_t len, Frame& out) {
+    if (len < WIRE_HEADER_LEN || bytes[0] != 0x43 || bytes[1] != 0x42 || bytes[2] != WIRE_VERSION) return false;
+    uint32_t payload_len = static_cast<uint32_t>(bytes[9]) | (static_cast<uint32_t>(bytes[10]) << 8) |
+                           (static_cast<uint32_t>(bytes[11]) << 16) | (static_cast<uint32_t>(bytes[12]) << 24);
+    if (payload_len > WIRE_MAX_PAYLOAD || payload_len + WIRE_HEADER_LEN != len) return false;
+    out.msg_type = static_cast<uint16_t>(bytes[3] | (bytes[4] << 8));
+    out.req_id = static_cast<uint32_t>(bytes[5]) | (static_cast<uint32_t>(bytes[6]) << 8) |
+                 (static_cast<uint32_t>(bytes[7]) << 16) | (static_cast<uint32_t>(bytes[8]) << 24);
+    out.payload.assign(bytes + WIRE_HEADER_LEN, bytes + len);
+    return true;
+}
+
+bool zmq_more(ZmqLibrary& z, void* socket) {
+    int more = 0;
+    size_t size = sizeof(more);
+    return z.getsockopt(socket, ZMQ_RCVMORE, &more, &size) == 0 && more != 0;
+}
+
+bool zmq_recv_part(ZmqLibrary& z, void* socket, std::vector<uint8_t>& out) {
+    out.resize(WIRE_MAX_PAYLOAD + WIRE_HEADER_LEN + 256);
+    int rc = z.recv(socket, out.data(), out.size(), 0);
+    if (rc < 0) return false;
+    out.resize(static_cast<size_t>(rc));
+    return true;
+}
+
+}  // namespace
+
+bool ApiCore::read_zmq_frame(Frame& out) {
+    auto& z = zmq_library();
+    while (!stopped_.load()) {
+        flush_zmq_outbound();
+        drain_auth_errors();
+        drain_deferred();
+        void* dealer = nullptr;
+        void* sub = nullptr;
+        {
+            std::lock_guard<std::mutex> g(mu_);
+            if (!transport_connected_ || !zmq_dealer_) return false;
+            dealer = zmq_dealer_;
+            sub = zmq_sub_;
+        }
+        ZmqPollItem items[2]{};
+        items[0].socket = dealer;
+        items[0].events = ZMQ_POLLIN;
+        int count = 1;
+        if (sub) {
+            items[1].socket = sub;
+            items[1].events = ZMQ_POLLIN;
+            count = 2;
+        }
+        int ready = z.poll(items, count, 100);
+        if (ready < 0) return false;
+        if (ready == 0) continue;
+        void* selected = nullptr;
+        bool is_sub = false;
+        if ((items[0].revents & ZMQ_POLLIN) != 0) selected = dealer;
+        else if (sub && (items[1].revents & ZMQ_POLLIN) != 0) {
+            selected = sub;
+            is_sub = true;
+        }
+        if (!selected) continue;
+        std::vector<uint8_t> first;
+        if (!zmq_recv_part(z, selected, first)) return false;
+        if (is_sub) {
+            if (!zmq_more(z, selected)) continue;
+            std::vector<uint8_t> frame;
+            if (!zmq_recv_part(z, selected, frame)) return false;
+            while (zmq_more(z, selected)) {
+                std::vector<uint8_t> ignored;
+                if (!zmq_recv_part(z, selected, ignored)) return false;
+            }
+            if (decode_frame_bytes(frame.data(), frame.size(), out)) return true;
+        } else {
+            while (zmq_more(z, selected)) {
+                std::vector<uint8_t> ignored;
+                if (!zmq_recv_part(z, selected, ignored)) return false;
+            }
+            if (decode_frame_bytes(first.data(), first.size(), out)) return true;
+        }
+    }
+    return false;
 }
 
 bool ApiCore::read_exact(uint8_t* buf, size_t n) {
@@ -339,6 +631,25 @@ bool ApiCore::read_exact(uint8_t* buf, size_t n) {
 
 void ApiCore::close_socket_locked() {
     // caller holds mu_ OR we are single-threaded (dtor path)
+    if (transport_kind_ == TransportKind::Zmq) {
+        auto& z = zmq_library();
+        // libzmq sockets are thread-affine. Release() may call this method on
+        // the app thread; the reader observes stopped_ and performs the close
+        // on its own thread before it joins.
+        if (reader_.joinable() && reader_.get_id() != std::this_thread::get_id()) {
+            transport_connected_ = false;
+            return;
+        }
+        if (zmq_sub_) z.close(zmq_sub_);
+        if (zmq_dealer_) z.close(zmq_dealer_);
+        if (zmq_context_) z.ctx_term(zmq_context_);
+        zmq_sub_ = nullptr;
+        zmq_dealer_ = nullptr;
+        zmq_context_ = nullptr;
+        transport_connected_ = false;
+        zmq_outbound_.clear();
+        return;
+    }
     if (sock_ != INVALID_SOCKET) {
         closesocket(sock_);
         sock_ = INVALID_SOCKET;
@@ -346,6 +657,14 @@ void ApiCore::close_socket_locked() {
 }
 
 void ApiCore::write_frame_locked(const Frame& f) {
+    // caller holds mu_; the ZMQ socket is owned by the reader thread, so app
+    // threads enqueue bytes and the reader flushes them before polling.
+    if (transport_kind_ == TransportKind::Zmq) {
+        if (!transport_connected_ || !zmq_dealer_) return;
+        if (zmq_outbound_.size() >= 1024) zmq_outbound_.pop_front();
+        zmq_outbound_.push_back(f.encode());
+        return;
+    }
     // caller holds mu_; sock_ may be invalid while connecting -- drop.
     if (sock_ == INVALID_SOCKET) return;
     std::vector<uint8_t> bytes = f.encode();
@@ -420,7 +739,7 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
     bool local_error = false;
     {
         std::lock_guard<std::mutex> g(mu_);
-        if (stopped_.load() || sock_ == INVALID_SOCKET) return -1;
+        if (stopped_.load() || !connected_locked()) return -1;
         if (auth_in_flight_) return -2;
         auto fail = [&](int id, const char* msg) {
             local_rsp.ErrorID = id;
@@ -500,7 +819,7 @@ void ApiCore::drain_deferred() {
 
 int ApiCore::post_callback(std::function<void()> fn) {
     std::lock_guard<std::mutex> g(mu_);
-    if (stopped_.load() || sock_ == INVALID_SOCKET) return -1;
+    if (stopped_.load() || !connected_locked()) return -1;
     deferred_.push_back(std::move(fn));
     return 0;
 }
@@ -520,31 +839,40 @@ void ApiCore::reader_main() {
         }
         fire_front_connected();
 
-        uint8_t header[WIRE_HEADER_LEN];
         bool alive = true;
         while (!stopped_.load()) {
-            if (!read_exact(header, WIRE_HEADER_LEN)) {
-                alive = false;
-                break;
-            }
-            if (header[0] != 0x43 || header[1] != 0x42 || header[2] != WIRE_VERSION) {
-                alive = false;
-                break;
-            }
             Frame f;
-            f.msg_type = static_cast<uint16_t>(header[3] | (header[4] << 8));
-            f.req_id = static_cast<uint32_t>(header[5]) | (static_cast<uint32_t>(header[6]) << 8) |
-                       (static_cast<uint32_t>(header[7]) << 16) | (static_cast<uint32_t>(header[8]) << 24);
-            uint32_t len = static_cast<uint32_t>(header[9]) | (static_cast<uint32_t>(header[10]) << 8) |
-                           (static_cast<uint32_t>(header[11]) << 16) | (static_cast<uint32_t>(header[12]) << 24);
-            if (len > WIRE_MAX_PAYLOAD) {
-                alive = false;
-                break;
+            bool is_zmq = false;
+            {
+                std::lock_guard<std::mutex> g(mu_);
+                is_zmq = transport_kind_ == TransportKind::Zmq;
             }
-            f.payload.resize(len);
-            if (len > 0 && !read_exact(f.payload.data(), len)) {
-                alive = false;
-                break;
+            if (is_zmq) {
+                if (!read_zmq_frame(f)) {
+                    alive = false;
+                    break;
+                }
+            } else {
+                uint8_t header[WIRE_HEADER_LEN];
+                if (!read_exact(header, WIRE_HEADER_LEN) || header[0] != 0x43 || header[1] != 0x42 ||
+                    header[2] != WIRE_VERSION) {
+                    alive = false;
+                    break;
+                }
+                f.msg_type = static_cast<uint16_t>(header[3] | (header[4] << 8));
+                f.req_id = static_cast<uint32_t>(header[5]) | (static_cast<uint32_t>(header[6]) << 8) |
+                           (static_cast<uint32_t>(header[7]) << 16) | (static_cast<uint32_t>(header[8]) << 24);
+                uint32_t len = static_cast<uint32_t>(header[9]) | (static_cast<uint32_t>(header[10]) << 8) |
+                               (static_cast<uint32_t>(header[11]) << 16) | (static_cast<uint32_t>(header[12]) << 24);
+                if (len > WIRE_MAX_PAYLOAD) {
+                    alive = false;
+                    break;
+                }
+                f.payload.resize(len);
+                if (len > 0 && !read_exact(f.payload.data(), len)) {
+                    alive = false;
+                    break;
+                }
             }
             on_frame(f);
         }
@@ -754,7 +1082,7 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
         // issued before OnFrontConnected neither arms the one-in-flight query
         // gate (which would then answer -2 forever: the frame was never sent,
         // so nothing can ever complete it) nor leaks a pending entry.
-        if (stopped_.load() || sock_ == INVALID_SOCKET) return -1;
+        if (stopped_.load() || !connected_locked()) return -1;
         if (msg == msgs::REQ_USER_LOGIN && (authed_ || auth_in_flight_) &&
             len == sizeof(CThostFtdcReqUserLoginField)) {
             const auto* req = static_cast<const CThostFtdcReqUserLoginField*>(payload);

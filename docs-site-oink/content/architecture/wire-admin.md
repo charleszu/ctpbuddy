@@ -22,7 +22,7 @@ description: 从 frame.rs、msgs.rs 与 admin.rs 反向说明 CTPBuddy 的帧、
 
 `Frame::new(msg_type, req_id, payload)` 不做业务校验；`encoded_len()` 为 `13 + payload.len()`；`write_to()` 使用 `write_all`。读取时 `read_from()` 在完整帧边界 EOF 返回 `Ok(None)`，半截头也按 `UnexpectedEof` 视为结束；错误 magic、版本或超过 `MAX_PAYLOAD = 1 << 20` 返回 `InvalidData`。因此调用方不能把任意大 JSON 当作合法 ADMIN 请求，也不能依靠半包恢复协议。
 
-Python 对应实现为 `py/ctpbuddy/wire.py:Frame`，字段和限制必须保持一致。协议本身不绑定 TCP；当前 server 用 TCP back-to-back 帧，ZeroMQ 适配仍是待办，不能在文档中写成已完成。
+Python 对应实现为 `py/ctpbuddy/wire.py:Frame`，字段和限制必须保持一致。协议本身不绑定 TCP；当前 server 用 TCP back-to-back 帧或 ZeroMQ ROUTER/DEALER 搭载相同 CB 帧；Shim 与原生客户端均可使用 `zmq://`，协议字段保持一致。
 
 ## 消息号与回报面
 
