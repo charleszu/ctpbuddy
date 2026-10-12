@@ -9,6 +9,8 @@ core/target/
 py/build/
 py/*.egg-info/
 **/__pycache__/
+**/*.py[cod]
+**/.venv/
 !refdata/
 !refdata/*.jsonl
 !scenarios/

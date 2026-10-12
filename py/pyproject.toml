@@ -17,4 +17,4 @@ include = ["ctpbuddy*"]
 
 [tool.setuptools.package-data]
 ctpbuddy = ["generated/*.py", "assets/*.html", "assets/*.js", "assets/*.css"]
-ctpbuddy.contracts = ["*.json"]
+"ctpbuddy.contracts" = ["*.json"]

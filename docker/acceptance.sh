@@ -11,6 +11,7 @@ ctpbuddy refdata show /app/refdata >/dev/null || fail 'refdata 校验'
 command -v ctpbuddy-server >/dev/null 2>&1 || fail 'Rust core binary 未安装'
 ctpbuddy-server --version >/dev/null 2>&1 || fail 'Rust core binary version'
 python - <<'PY'
+import json
 import subprocess
 import tempfile
 import time
@@ -18,6 +19,14 @@ import threading
 from urllib.request import urlopen
 from ctpbuddy.sdk import Admin
 from ctpbuddy.web import make_server
+from ctpbuddy.journal_contract import validate_event_contract
+from importlib.resources import files
+
+vectors = json.loads(files('ctpbuddy.contracts').joinpath('journal_vectors.json').read_text(encoding='utf-8'))
+for case in vectors['validation']:
+    problems = validate_event_contract(case['event'])
+    if (not problems) is not case['event_valid']:
+        raise SystemExit('installed journal contract vector failed: ' + case['name'])
 
 with tempfile.TemporaryDirectory(prefix='ctpbuddy-docker-') as data:
     proc = subprocess.Popen([
@@ -38,9 +47,10 @@ with tempfile.TemporaryDirectory(prefix='ctpbuddy-docker-') as data:
         web = make_server('127.0.0.1', 8080, '127.0.0.1:5561')
         thread = threading.Thread(target=web.serve_forever, daemon=True)
         thread.start()
-        with urlopen('http://127.0.0.1:8080/', timeout=3) as response:
-            if response.status != 200:
-                raise SystemExit('Web 根页面状态异常')
+        for path in ('/', '/settings.js', '/settings.css', '/live.js', '/api/live'):
+            with urlopen('http://127.0.0.1:8080' + path, timeout=3) as response:
+                if response.status != 200:
+                    raise SystemExit('Web 状态异常: ' + path)
         web.shutdown()
         thread.join(timeout=3)
     finally:
@@ -52,14 +62,16 @@ with tempfile.TemporaryDirectory(prefix='ctpbuddy-docker-') as data:
             proc.wait()
 PY
 pass 'Python wheel/CLI'
+pass 'installed canonical journal contract/vectors'
 pass 'Rust core build/run'
 pass 'refdata'
+pass 'Web HTTP/assets/live API'
 
 if command -v hugo >/dev/null 2>&1; then
   (cd /app/docs-site-oink && hugo --cleanDestinationDir --gc --minify --environment production --printPathWarnings --panicOnWarning >/dev/null) || fail 'OINK/Hugo 构建'
-  pass 'Web/OINK'
+  pass 'OINK/Hugo'
 else
-  skip 'Web/OINK：镜像未提供 hugo 二进制；请在独立 Hugo 环境运行 docs-site-oink 构建'
+  skip 'OINK/Hugo：镜像未提供 hugo 二进制；请在独立 Hugo 环境运行 docs-site-oink 构建'
 fi
 
 # This image is Linux-only and intentionally contains no Windows shim execution path.

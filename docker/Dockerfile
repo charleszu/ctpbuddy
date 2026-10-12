@@ -6,6 +6,7 @@ COPY core/ctpbuddy-market ./core/ctpbuddy-market
 COPY core/ctpbuddy-matching ./core/ctpbuddy-matching
 COPY core/ctpbuddy-ledger ./core/ctpbuddy-ledger
 COPY core/ctpbuddy-server ./core/ctpbuddy-server
+COPY py/ctpbuddy/contracts ./py/ctpbuddy/contracts
 RUN cargo build --locked --release --manifest-path core/Cargo.toml --bin ctpbuddy-server
 
 FROM python:3.13-slim-bookworm

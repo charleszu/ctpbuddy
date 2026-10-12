@@ -46,21 +46,24 @@ Wire v1 保持现有小端 C 布局和字段偏移，Rust 编解码按字段处�
 - M1 核心闭环 + Shim 全链路、M2 撮合/流控、M3 参考数据/显式日结/OrderSysID/结算单/journal 投影：已完成。
 - 近期已补齐：交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 写入口；真实 release package 与 Hugo 文档站已在本机验收。
 - 本轮已完成：CURVE/ADMIN 认证、墙钟自动日结与到期强平、实时账户/持仓/订单/成交后台，以及 FTD/连接/交易所限流；配置与验收见 [docs/operations.md](docs/operations.md)。
-- 未完成：M4 三渠道正式发布流程及多角色远程运营、场景上传等扩展后台；Shim 已支持 `ctpbuddy.ini` `[fronts]` 别名与 ZeroMQ IPC；Windows release package 构建与真实产物验收已在本机通过，Docker acceptance 已接入 CI（本机仍因 daemon 不可用而 SKIP）。详见 DESIGN §0.6。
+- 未完成：M4 三渠道正式发布流程及多角色远程运营、场景上传等扩展后台；Shim 已支持 `ctpbuddy.ini` `[fronts]` 别名与 ZeroMQ IPC；Windows release package 构建与真实产物验收、本机 Docker Desktop Linux 构建与验收均已通过（容器内 Hugo 未提供，明确 SKIP）。远端 CI 本轮暂不处理。详见 DESIGN §0.6。
 
 ## 快速开始
 
-```bash
-# 1. 构建核心服务（Rust 1.89+）
-cd core && cargo build
+根目录是 uv workspace，Python 包位于 `py/`，`uv.lock` 固定 workspace 依赖，`.python-version` 选择 Python 3.13。本文命令中的 `python` / `ctpbuddy` 均可加 `uv run` 前缀，无需全局安装；也可先激活 `.venv`。构建 wheel 使用 `uv build py --wheel`。
 
-# 2. 安装 Python 层（开发模式）
-pip install -e ./py
+```bash
+# 以下命令均在仓库根目录执行。
+# 1. 构建核心服务（Rust 1.89+）
+cargo build --manifest-path core/Cargo.toml
+
+# 2. 用 uv 安装 Python 层（开发模式，环境位于根目录 .venv）
+uv sync --locked --all-packages
 
 # 3. 跑测试（自动拉起 server；Shim e2e 需先构建 Shim）
-python tests/test_py.py          # Python 侧单测：帧编解码 / 结构体布局 / 场景校验
-cd core && cargo test            # Rust 侧单测：场景 DSL / 行情 transform / FAK 三所回报布局
-cd .. && python tests/e2e/m1_smoke.py     # 端到端：登录→订阅→报单穿透→断言成交与资金
+uv run python tests/test_py.py   # Python 侧单测：帧编解码 / 结构体布局 / 场景校验
+cargo test --manifest-path core/Cargo.toml # Rust 侧单测：场景 DSL / 行情 transform / FAK 三所回报布局
+uv run python tests/e2e/m1_smoke.py # 端到端：登录→订阅→报单穿透→断言成交与资金
 python shim/build_msvc.py --demo # MSVC 构建 Shim DLL + 真实下游 demo（Windows）
 python tests/e2e/m1_shim_e2e.py  # 真实 CTP 应用经 Shim 打穿核心的全链路
 
@@ -178,10 +181,10 @@ Web 启动可指定 `ctpbuddy web --workspace . --db data/ctpbuddy.db`；目录�
 
 ## Docker 验收与发布包
 
-Linux 容器验收只覆盖不依赖 Windows ABI 的边界：Python wheel/CLI、Rust `ctpbuddy-server` build/run、随包 `refdata`，以及 Web/OINK（镜像没有 Hugo 二进制时明确 `SKIP`，可在独立 Hugo 环境构建）。容器**绝不运行 Windows Shim**，也不复制 `ctpsdk/`、Windows DLL/EXE 或真实账户/行情数据。
+Linux 容器验收只覆盖不依赖 Windows ABI 的边界：Python wheel/CLI、已安装的共享 journal contract/vectors、Rust `ctpbuddy-server` build/run、随包 `refdata`、Web 页面/资源/实时 API，以及可选 OINK/Hugo（镜像没有 Hugo 二进制时明确 `SKIP`，可在独立 Hugo 环境构建）。容器**绝不运行 Windows Shim**，也不复制 `ctpsdk/`、Windows DLL/EXE 或真实账户/行情数据。2026-10-13 已在本机 Docker Desktop `desktop-linux` 完成实际构建与验收；镜像内 Python 源目录在安装后移除，验收读取 wheel 中的资源。
 
 ```bash
-python tools/docker_acceptance.py       # 无 Docker 或 daemon 不可用时打印 SKIPPED、退出码 3；--allow-skip 才为 0
+uv run python tools/docker_acceptance.py # 无 Docker 或 daemon 不可用时打印 SKIPPED、退出码 3；--allow-skip 才为 0
 # CI / 本机 Docker：
 docker compose -f docker/compose.yml build
 docker compose -f docker/compose.yml run --rm acceptance

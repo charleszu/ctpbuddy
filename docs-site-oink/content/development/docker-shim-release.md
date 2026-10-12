@@ -10,13 +10,14 @@ description: 说明 Linux Docker 验收、Windows Shim 构建和白名单发布�
 ## Docker 验收
 
 ```bash
-python tools/docker_acceptance.py
+uv sync --locked --all-packages
+uv run python tools/docker_acceptance.py
 # 或
  docker compose -f docker/compose.yml build
  docker compose -f docker/compose.yml run --rm acceptance
 ```
 
-脚本先检查 docker CLI 和 `docker info`。CLI 缺失或 daemon 不可用时安全返回 `SKIP`，不会伪造通过；因此本次源码文档构建不运行 Docker。容器覆盖 Linux 下 Python wheel/CLI、Rust server build/run、refdata 和可选 Web/OINK 检查，**不运行 Windows ABI Shim**，不复制官方 `ctpsdk/`、Windows DLL/EXE、真实账户或行情数据。
+脚本先检查 docker CLI 和 `docker info`。CLI 缺失或 daemon 不可用时打印 `SKIPPED` 并以 3 退出，只有显式 `--allow-skip` 才以 0 退出。容器覆盖 Linux 下 Python wheel/CLI、已安装 journal contract/vectors、Rust server build/run、refdata、Web 页面/资源/实时 API 和可选 OINK/Hugo 检查，**不运行 Windows ABI Shim**，不复制官方 `ctpsdk/`、Windows DLL/EXE、真实账户或行情数据。Rust builder 复制共享契约供 `build.rs` 使用；运行镜像安装 wheel 后移除 Python 源目录，避免源码导入掩盖打包缺失。
 
 ## Shim 构建
 
@@ -36,4 +37,4 @@ CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py
 
 ## 当前发布状态
 
-项目有本地发布包和 Docker 验收工具；fixture 与真实产物 opt-in 的 release package 已本机通过，Docker daemon 当前本机为 SKIP、需 CI 验收。M4 三渠道发布与完整发布流程仍不能统称完成，文档必须保留这些条件与 SKIP 结果。
+项目有本地发布包和 Docker 验收工具；fixture 与真实产物 opt-in 的 release package 已本机通过，2026-10-13 本机 Docker Desktop `desktop-linux` 实际构建与验收通过。镜像未内置 Hugo，OINK/Hugo 单独明确 SKIP；远端 CI 本轮按用户要求暂不处理。M4 三渠道发布与完整发布流程仍不能统称完成，文档保留这些边界。

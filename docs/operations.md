@@ -74,3 +74,13 @@ ADMIN 新增 `live_status`，Web 提供 `GET /api/live`；筛选 `broker` / `inv
 2026-10-12 本地验证：152 项 Rust 测试、clippy/rustfmt、Python 完整单测与 13 项查询断言测试通过；operations、CURVE（含真实 MSVC Shim 与精确回调次数）、m2_flow、m2_journal、m3_settlement、m3_6_projection、settings、m1_shim_e2e、review_regressions 通过。错误码全集生成检查、JavaScript 语法检查通过。Windows CURVE 验收使用实际编译的 libzmq 4.3.5 + libsodium 与 pyzmq；这些临时验证依赖不入库。
 
 规范核对沿用 README/DESIGN、GLOSSARY、ADR 0001 与项目 memory：检查生成器边界、CTP 错误码/回调、真实定时 PULSE、虚拟时间、秘密输出及恢复契约。需求核对按本文件四项和公开 HTTP/CB/CTP 边界验收。`code-review` 要求的两名独立子代理因当前继承模型不受工具支持而未能启动，本次使用手工核对，未宣称独立审查通过。远端 CI 尚未在本轮确认结果。
+
+## 项目环境与本机 Docker 验收（2026-10-13）
+
+在仓库根目录使用 `uv sync --locked --all-packages`，环境位于 `.venv`，Python 包以开发模式安装自 `py/`。`.python-version` 选择 Python 3.13，`uv.lock` 固定 workspace 依赖。CLI、测试等命令加 `uv run` 前缀，不依赖全局 Python 包安装。
+
+修复 package-data dotted key 后，`uv build py --wheel` 成功；另从干净源码副本构建 wheel，使用 uv 创建独立环境安装，在仓库外验证 CLI、journal v3 契约向量及 Web 资源，均 PASS。项目环境中 Python 全套单测、journal contract、2 项投影升级与 13 项查询断言测试，以及 m1_smoke、operations、flow_replay 均 PASS；流控重放核对 1093 输入、111 回调和业务 core hash。
+
+本机 Docker Desktop 的 `desktop-linux` 引擎（Docker Engine 29.8.2）实际执行 `uv run python tools/docker_acceptance.py`，构建与运行均 PASS。Rust builder 复制共享 JSON 契约，运行镜像构建/安装 wheel 后移除源码；验证 installed contract/vectors、Rust binary/ADMIN、refdata、Web 页面/静态资源/实时 API。镜像未提供 Hugo，OINK/Hugo 单独明确 SKIP；Windows ABI 不在 Linux 容器执行。宿主机 Hugo 严格构建通过（80 pages、22 static files）。
+
+首次镜像下载遇到 EOF 和代理链路缓慢；Rust 基础镜像从官方 registry 读取 manifest，按官方 Linux/amd64 digest `sha256:c49256cbe5ea0188bc658a689500d70c41eb51f009a7a7be209caf60a944f3ec` 下载并逐层校验，再导入本机 Docker。项目 Dockerfile 的镜像来源保持官方。临时镜像与 wheel 验证文件位于 ignored `outputs/`，未入库；远端 CI 按用户要求暂不处理。本次手工规范/需求核对未发现未解决问题；独立子代理审查因模型配置不兼容未能执行。
