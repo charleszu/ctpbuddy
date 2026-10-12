@@ -2230,8 +2230,37 @@ mod tests {
         cfg.broker_id = "B1,B2".into();
         cfg.data_dir = dir.to_string_lossy().into_owned();
         let mut world = World::new(cfg).expect("world");
+        world.ledger.ensure_account("B2", "u2");
+        world.ledger.ensure_account("B1", "u1");
         let (tx, rx) = mpsc::channel::<Frame>();
         world.on_conn_opened(1, tx, true);
+        world.on_frame(
+            1,
+            Frame::new(msgs::ADMIN_REQ, 0, br#"{"cmd":"status"}"#.to_vec()),
+        );
+        let status = rx.try_iter().next().expect("status response");
+        let status_value = json::parse(&String::from_utf8(status.payload).unwrap()).unwrap();
+        let accounts = match status_value.get("accounts") {
+            Some(Value::Arr(rows)) => rows,
+            _ => panic!("status accounts"),
+        };
+        let identities: Vec<_> = accounts
+            .iter()
+            .map(|row| {
+                (
+                    row.get_str("broker").unwrap(),
+                    row.get_str("investor").unwrap(),
+                    row.get_str("currency").unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            identities,
+            vec![
+                ("B1".into(), "u1".into(), "CNY".into()),
+                ("B2".into(), "u2".into(), "CNY".into())
+            ]
+        );
         world.on_frame(
             1,
             Frame::new(

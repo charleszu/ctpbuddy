@@ -115,12 +115,20 @@ impl World {
             ("virtual_time".into(), json::s(&self.now_str())),
             ("trading_day".into(), json::s(&self.vt_day())),
         ]);
-        let accounts: Vec<Value> = self
-            .ledger
-            .accounts()
+        let mut account_rows: Vec<_> = self.ledger.accounts().collect();
+        account_rows.sort_by(|a, b| {
+            a.broker_id
+                .cmp(&b.broker_id)
+                .then(a.investor_id.cmp(&b.investor_id))
+                .then(a.currency_id.cmp(&b.currency_id))
+        });
+        let accounts: Vec<Value> = account_rows
+            .into_iter()
             .map(|a| {
                 json::obj_sorted(vec![
+                    ("broker".into(), json::s(&a.broker_id)),
                     ("investor".into(), json::s(&a.investor_id)),
+                    ("currency".into(), json::s(&a.currency_id)),
                     ("balance".into(), json::n(a.dynamic_equity().to_f64())),
                     ("available".into(), json::n(a.available().to_f64())),
                     ("used_margin".into(), json::n(a.used_margin.to_f64())),
