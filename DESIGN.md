@@ -965,6 +965,8 @@ CREATE TABLE audit_log (
 
 #### 11.3.1 M3-6 已实现投影 schema v2
 
+共享 journal 契约当前 v3（SQLite schema 仍为 v2）。已有投影通过 `journal upgrade JOURNAL --db DB` 校验旧投影描述的原始录制前缀，备份后原子重建；重复升级相同录制幂等，来源不匹配不替换。流控启用后自动记录 `flow_input/flow_output`，replay 恢复启动额度并以 trace 单调钟驱动 Core/CB 边界的预算、排队与连接准入，同时核对回调载荷；旧录制缺少 trace 时不能追溯重建 pacing。具体配置与验收见 `docs/journal-upgrade-and-flow-replay.md`。
+
 上面的 SQL 是目标模型，不是当前 journal 载荷已经具备的事实。M3-6 以 `py/ctpbuddy/store.py` 的 `SCHEMA` 为实际 schema：`PRAGMA application_id=0x43545042`、`user_version=2`，`projection_meta` 保存版本、事件数、最后序号及 journal full hash；版本不符要求 rebuild，不隐式迁移。v2 增加 `settlement_report` 只读投影，正文保留为字节数组 JSON，不将其解码或重算成官方结算口径。
 
 - `journal_event` 完整保存事件（含墙钟与未知类型），账户表仅保存观察到的账户身份；不把 SQLite 称为余额权威。

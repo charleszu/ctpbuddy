@@ -138,6 +138,19 @@ impl World {
             self.on_admin(conn_id, &frame);
             return;
         }
+        if self.cfg.flow_replay && conn_id < crate::flow_replay::REPLAY_ID_BASE {
+            self.send_error(
+                conn_id,
+                frame.req_id,
+                27,
+                "offline flow replay refuses live TD input",
+            );
+            return;
+        }
+        if !self.cfg.flow_replay {
+            self.flow_clock = Instant::now();
+        }
+        self.record_flow("inbound", conn_id, Some(&frame));
         let Some(frame) = self.admit_td_frame(conn_id, frame) else {
             return;
         };
@@ -304,7 +317,12 @@ impl World {
             return self.send_auth_error(conn_id, frame.req_id, "user_id 不能为空");
         }
         let presented = v.get_str("auth_code").unwrap_or_default();
-        if !auth_code_ok(std::env::var(TD_TOKEN_ENV).ok().as_deref(), &presented) {
+        let token_ok = if self.cfg.flow_replay {
+            presented == "accepted"
+        } else {
+            auth_code_ok(std::env::var(TD_TOKEN_ENV).ok().as_deref(), &presented)
+        };
+        if !token_ok {
             eprintln!("[ctpbuddy] AUTH rejected for user '{user}': bad auth_code");
             return self.send_auth_error(conn_id, frame.req_id, "auth_code 校验失败");
         }
@@ -336,7 +354,10 @@ impl World {
             &broker,
             &user,
             json::obj_sorted(vec![
-                ("front_id".into(), json::n(conn_id as f64)),
+                (
+                    "front_id".into(),
+                    json::n(self.conns[&conn_id].front_id as f64),
+                ),
                 ("app_id".into(), json::s(&app)),
             ]),
         );

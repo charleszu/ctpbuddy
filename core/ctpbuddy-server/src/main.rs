@@ -16,6 +16,7 @@ options:
   -b, --broker-id <id>   BrokerID, or comma-separated BrokerIDs served
                           by one shared core         (default 8888)
       --data-dir <dir>   journal / runtime data dir   (default ./data)
+      --flow-replay      offline trace replay; refuses live TD input
   -h, --help             show this help
   -f, --initial-funds <n>
                           new-account initial funds    (default 2000000)
@@ -304,6 +305,7 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                 cfg.playback_speed = Some(n);
             }
             "--td" => cfg.td_endpoint = take("--td")?,
+            "--flow-replay" => cfg.flow_replay = true,
             "--auto-settle-at" => cfg.auto_settle_at = Some(take("--auto-settle-at")?),
             "--auto-settle-prices" => cfg.auto_settle_prices = Some(take("--auto-settle-prices")?),
             "--ftd-max-comm-flux" => {

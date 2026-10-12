@@ -38,12 +38,17 @@ def connect_budget(env, client_keys, server_key):
     from zmq.utils.monitor import recv_monitor_message
     for secure in (False, True):
         with tempfile.TemporaryDirectory(prefix="ctpbuddy-zmq-budget-") as directory:
+            scenario = Path(directory) / "scenario"
+            scenario.mkdir()
+            make_scenario(str(scenario))
             td = free_port()
             context = zmq.Context()
             peers = []
             try:
                 with server(Path(directory), ["--connect-freq", "1", "--td", f"zmq://127.0.0.1:{td}"],
-                            env=env if secure else None):
+                            env=env if secure else None) as (_, admin_addr, _):
+                    with Admin(admin_addr, token=env.get("CTPBUDDY_ADMIN_TOKEN") if secure else None) as admin:
+                        admin.start_scenario(str(scenario), paused=True)
                     def dealer():
                         peer = context.socket(zmq.DEALER)
                         peer.linger = 0
@@ -76,6 +81,9 @@ def connect_budget(env, client_keys, server_key):
                     recovered.connect(f"tcp://127.0.0.1:{td}")
                     recovered.send(Frame(PING, 3).encode())
                     assert recovered.poll(3000) and decode(recovered.recv()).req_id == 3
+                from ctpbuddy.replay import replay_journal, format_result
+                result = replay_journal(str(Path(directory) / "data" / "journal"), str(scenario))
+                assert result["ok"] and result["flow_replay"]["verified"], format_result(result)
             finally:
                 for peer in peers:
                     peer.close()

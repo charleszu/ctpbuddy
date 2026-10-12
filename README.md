@@ -78,6 +78,7 @@ python tests/e2e/m3_order_sysid.py # 任务43：OrderSysID 接受边界、拒单
 
 # M3-6：从 Rust 写入的 JSONL journal 构建 Python 标准库 SQLite 查询投影
 ctpbuddy journal rebuild ./data/journal --db ./data/ctpbuddy.db
+ctpbuddy journal upgrade ./data/journal --db ./data/ctpbuddy.db
 ctpbuddy journal query account --db ./data/ctpbuddy.db --broker 8888
 ctpbuddy journal query order_record --db ./data/ctpbuddy.db --investor test01
 
@@ -107,7 +108,9 @@ M4 真实回放只验收 `controlled futures subset`：动态选择 RefData 覆�
 目录可用 `CTPBUDDY_EXPORT_DIR` / `CTPBUDDY_SETTLEMENT_DIR` 指定；未提供则跳过，不影响上面的回归。
 口径细节见 DESIGN §8.7.1。
 
-M3-6 存储投影：Rust 核心只写 `data/journal/*.jsonl`，Python 标准库 `sqlite3` 通过 `ctpbuddy journal rebuild` 原子生成 `data/ctpbuddy.db`；数据库可以直接删除后重建，重建依据 journal 顺序与 full hash，结果确定。`journal query` 和配置了 `--db` 的 Web `/api/projection?table=...` 只读查询账户、持仓/资金快照、订单、成交、审计及用户供给的结算报告；快照非实时，缺失字段不编造。SQLite 损坏时不要修复数据文件，删除后重新 rebuild。
+M3-6 存储投影：Rust 核心写 `data/journal/*.jsonl`，Python 标准库 `sqlite3` 通过 `ctpbuddy journal rebuild` 原子生成 `data/ctpbuddy.db`。已有投影用 `journal upgrade` 核对原始来源、备份并升级；相同来源重复执行保持幂等。损坏或缺少来源元数据的旧库使用显式 rebuild。`journal query` 和配置了 `--db` 的 Web `/api/projection?table=...` 只读查询账户、持仓/资金快照、订单、成交、审计及用户供给的结算报告；快照非实时，缺失字段不编造。
+
+新增流控启用后自动记录额度、脱敏 TD 请求、FTD 排队与连接准入。`journal replay` 恢复配置与单调窗口，核对业务 hash 及逐连接回调，无需手工复刻 pacing。当前共享契约 v3 继续读 v1/v2 事件；旧录制缺少时序 trace，需要重新录制才能完整复现流控。详见[投影升级与流控重放](docs/journal-upgrade-and-flow-replay.md)。
 
 核心支持 `--qry-freq <n>`（env `CTPBUDDY_QRY_FREQ`）调前置每秒查询预算：超过即回 `OnRspError[90]`「CTP：查询未就绪，请稍后重试」，与真实 CTP 前置一致（DESIGN §8.8）。除行情与 RefData 外，可用本地 Web 后台配置已实现的柜台参数：`ctpbuddy web --host loopback --port 8080 --admin 127.0.0.1:5561`。可配置 `qry_freq`、`order_freq`（报单/撤单独立额度）、`max_user_sessions`（0 为关闭限制）、`settlement_required`（默认开启，未确认报单返回官方 42「CTP:结算结果未确认」）、`initial_funds`（仅首次开户）。Web 通过 ADMIN 单一真相读写，绑定回环地址、同源/CSRF、严格 schema 校验；设置写入 `data_dir/settings.json` 并原子替换，已有账户资金不改。启动覆盖优先级为 CLI > env > 持久化 > 默认，覆盖字段会明确显示；不可用 data_dir 时更新拒绝。
 

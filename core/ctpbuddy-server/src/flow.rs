@@ -1,6 +1,31 @@
 //! Wall-clock front budgets; zero always means disabled.
 use std::time::{Duration, Instant};
 
+pub(crate) fn origin() -> Instant {
+    static ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    *ORIGIN.get_or_init(Instant::now)
+}
+
+/// Journal the actual transport gate invocation, including denied connects.
+pub(crate) fn connect_gate(
+    budget: &mut WindowBudget,
+    now: Instant,
+    limit: u32,
+    tx: &std::sync::mpsc::Sender<crate::WorldMsg>,
+    scope: &'static str,
+) -> bool {
+    origin();
+    let allowed = budget.take(now, limit);
+    if limit != 0 {
+        let _ = tx.send(crate::WorldMsg::FlowConnect {
+            scope,
+            clock: now,
+            allowed,
+        });
+    }
+    allowed
+}
+
 #[derive(Default)]
 pub(crate) struct WindowBudget {
     start: Option<Instant>,

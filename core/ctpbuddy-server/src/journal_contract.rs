@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn embedded_contract_declares_pilot_events() {
-        assert_eq!(contract_version(), 2);
+        assert_eq!(contract_version(), 3);
         assert!(knows_event("server_start"));
         assert!(knows_event("session_auth"));
         assert!(!knows_event("made_up_event"));

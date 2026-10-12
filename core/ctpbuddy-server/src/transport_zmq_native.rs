@@ -372,7 +372,13 @@ pub(crate) fn start(
                                 && parts[5] == b"CURVE"
                                 && clients.iter().any(|key| parts[6].as_slice() == key)
                                 && (parts[2] != b"ctpbuddy-td"
-                                    || connections.take(Instant::now(), connect_freq));
+                                    || crate::flow::connect_gate(
+                                        &mut connections,
+                                        Instant::now(),
+                                        connect_freq,
+                                        &world_tx,
+                                        "curve",
+                                    ));
                             let (code, text): (&[u8], &[u8]) = if allowed {
                                 (b"200", b"OK")
                             } else {

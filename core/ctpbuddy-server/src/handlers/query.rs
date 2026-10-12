@@ -473,7 +473,7 @@ impl World {
     /// the in-flight half (one outstanding query, second gets rc -2).
     /// Returns true when the query may proceed.
     pub(crate) fn qry_gate(&mut self, conn_id: u64, req_id: u32) -> bool {
-        let now = Instant::now();
+        let now = self.flow_clock;
         let quota = self.cfg.qry_freq.max(1);
         let used = {
             let c = match self.conns.get_mut(&conn_id) {
@@ -532,12 +532,12 @@ impl World {
     /// `OnRspOrderAction` (both must be hooked, §5.1).
     ///
     /// Wall-clock window, same as `qry_gate` (real CTP throttles on real
-    /// time); a drive that exceeds the budget is replay-deterministic only
-    /// when the replay reproduces the recording's pacing.
+    /// time). A recording with flow trace replays the captured monotonic
+    /// gate time; older recordings require matching request pacing.
     ///
     /// Returns true when the request may proceed.
     pub(crate) fn order_gate(&mut self, broker: &str, investor: &str, stream: GateStream) -> bool {
-        let now = Instant::now();
+        let now = self.flow_clock;
         let quota = self.cfg.order_freq.max(1);
         let entry = self
             .order_freq_windows

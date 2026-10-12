@@ -10,6 +10,7 @@ mod auto_settlement;
 pub mod calendar;
 pub mod dtime;
 mod flow;
+mod flow_replay;
 pub mod handlers;
 pub mod journal;
 pub mod journal_contract;
@@ -173,6 +174,8 @@ pub struct Config {
     /// Exchange-level order budget per second. Zero disables.
     pub exchange_freq: u32,
     pub exchange_limits: HashMap<String, u32>,
+    /// Explicit offline replay mode; live TD inputs are refused.
+    pub flow_replay: bool,
 }
 
 impl Default for Config {
@@ -201,6 +204,7 @@ impl Default for Config {
             connect_freq: 0,
             exchange_freq: 0,
             exchange_limits: HashMap::new(),
+            flow_replay: false,
         }
     }
 }
@@ -406,7 +410,13 @@ fn accept_loop_with(listener: TcpListener, tx: Sender<WorldMsg>, is_admin: bool,
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
-                if !connections.take(Instant::now(), lim.connect_freq) {
+                if !flow::connect_gate(
+                    &mut connections,
+                    Instant::now(),
+                    lim.connect_freq,
+                    &tx,
+                    "tcp",
+                ) {
                     continue;
                 }
                 if lim.live.fetch_add(1, Ordering::SeqCst) >= max_conns {
@@ -557,6 +567,11 @@ fn writer_loop(
 }
 
 pub(crate) enum WorldMsg {
+    FlowConnect {
+        scope: &'static str,
+        clock: Instant,
+        allowed: bool,
+    },
     Opened {
         id: u64,
         writer: Sender<Frame>,
@@ -712,6 +727,8 @@ pub struct World {
     /// clock, exactly like `qry_gate` — real CTP throttles on real time.
     order_freq_windows: HashMap<(String, String, GateStream), (Instant, u32)>,
     exchange_freq_windows: HashMap<(String, String, String, GateStream), flow::WindowBudget>,
+    flow_clock: Instant,
+    flow_state: flow_replay::ReplayState,
     settlement_confirmed: HashMap<(String, String), String>,
     settlement_reports: Vec<settlement::Report>,
     /// Last ledger snapshot written to `<data_dir>/state/` and when.
@@ -835,6 +852,8 @@ impl World {
 
         if let Some(j) = journal.as_mut() {
             let mut start_data = vec![
+                ("flow_config".into(), flow_replay::config(&cfg)),
+                ("settings".into(), settings::values(&cfg)),
                 ("version".into(), json::s(SERVER_VERSION)),
                 (
                     "scenario".into(),
@@ -877,6 +896,8 @@ impl World {
             assertions,
             order_freq_windows: HashMap::new(),
             exchange_freq_windows: HashMap::new(),
+            flow_clock: flow::origin(),
+            flow_state: flow_replay::ReplayState::default(),
             settlement_confirmed: HashMap::new(),
             settlement_reports: settlement::load_reports(&cfg.data_dir, &cfg.broker_ids())
                 .unwrap_or_else(|e| {
@@ -1318,6 +1339,11 @@ impl World {
             }
             match rx.recv_timeout(wait) {
                 Ok(msg) => match msg {
+                    WorldMsg::FlowConnect {
+                        scope,
+                        clock,
+                        allowed,
+                    } => self.record_connect(scope, clock, allowed),
                     WorldMsg::Opened {
                         id,
                         writer,
@@ -1390,6 +1416,7 @@ impl World {
                 | "settlement_report"
                 | "ledger_recovered"
                 | "system_announcement" => {}
+                "flow_input" | "flow_output" => {}
                 "deposit" | "withdraw" => self.replay_cash_event(&event, event_type.as_str())?,
                 "settle" | "admin" => {
                     return Err(format!(
@@ -1659,7 +1686,9 @@ impl World {
     /// Timer pulse: release due ticks, settle fills, mark to market, flush journal.
     fn pulse(&mut self) {
         let now = Instant::now();
-        self.drain_ftd(now);
+        if !self.cfg.flow_replay {
+            self.drain_ftd(now);
+        }
         self.poll_auto_settlement(now);
         let ticks = self.poll_playback(now);
         if !ticks.is_empty() {
@@ -1688,7 +1717,7 @@ impl World {
         if conn.ftd_pending.is_empty()
             && conn
                 .ftd_budget
-                .take(Instant::now(), self.cfg.ftd_max_comm_flux)
+                .take(self.flow_clock, self.cfg.ftd_max_comm_flux)
         {
             return Some(frame);
         }
@@ -1701,6 +1730,8 @@ impl World {
     }
 
     fn drain_ftd(&mut self, now: Instant) {
+        self.flow_clock = now;
+        let mut recorded = false;
         let mut ids: Vec<_> = self.conns.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
@@ -1716,6 +1747,10 @@ impl World {
                     }
                     conn.ftd_pending.pop_front().unwrap()
                 };
+                if !recorded {
+                    self.record_flow("drain", 0, None);
+                    recorded = true;
+                }
                 self.dispatch_td_frame(id, frame);
             }
         }
@@ -1746,7 +1781,7 @@ impl World {
         self.exchange_freq_windows
             .entry(key)
             .or_default()
-            .take(Instant::now(), limit)
+            .take(self.flow_clock, limit)
     }
 
     fn poll_playback(&mut self, now: Instant) -> Vec<Tick> {
@@ -1891,6 +1926,10 @@ impl World {
         }
     }
     fn on_conn_opened(&mut self, id: u64, writer: Sender<Frame>, is_admin: bool) {
+        if !is_admin && !self.cfg.flow_replay {
+            self.flow_clock = Instant::now();
+            self.record_flow("open", id, None);
+        }
         self.conns.insert(
             id,
             Conn {
@@ -1915,12 +1954,19 @@ impl World {
     }
 
     fn on_conn_closed(&mut self, id: u64) {
+        if self.conns.get(&id).is_some_and(|c| !c.is_admin) {
+            if !self.cfg.flow_replay {
+                self.flow_clock = Instant::now();
+            }
+            self.record_flow("close", id, None);
+        }
         self.conns.remove(&id);
     }
 
     // ---- helpers shared by handlers / admin ----
 
     pub(crate) fn send_frame(&mut self, conn_id: u64, frame: Frame) {
+        self.record_flow_output(conn_id, &frame);
         if let Some(c) = self.conns.get(&conn_id) {
             let _ = c.writer.send(frame);
         }
@@ -2332,7 +2378,7 @@ mod tests {
             Some("fixture-r1")
         );
         assert_eq!(value.get_str("calendar_sha256"), Some("b".repeat(64)));
-        assert_eq!(value.get_str("contract_version"), Some("2".into()));
+        assert_eq!(value.get_str("contract_version"), Some("3".into()));
         assert!(matches!(value.get("positions"), Some(json::Value::Arr(rows)) if rows.is_empty()));
     }
 

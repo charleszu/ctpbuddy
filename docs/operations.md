@@ -2,9 +2,9 @@
 
 本轮沿用 canonical journal contract，完成用户指定的 CURVE/ADMIN 认证、墙钟日结、实时后台和三层新增流控。默认 TCP 与未启用功能的既有行为兼容。
 
-共享契约递增至 v2，补齐此前未登记、被 writer 拒收的 `system_announcement`。公告属于 operational noise，可重新发送并投影到审计表，不改变 core hash。显式 v1 的旧事件继续可读，v2 公告不能标成 v1；跨语言 golden vectors 验证兼容、字段类型与 canonical 形式，journal 录制/重放验收验证公告确实再次发出。
+共享契约当前为 v3：v2 登记 `system_announcement`，v3 登记流控输入与回调 trace。新增事件属于 operational noise，不改变业务 core hash。v1/v2 的既有事件继续可读；v3 trace 不能标成 v1/v2。跨语言 golden vectors 验证兼容、字段类型与 canonical 形式。
 
-Core 与 Python 控制面需要使用同一契约版本。已有 v1 SQLite 投影需执行 `journal rebuild` 生成 v2 元数据，原始 v1 journal 不需要改写。
+Core 与 Python 控制面需要使用同一契约版本。已有投影执行 `ctpbuddy journal upgrade JOURNAL --db DB`：先校验原始录制来源，备份旧库，原子重建至当前契约；重复执行相同来源不重复备份。没有数据库时直接构建。原始 v1/v2 journal 不需改写；来源元数据不完整的旧库需显式 `journal rebuild`。详见[投影升级与流控重放](journal-upgrade-and-flow-replay.md)。
 
 ## 加密传输与管理认证
 
@@ -63,7 +63,7 @@ ADMIN 新增 `live_status`，Web 提供 `GET /api/live`；筛选 `broker` / `inv
 
 以上默认 0，表示关闭新增限流。原有 QryFreq 与 order_freq 保持原有默认和语义。新增参数为启动配置，status 的 `flow_control` 可查看实际值；设置 Web 不提供这些参数的热更新。所有墙钟调度与限流不把墙钟写成 journal 虚拟时间。
 
-墙钟限流的拒绝录制需要相同启动额度和请求 pacing 才能复现。现有 replay walker 不自动恢复这些新增墙钟配置或完整网络请求时序；本轮重放验收覆盖已有业务链路与公告，未把它表述为所有流控场景自动重放。
+启用任一新增流控时，journal 自动记录启动额度、TD 生命周期、脱敏请求、排队放行与回调报文。`journal replay` 自动恢复额度，并以录制单调钟驱动离线预算，无需人工复刻 pacing；同时核对业务 core hash、逐连接回调报文和流控 trace。TCP、普通 ZMQ 与 CURVE ConnectFreq 均覆盖。v1/v2 旧录制缺少这些信息，无法追溯补出完整时序；需重新录制。重放在 Core/CB 边界验证额度行为，不重演操作系统 TCP 握手、ZAP 密钥认证或物理网络延迟。
 
 ## 自动验收
 

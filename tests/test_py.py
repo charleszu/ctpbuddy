@@ -692,10 +692,10 @@ def test_journal_projection() -> None:
         first = rebuild(journal, db)
         second = rebuild(journal, db)
         assert first == second
-        assert first["contract_version"] == 2 and len(first["contract_sha256"]) == 64
+        assert first["contract_version"] == 3 and len(first["contract_sha256"]) == 64
         with Projection(db) as projection:
             metadata = projection.metadata()
-            assert metadata["contract_version"] == "2"
+            assert metadata["contract_version"] == "3"
             assert len(metadata["contract_sha256"]) == 64
             assert metadata["schema_version"] == "2"
             assert metadata["journal_sha256"] == first["sha256"]
@@ -789,11 +789,11 @@ def test_projection_calendar_metadata() -> None:
         live = ReadModelMetadata.from_admin_status({
             "playback": {"virtual_time": "09:30:00.000"},
             "journal_seq": 3,
-            "contract_version": "2",
+            "contract_version": "3",
             "calendar_version": "fixture-r1",
             "calendar_sha256": "a" * 64,
         })
-        assert live.contract_version == "2" and live.journal_seq == 3
+        assert live.contract_version == "3" and live.journal_seq == 3
         try:
             ReadModelMetadata.from_admin_status({"playback": {}, "contract_version": "99"})
             raise AssertionError("ADMIN contract version mismatch must fail")
@@ -1591,7 +1591,7 @@ def test_journal_contract() -> None:
         TRADE_RECORD_TYPES, event_spec,
         validate_event_contract,
     )
-    assert CONTRACT_VERSION == 2
+    assert CONTRACT_VERSION == 3
     assert ENVELOPE_REQUIRED == ("seq", "ts_wall", "trading_day", "vt_ms", "type", "data")
     assert CANONICAL_OMIT_FIELDS == {"ts_wall"}
     assert SESSION_FRONT_ID_TYPES == {"session_auth", "session_login"}

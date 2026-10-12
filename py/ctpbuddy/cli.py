@@ -468,12 +468,13 @@ def cmd_journal_verify(args: argparse.Namespace) -> int:
 def cmd_journal_rebuild(args: argparse.Namespace) -> int:
     import sqlite3
     from .journal import JournalError
-    from .store import rebuild
+    from .store import rebuild, upgrade
 
     database = args.db or os.path.join(
         os.path.dirname(os.path.abspath(args.file.rstrip("/\\"))), "ctpbuddy.db")
     try:
-        result = rebuild(args.file, database)
+        action = upgrade if getattr(args, "upgrade", False) else rebuild
+        result = action(args.file, database)
     except (JournalError, OSError, sqlite3.Error, ValueError, KeyError, TypeError) as e:
         print("error: %s" % e, file=sys.stderr)
         return 1
@@ -611,6 +612,10 @@ def build_parser() -> argparse.ArgumentParser:
     rb.add_argument("file", help="完整 journal JSONL 文件或目录")
     rb.add_argument("--db", help="目标投影路径，默认 journal 所在目录旁的 ctpbuddy.db")
     rb.set_defaults(func=cmd_journal_rebuild)
+    up = jsub.add_parser("upgrade", help="核对原始 journal、备份并升级已有 SQLite 投影")
+    up.add_argument("file", help="已有投影对应的完整 journal JSONL 文件或目录")
+    up.add_argument("--db", required=True, help="已有投影路径")
+    up.set_defaults(func=cmd_journal_rebuild, upgrade=True)
     qp = jsub.add_parser("query", help="只读查询 SQLite journal 投影，输出 JSON")
     qp.add_argument("table", choices=TABLES)
     qp.add_argument("--db", default="data/ctpbuddy.db")
@@ -639,7 +644,7 @@ def build_parser() -> argparse.ArgumentParser:
     rp = jsub.add_parser("replay", help="re-drive a recording and compare core hashes")
     rp.add_argument("file", help="journal .jsonl file or a journal directory")
     rp.add_argument("--scenario", required=True, help="scenario dir the recording was made with")
-    rp.add_argument("--broker-id", default="8888")
+    rp.add_argument("--broker-id", default=None, help="默认恢复录制的 BrokerID 列表，旧录制默认 8888")
     rp.add_argument("--initial-funds", type=float, default=None,
                     help="server default funds for new accounts (must match the recording)")
     rp.add_argument("--keep-data", action="store_true", help="keep the replay data dir")

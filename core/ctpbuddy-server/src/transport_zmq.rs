@@ -168,7 +168,7 @@ async fn run_loop(
                 let Some(identity_frame) = message.get(0) else { continue };
                 let Some(payload_frame) = message.get(1) else { continue };
                 let identity = identity_frame.to_vec();
-                if !identities.contains_key(&identity) && !connections.take(std::time::Instant::now(), connect_freq) {
+                if !identities.contains_key(&identity) && !crate::flow::connect_gate(&mut connections, std::time::Instant::now(), connect_freq, &world_tx, "zmq") {
                     if let Ok(peer) = identity.clone().try_into() {
                         socket.backend().peer_disconnected(&peer);
                     }

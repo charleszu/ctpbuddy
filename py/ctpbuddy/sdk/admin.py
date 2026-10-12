@@ -17,13 +17,14 @@ class Admin:
         timeout: float = 10.0,
         calendar: Optional[CalendarProvider] = None,
         token: Optional[str] = None,
+        use_env_token: bool = True,
     ) -> None:
         host, _, port = addr.rpartition(":")
         self.sock = socket.create_connection((host, int(port)), timeout=timeout)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._seq = 0
         self.calendar = calendar
-        configured_token = os.environ.get("CTPBUDDY_ADMIN_TOKEN") if token is None else token
+        configured_token = os.environ.get("CTPBUDDY_ADMIN_TOKEN") if token is None and use_env_token else token
         if configured_token is not None:
             if not configured_token:
                 self.close()

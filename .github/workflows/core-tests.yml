@@ -51,6 +51,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/test_query_expectations.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/test_projection_upgrade.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   e2e:
     runs-on: windows-latest
@@ -58,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [m1_smoke, m2_book, m2_flow, m2_ioc, m2_surface, m2_scenario, m2_journal, m3_detail, m3_margin, m3_refdata, m3_fee_cffex, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, m4_real_replay, settings, review_regressions, operations]
+        suite: [m1_smoke, m2_book, m2_flow, m2_ioc, m2_surface, m2_scenario, m2_journal, m3_detail, m3_margin, m3_refdata, m3_fee_cffex, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, m4_real_replay, settings, review_regressions, operations, flow_replay]
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
@@ -162,7 +164,8 @@ jobs:
         env:
           CTPBUDDY_CORE: ${{ github.workspace }}/core/target/debug/ctpbuddy-server
         run: |
-          for s in m1_smoke m2_book m2_flow m2_ioc m2_surface m2_scenario m2_journal m3_detail m3_margin m3_refdata m3_fee_cffex m3_bootstrap m3_5_settlement_info m3_6_projection m3_settlement m3_order_sysid review_regressions operations; do
+          python tests/test_projection_upgrade.py
+          for s in m1_smoke m2_book m2_flow m2_ioc m2_surface m2_scenario m2_journal m3_detail m3_margin m3_refdata m3_fee_cffex m3_bootstrap m3_5_settlement_info m3_6_projection m3_settlement m3_order_sysid review_regressions operations flow_replay; do
             python tests/e2e/$s.py
           done
           python tests/e2e/m1_shim_e2e.py

@@ -1,6 +1,7 @@
 {
-  "contract_version": 2,
+  "contract_version": 3,
   "canonical": [
+    {"event": {"seq": 1, "ts_wall": "audit", "trading_day": "20261012", "vt_ms": 0, "type": "flow_input", "data": {"action": "drain", "conn_id": 0, "clock_ns": "9007199254740993"}}, "expected": "{\"data\":{\"action\":\"drain\",\"clock_ns\":\"9007199254740993\",\"conn_id\":0},\"seq\":1,\"trading_day\":\"20261012\",\"type\":\"flow_input\",\"vt_ms\":0}"},
     {"event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "system_announcement", "contract_version": 2, "data": {"type": "announcement", "severity": "info", "message": "notice", "trading_day": "20261012"}}, "expected": "{\"contract_version\":2,\"data\":{\"message\":\"notice\",\"severity\":\"info\",\"trading_day\":\"20261012\",\"type\":\"announcement\"},\"seq\":1,\"trading_day\":\"20261012\",\"type\":\"system_announcement\",\"vt_ms\":0}"},
     {
       "event": {
@@ -15,6 +16,10 @@
     }
   ],
   "validation": [
+    {"name": "v3_flow_input", "event_valid": true, "event": {"seq": 1, "ts_wall": "audit", "trading_day": "20261012", "vt_ms": 0, "type": "flow_input", "contract_version": 3, "data": {"action": "drain", "conn_id": 0, "clock_ns": "9007199254740993"}}},
+    {"name": "v2_cannot_declare_flow_input", "event_valid": false, "event": {"seq": 1, "ts_wall": "audit", "trading_day": "20261012", "vt_ms": 0, "type": "flow_input", "contract_version": 2, "data": {"action": "drain", "conn_id": 0, "clock_ns": "0"}}},
+    {"name": "flow_clock_must_preserve_integer_precision", "event_valid": false, "event": {"seq": 1, "ts_wall": "audit", "trading_day": "20261012", "vt_ms": 0, "type": "flow_input", "data": {"action": "drain", "conn_id": 0, "clock_ns": 1}}},
+    {"name": "v3_flow_output", "event_valid": true, "event": {"seq": 1, "ts_wall": "audit", "trading_day": "20261012", "vt_ms": 0, "type": "flow_output", "data": {"conn_id": 1, "msg_type": 2, "req_id": 3, "error_id": null, "payload": ""}}},
     {"name": "v2_announcement", "event_valid": true, "event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "system_announcement", "contract_version": 2, "data": {"type": "announcement", "severity": "info", "message": "notice", "trading_day": "20261012"}}},
     {"name": "v1_legacy_event", "event_valid": true, "event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "server_start", "contract_version": 1, "data": {}}},
     {"name": "v1_cannot_declare_v2_announcement", "event_valid": false, "event": {"seq": 1, "ts_wall": "x", "trading_day": "20261012", "vt_ms": 0, "type": "system_announcement", "contract_version": 1, "data": {"type": "announcement", "severity": "info", "message": "notice", "trading_day": "20261012"}}},

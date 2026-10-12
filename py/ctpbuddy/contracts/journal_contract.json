@@ -1,6 +1,6 @@
 {
-  "contract_version": 2,
-  "read_versions": [1, 2],
+  "contract_version": 3,
+  "read_versions": [1, 2, 3],
   "envelope": {
     "required": ["seq", "ts_wall", "trading_day", "vt_ms", "type", "data"],
     "optional": ["broker", "investor"],
@@ -10,6 +10,8 @@
   "events": {
     "server_start": {"category": "operational", "replay": "none", "hash": "noise", "projection": []},
     "server_stop": {"category": "operational", "replay": "none", "hash": "noise", "projection": []},
+    "flow_input": {"min_version": 3, "category": "operational", "replay": "reissue", "hash": "noise", "projection": [], "data_required": ["action", "conn_id", "clock_ns"], "data_types": {"action": "string", "conn_id": "number", "clock_ns": "string"}},
+    "flow_output": {"min_version": 3, "category": "operational", "replay": "none", "hash": "noise", "projection": [], "data_required": ["conn_id", "msg_type", "req_id", "error_id", "payload"], "data_types": {"conn_id": "number", "msg_type": "number", "req_id": "number", "error_id": "number_or_null", "payload": "string"}},
     "system_announcement": {"min_version": 2, "category": "operational", "replay": "reissue", "hash": "noise", "projection": ["audit_log"], "data_required": ["type", "severity", "message", "trading_day"], "data_types": {"type": "string", "severity": "string", "message": "string", "trading_day": "string"}},
     "ledger_recovered": {"category": "operational", "replay": "none", "hash": "noise", "projection": [], "data_required": ["trading_day", "working_orders_voided", "reason", "snapshot_journal_seq"], "data_types": {"trading_day": "string", "working_orders_voided": "boolean", "reason": "string", "snapshot_journal_seq": "number_or_null"}},
     "scenario_loaded": {"category": "operational", "replay": "reissue", "hash": "noise", "projection": ["audit_log"], "data_required": ["path", "name", "ticks", "paused", "speed", "transforms", "accounts", "bootstrap_positions", "assertions"], "data_types": {"path": "string", "name": "string", "ticks": "number", "paused": "boolean", "speed": "number", "transforms": "number", "accounts": "number", "bootstrap_positions": "number", "assertions": "number"}},

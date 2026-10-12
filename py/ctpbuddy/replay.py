@@ -30,6 +30,11 @@ listed as `not_replayed` — they are excluded from the core-hash comparison on
 both sides and never reported as a problem, so a recording that carries them
 still PASSes when everything replayable matches.
 
+Flow-enabled recordings also carry raw sanitized TD inputs, connection
+admissions and queue drains. They replay in explicit offline mode with
+recorded monotonic gate times; their callback payloads are checked separately
+from the semantic core hash.
+
 Limitations (documented in DESIGN §11.2): distinct tick `vt_ms` values
 are assumed for seek patterns (ties resolve to the first tick); the
 spawn-level `--speed` of a startup-path recording is not journaled, so
@@ -116,7 +121,7 @@ def _connect_admin(addr: str, timeout: float = 10.0) -> Admin:
     deadline = time.time() + timeout
     while True:
         try:
-            return Admin(addr)
+            return Admin(addr, use_env_token=False)
         except OSError:
             if time.time() >= deadline:
                 raise ReplayError("server did not open admin port %s" % addr)
@@ -187,11 +192,12 @@ class _Walker:
     """Drives one replay server through the recorded input stream."""
 
     def __init__(self, admin: Admin, td_addr: str, broker_id: str,
-                 verbose: bool = False) -> None:
+                 verbose: bool = False, flow_replay: bool = False) -> None:
         self.admin = admin
         self.td_addr = td_addr
         self.broker_id = broker_id
         self.verbose = verbose
+        self.flow_replay = flow_replay
         self.problems: List[str] = []
         self.notes: List[str] = []
         #: admin inputs recognised but not re-issued (no admin command for
@@ -567,6 +573,39 @@ class _Walker:
         self.scenario_dir = scenario_dir
         for ev in events:
             t = ev.get("type")
+            if t == "flow_input":
+                data = ev["data"]
+                frame = data.get("frame")
+                if frame is not None and (not isinstance(frame, dict)
+                        or set(frame) != {"msg_type", "req_id", "payload"}
+                        or not isinstance(frame["payload"], str)):
+                    raise ReplayError("invalid recorded flow frame at seq %s" % ev["seq"])
+                if frame is not None:
+                    payload = frame["payload"]
+                    if (len(payload) % 2 or len(payload) > 2 * (1 << 20)
+                            or any(c not in "0123456789abcdef" for c in payload)):
+                        raise ReplayError("invalid recorded flow payload at seq %s" % ev["seq"])
+                if frame and len(frame.get("payload", "")) > 800000:
+                    # Keep ADMIN frames bounded, even for maximum-size TD frames.
+                    with tempfile.TemporaryDirectory(prefix="ctpbuddy-flow-frame-") as root:
+                        path = os.path.join(root, "payload.bin")
+                        with open(path, "wb") as fh:
+                            fh.write(bytes.fromhex(frame["payload"]))
+                        clean = dict(data, frame=dict(frame, payload_file=path))
+                        del clean["frame"]["payload"]
+                        try:
+                            self.admin.cmd("flow_replay", data=clean)
+                        except RuntimeError as exc:
+                            raise ReplayError("flow replay at seq %s: %s" % (ev["seq"], exc)) from exc
+                else:
+                    try:
+                        self.admin.cmd("flow_replay", data=data)
+                    except RuntimeError as exc:
+                        raise ReplayError("flow replay at seq %s: %s" % (ev["seq"], exc)) from exc
+                continue
+            if self.flow_replay and t in {"session_auth", "session_login", "session_logout", "order_insert", "order_cancel"}:
+                # Raw input already reproduced this semantic event.
+                continue
             if t not in REPLAYABLE_TYPES:
                 continue
             if t == "md_watermark":
@@ -602,7 +641,7 @@ def replay_journal(
     scenario: str,
     *,
     core: Optional[str] = None,
-    broker_id: str = "8888",
+    broker_id: Optional[str] = None,
     initial_funds: Optional[float] = None,
     keep_data: bool = False,
     verbose: bool = False,
@@ -629,6 +668,32 @@ def replay_journal(
         }
 
     first_load = next((e for e in events if e["type"] == "scenario_loaded"), None)
+    starts = [e for e in events if e["type"] == "server_start"]
+    if len(starts) > 1:
+        raise ReplayError("replay requires one recording; select a single journal run")
+    startup = (starts[0].get("data") or {}) if starts else {}
+    flow_config = startup.get("flow_config") or {}
+    if not isinstance(flow_config, dict) or not isinstance(flow_config.get("enabled", False), bool):
+        raise ReplayError("invalid startup flow configuration")
+    flow_replay = flow_config.get("enabled", False)
+    has_trace = any(e["type"] == "flow_input" for e in events)
+    if has_trace and not flow_replay:
+        raise ReplayError("flow trace has no enabled startup flow configuration")
+    if flow_replay:
+        recorded_brokers = flow_config.get("broker_ids")
+        if not isinstance(recorded_brokers, str) or not recorded_brokers.strip():
+            raise ReplayError("missing startup BrokerID allowlist")
+        for name in ("ftd_max_comm_flux", "connect_freq", "exchange_freq"):
+            value = flow_config.get(name)
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 0xffffffff:
+                raise ReplayError("invalid startup flow budget: " + name)
+        limits = flow_config.get("exchange_limits")
+        if (not isinstance(limits, dict) or any(k not in {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}
+                or isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 0xffffffff for k,v in limits.items())):
+            raise ReplayError("invalid startup exchange limits")
+        if not has_trace and any(e["type"] in {"session_auth", "session_login", "order_insert", "order_cancel"} for e in events):
+            raise ReplayError("flow-enabled recording is missing its input trace")
+    broker_id = broker_id or flow_config.get("broker_ids") or "8888"
     spec = load_scenario_spec(scenario)
 
     data_dir = tempfile.mkdtemp(prefix="ctpbuddy-replay-")
@@ -643,14 +708,27 @@ def replay_journal(
     ]
     if initial_funds is not None:
         cmd += ["--initial-funds", str(initial_funds)]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    recorded_settings = startup.get("settings") or {}
+    for name in ("qry_freq", "order_freq", "max_user_sessions", "initial_funds"):
+        if name in recorded_settings and not (name == "initial_funds" and initial_funds is not None):
+            cmd += ["--" + name.replace("_", "-"), str(recorded_settings[name])]
+    for name in ("settlement_required", "self_trade_prevention"):
+        if name in recorded_settings:
+            cmd += ["--" + name.replace("_", "-"), str(recorded_settings[name]).lower()]
+    if flow_replay:
+        cmd += ["--flow-replay"]
+        for name in ("ftd_max_comm_flux", "connect_freq", "exchange_freq"):
+            cmd += ["--" + name.replace("_", "-"), str(flow_config[name])]
+        cmd += ["--exchange-limits", canonical(flow_config["exchange_limits"])]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CTPBUDDY_")}
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     admin: Optional[Admin] = None
     walker: Optional[_Walker] = None
     server_log = ""
     try:
         admin = _connect_admin("127.0.0.1:%d" % admin_port)
         admin.ping()
-        walker = _Walker(admin, "127.0.0.1:%d" % td_port, broker_id, verbose=verbose)
+        walker = _Walker(admin, "127.0.0.1:%d" % td_port, broker_id, verbose=verbose, flow_replay=flow_replay)
 
         if first_load is None:
             # startup-path recording: the scenario was present from boot, so
@@ -688,9 +766,29 @@ def replay_journal(
         recorded_core = hash_stream(without_types(events, skip), core=True)
         replay_core = hash_stream(without_types(replay_events, skip), core=True)
         diff = first_core_diff(events, replay_events, skip=skip)
+        flow_result = {"verified": False, "inputs": 0, "outputs": 0}
+        if flow_replay:
+            # Broadcast iteration order may differ across connections; SPI
+            # order within each connection remains significant.
+            def outputs(stream):
+                grouped = {}
+                for event in stream:
+                    if event["type"] == "flow_output":
+                        d = event["data"]
+                        grouped.setdefault(d["conn_id"], []).append(d)
+                return grouped
+            expected, actual = outputs(events), outputs(replay_events)
+            recorded_inputs = [e["data"] for e in events if e["type"] == "flow_input"]
+            replay_inputs = [e["data"] for e in replay_events if e["type"] == "flow_input"]
+            verified = expected == actual and recorded_inputs == replay_inputs
+            flow_result = {"verified": verified, "inputs": len(recorded_inputs),
+                           "outputs": sum(map(len, expected.values()))}
+            if not verified:
+                walker.problems.append("flow input/connection/queue/callback trace differs from recording")
         ok = not walker.problems and recorded_core == replay_core
         return {
             "ok": ok,
+            "flow_replay": flow_result,
             "problems": walker.problems,
             "notes": walker.notes,
             "not_replayed": walker.not_replayed,
@@ -740,6 +838,10 @@ def format_result(result: Dict[str, Any]) -> str:
         lines.append("recorded core hash  %s" % result["recorded_core"])
     if result.get("replay_core"):
         lines.append("replay   core hash  %s" % result["replay_core"])
+    flow = result.get("flow_replay") or {}
+    if flow.get("inputs"):
+        lines.append("flow trace         %s (%d inputs, %d callbacks)" % (
+            "PASS" if flow.get("verified") else "FAIL", flow["inputs"], flow["outputs"]))
     d = result.get("diff")
     if d is not None:
         i, a, b = d
@@ -757,7 +859,7 @@ if __name__ == "__main__":  # pragma: no cover
     ap = argparse.ArgumentParser(description="replay a journal against a scenario")
     ap.add_argument("journal")
     ap.add_argument("--scenario", required=True)
-    ap.add_argument("--broker-id", default="8888")
+    ap.add_argument("--broker-id", default=None)
     ap.add_argument("--initial-funds", type=float, default=None)
     ap.add_argument("--keep-data", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")

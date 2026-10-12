@@ -1,6 +1,8 @@
 """JSONL journal 的可丢弃 SQLite 查询投影；不执行撮合或账本计算。"""
 from __future__ import annotations
 
+from contextlib import closing
+
 import json
 import os
 import sqlite3
@@ -395,6 +397,51 @@ def rebuild(journal, database):
         "core_sha256": core_digest,
         "virtual_time": virtual_time,
     }
+
+
+def upgrade(journal, database):
+    """Upgrade a known projection from its original recording, with a backup.
+
+    Unlike rebuild, refuse an unrelated journal. An existing projection can
+    describe a prefix of a growing recording; that prefix must still match.
+    """
+    target = Path(database).resolve()
+    events = load_events(journal)
+    _validate(events)
+    if not target.is_file():
+        return dict(rebuild(journal, target), upgraded=True, backup=None)
+    if any(Path(str(target) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
+        raise JournalError("数据库存在活动侧文件；请关闭使用者后升级")
+    with closing(sqlite3.connect(target.as_uri() + "?mode=ro", uri=True)) as conn:
+        try:
+            if conn.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
+                raise JournalError("目标不是 CTPBuddy 投影")
+            metadata = dict(conn.execute("SELECT key,value FROM projection_meta"))
+            count = int(metadata["event_count"])
+            version = int(metadata["contract_version"])
+            if version < 1 or version > CONTRACT_VERSION or not 0 <= count <= len(events):
+                raise JournalError("投影版本或 journal 长度不支持升级")
+            if hash_stream(events[:count]) != metadata["journal_sha256"]:
+                raise JournalError("journal 与已有投影来源不匹配；请提供原始完整录制")
+        except (KeyError, ValueError, TypeError) as exc:
+            raise JournalError("投影缺少有效来源元数据，请显式 journal rebuild") from exc
+        if (count == len(events) and metadata.get("contract_version") == str(CONTRACT_VERSION)
+                and metadata.get("contract_sha256") == CONTRACT_SHA256
+                and metadata.get("schema_version") == str(SCHEMA_VERSION)):
+            with Projection(target):
+                pass
+            return dict(upgraded=False, backup=None, events=count, contract_version=CONTRACT_VERSION)
+        fd, backup = tempfile.mkstemp(prefix=target.name + ".pre-v%d-" % version,
+                                      suffix=".bak", dir=target.parent)
+        os.close(fd)
+        try:
+            with closing(sqlite3.connect(backup)) as saved:
+                conn.backup(saved)
+        except Exception:
+            os.unlink(backup)
+            raise
+    result = rebuild(journal, target)
+    return dict(result, upgraded=True, backup=backup)
 
 
 class Projection:

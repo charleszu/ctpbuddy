@@ -68,6 +68,14 @@ impl World {
             }
         }
         match cmd.as_str() {
+            "flow_replay" => match self.apply_flow_input(&v) {
+                Ok(()) => self.admin_reply(
+                    conn_id,
+                    frame.req_id,
+                    json::obj_sorted(vec![("ok".into(), json::b(true))]),
+                ),
+                Err(error) => self.admin_error(conn_id, frame.req_id, &error),
+            },
             "ping" => {
                 self.admin_reply(
                     conn_id,
