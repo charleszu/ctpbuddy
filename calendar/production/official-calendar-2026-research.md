@@ -26,13 +26,13 @@
 | SHFE | <https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html> | 2025-12-17，公告〔2025〕157号 | 官方页面可访问；正文已固定 SHA256 | 可作为上期所 2026 节假日与相关夜盘边界来源；逐日全年映射仍未取得 |
 | INE | <https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html> | 2025-12-17，公告〔2025〕114号 | 官方页面可访问；正文已固定 SHA256 | 可作为能源中心节假日安排来源；逐日全年映射仍未取得 |
 | CZCE | <https://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2025/12/528a2b72a3c949ae88ee93391e1d6c0f.htm?t=aged&updatetime=short> | 2025-12-17，公告〔2025〕939号 | 官方站点返回 412，未获得可固定正文 | 只能登记来源线索，不能据此新增生产事实 |
-| DCE | <http://www.dce.com.cn/dce/channel/list/226.html> | 动态节假日参考页；2026-10-04 提取 | 页面注明以交易所正式公布为准，未获得固定公告正文 | 只能保留为参考来源，不能单独证明全年逐日映射 |
+| DCE | <http://www.dce.com.cn/dce/channel/list/226.html> | 动态节假日参考页；2026-10-04 提取 | 页面注明以交易所正式公布为准；命中的 2026 公告为端午风险管理通知而非全年休市安排，直连返回 412 | 只能保留为参考来源，不能单独证明全年逐日映射 |
 | GFEX | <https://www.gfex.com.cn/gfex/tzts/202512/0134914f8c674fa68c2ba9041a5cd798.shtml> | 2025-12-17，公告〔2025〕414号 | 官网可达但返回 EO-Bot-JS challenge（challenge HTML SHA256 `bc36380ad357357c2b6aa58d331178066548ba0e7a170ac1c25c161427f6e3b1`），未获得正文 | 只能登记来源线索，不能新增夜盘 open 映射 |
 | CFFEX | <http://www.cffex.com.cn/cn/jystz/20251217/47006.html> | 《中国金融期货交易所关于2026年部分节假日休市安排的通知》；2025-12-17；中金所发〔2025〕55号 | HTTP 页面可访问；正文 SHA256 `48a77f47e6d9ac45f33e096fc8ff121ba1f3b356e25c527fa7025018df24330e` | 可确认节假日休市区间；仍没有夜盘 `ActionDay`/`TradingDay` 映射 |
 
 上述 URL 均来自交易所官方域名。访问失败或只能获得动态页面时，项目不绕过校验、不以搜索引擎摘要替代正文，也不把失败解释为休市或开市。
 
-DCE 的索引结果曾命中 <https://dce.com.cn/dce/content/2026/ywggytz/18631023.html>，但本机 TLS 握手失败，未能固定正文 hash。CZCE 的索引结果指向花生业务细则而非休市公告；GFEX 尚未找到可核验的 2026 休市正文。因此 DCE/CZCE/GFEX 的完整固定材料仍是缺口，不把索引命中当作事实。
+DCE 的索引结果曾命中 <https://dce.com.cn/dce/content/2026/ywggytz/18631023.html>，该页标题实际为《关于加强2026年端午节休市期间风险管理的通知》（大商所发〔2026〕216号，2026-06-12），不是全年休市安排；本机 HTTPS 握手失败、HTTP 返回 412，未能固定正文 hash。CZCE 的索引结果指向花生业务细则而非休市公告，2025-12-17 公告〔2025〕939号直连返回 412；GFEX 2025-12-17 公告〔2025〕414号返回 EO-Bot-JS challenge。三所均未取得可固定的全年休市正文/附件或 2026 逐日 `ActionDay`/`TradingDay`、夜盘 open 表，不把索引命中或 challenge 当作事实。
 
 ## 当前快照能证明什么
 
