@@ -21,7 +21,7 @@ use zeromq::{PubSocket, RouterSocket, Socket, SocketEvent, SocketRecv, SocketSen
 
 use ctpbuddy_wire::frame::Frame;
 
-use crate::{allocate_conn_id, Broadcast, WorldMsg, ZMQ_PUB_ADDR_ENV};
+use crate::{allocate_conn_id, Broadcast, WorldMsg, ZMQ_PUB_ADDR_ENV, ZMQ_PUB_QUEUE_CAPACITY};
 
 struct Outbound {
     identity: Vec<u8>,
@@ -42,7 +42,7 @@ pub(crate) fn start(
         .filter(|value| !value.trim().is_empty())
         .map(|value| normalize_pub_endpoint(&value))
         .transpose()?;
-    let (broadcast_tx, broadcast_rx) = tokio_mpsc::channel(1024);
+    let (broadcast_tx, broadcast_rx) = tokio_mpsc::channel(ZMQ_PUB_QUEUE_CAPACITY);
     let result_tx = pub_endpoint.as_ref().map(|_| broadcast_tx.clone());
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     thread::spawn(move || {

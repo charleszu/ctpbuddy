@@ -237,6 +237,18 @@ impl World {
             ("accounts".into(), Value::Arr(accounts)),
             ("positions".into(), Value::Arr(position_rows)),
             (
+                "pubsub".into(),
+                json::obj_sorted(vec![
+                    ("enabled".into(), json::b(self.broadcast_tx.is_some())),
+                    (
+                        "queue_capacity".into(),
+                        json::n(crate::ZMQ_PUB_QUEUE_CAPACITY as f64),
+                    ),
+                    ("published".into(), json::n(self.broadcast_published as f64)),
+                    ("dropped".into(), json::n(self.broadcast_dropped as f64)),
+                ]),
+            ),
+            (
                 "brokers".into(),
                 Value::Arr(brokers.iter().map(|broker| json::s(broker)).collect()),
             ),

@@ -246,6 +246,8 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
 pub const ALLOW_REMOTE_ADMIN_ENV: &str = "CTPBUDDY_ALLOW_REMOTE_ADMIN";
 /// Optional ZeroMQ PUB endpoint for market/private broadcasts.
 pub const ZMQ_PUB_ADDR_ENV: &str = "CTPBUDDY_ZMQ_PUB_ADDR";
+/// Bounded queue between the world thread and the ZeroMQ PUB writer.
+pub const ZMQ_PUB_QUEUE_CAPACITY: usize = 1024;
 
 /// Err unless every address `endpoint` resolves to is loopback (or the
 /// operator set `CTPBUDDY_ALLOW_REMOTE_ADMIN=1`).
@@ -650,6 +652,8 @@ pub struct World {
     last_snapshot_at: Instant,
     shutdown: bool,
     broadcast_tx: Option<tokio::sync::mpsc::Sender<Broadcast>>,
+    broadcast_published: u64,
+    broadcast_dropped: u64,
 }
 
 pub(crate) struct Broadcast {
@@ -796,6 +800,8 @@ impl World {
             last_snapshot_at: Instant::now(),
             shutdown: false,
             broadcast_tx: None,
+            broadcast_published: 0,
+            broadcast_dropped: 0,
             cfg,
         };
         if world.cfg.recover && !world.cfg.data_dir.is_empty() {
@@ -1762,7 +1768,10 @@ impl World {
 
     fn publish(&mut self, broadcast: Broadcast) {
         if let Some(tx) = &self.broadcast_tx {
-            let _ = tx.try_send(broadcast);
+            match tx.try_send(broadcast) {
+                Ok(()) => self.broadcast_published = self.broadcast_published.saturating_add(1),
+                Err(_) => self.broadcast_dropped = self.broadcast_dropped.saturating_add(1),
+            }
         }
     }
 
@@ -2191,6 +2200,30 @@ mod tests {
         assert_eq!(payload.get_str("type"), Some("announcement".into()));
         assert_eq!(payload.get_str("severity"), Some("warning".into()));
         assert_eq!(payload.get_str("message"), Some("maintenance".into()));
+        world.on_frame(
+            1,
+            Frame::new(msgs::ADMIN_REQ, 9, br#"{"cmd":"status"}"#.to_vec()),
+        );
+        let status = rx.try_iter().next().expect("status response");
+        let status_value = json::parse(&String::from_utf8(status.payload).unwrap()).unwrap();
+        assert_eq!(
+            status_value
+                .get("pubsub")
+                .and_then(|v| v.get_bool("enabled")),
+            Some(true)
+        );
+        assert_eq!(
+            status_value
+                .get("pubsub")
+                .and_then(|v| v.get_num("published")),
+            Some(1.0)
+        );
+        assert_eq!(
+            status_value
+                .get("pubsub")
+                .and_then(|v| v.get_num("dropped")),
+            Some(0.0)
+        );
     }
 
     #[test]

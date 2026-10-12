@@ -314,7 +314,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 | PUB | `td/{broker}/{investor}` | OnRtnOrder / OnRtnTrade / OnErrRtnOrder* |
 | PUB | `sys` | 广播：结算完成、系统公告 |
 
-> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后，行情、私有回报和系统事件按 `md/{exchange}/{instrument}`、`td/{broker}/{investor}`、`sys/settlement` 或 `sys/announcement` 通过 PUB/SUB 广播；ZeroMQ 身份只负责映射请求连接，协议帧不变；ADMIN 保持 TCP。`sys` 广播已支持结算完成与管理员公告；仍未提供 CURVE 加密和历史快照补发。
+> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后，行情、私有回报和系统事件按 `md/{exchange}/{instrument}`、`td/{broker}/{investor}`、`sys/settlement` 或 `sys/announcement` 通过 PUB/SUB 广播；ZeroMQ 身份只负责映射请求连接，协议帧不变；ADMIN 保持 TCP。`sys` 广播已支持结算完成与管理员公告；仍未提供 CURVE 加密和历史快照补发；PUB 队列容量、已发布和丢弃计数通过 ADMIN status 的 `pubsub` 字段暴露。
 
 - 查询语义对齐 CTP：多帧循环 + 末帧 `is_last=1`；
 - **BrokerID 策略：单进程托管多 Broker**：broker 是核心内的一等实体（共享合约目录，按 `(broker_id, instrument_id)` 覆盖保证金/手续费规则，账户空间按 BrokerID 隔离），默认 BrokerID 为 **8888**（不与 SimNow 的 9999 及主流实盘券商号冲突，金融俗惯例里的吉利号，`--broker-id` 可改，也可传逗号分隔清单）。AUTH 按核心的 broker 清单强校验，未知 BrokerID 按 CTP 语义拒登录。多 broker **共享同一路回放行情与虚拟时钟**——同一场景下不同经纪商的成交差异来自各自费率/保证金规则，这对多券商对比测试恰是有用属性。需要硬隔离（故障域/版本/管理边界）时可一个 broker 部署一个核心实例，两者只是运维选择、不动架构；下游单进程连多个柜台依赖 §5.3 的按实例端点解析；
