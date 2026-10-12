@@ -14,7 +14,7 @@
 
 SimNow / openctp 都是远程 CS 模式：网络绑死、无法注入极端行情、不可复现、无管理面。CTPBuddy 把柜台搬到本地：替换同名 DLL 即可接入，行情可回放、场景可注入、账户可管理、团队可共用。
 
-> **当前边界（请先读）**：传输为明文 TCP，ADMIN 与交易端口**无认证**（TD 登录不校验密码）；核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒） 重定向。ZeroMQ、多 Broker、登录后快照补发/私有流重传尚未实现，详见 DESIGN §0.6。「团队共用」目前仅适用于受信内网并自行做网络隔离。
+> **当前边界（请先读）**：传输为明文 TCP，ADMIN 与交易端口**无认证**（TD 登录不校验密码）；核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离；登录后的私有流 snapshot/recovery 已实现相应范围。仍未完成的是 ZeroMQ、`ctpbuddy.ini` 前置别名/IPC、实时持仓查询和完整 Web 运营后台。「团队共用」目前仅适用于受信内网并自行做网络隔离。
 
 ## 架构速览
 
@@ -44,7 +44,8 @@ Wire v1 保持现有小端 C 布局和字段偏移，Rust 编解码按字段处�
 当前里程碑摘要（完整清单与 CI 记录见 [CHANGELOG.md](CHANGELOG.md)）：
 
 - M1 核心闭环 + Shim 全链路、M2 撮合/流控、M3 参考数据/显式日结/OrderSysID/结算单/journal 投影：已完成。
-- 未完成：ZeroMQ 传输适配（当前 TCP 占位）、M4 三渠道发布与完整发布包；详见 DESIGN §0.6。
+- 近期已补齐：交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 写入口；真实 release package 与 Hugo 文档站已在本机验收。
+- 未完成：ZeroMQ 传输适配、`ctpbuddy.ini` 前置别名/IPC、M4 三渠道正式发布流程、实时持仓查询和完整 Web 运营后台；Windows release package 构建与真实产物验收已在本机通过，Docker daemon 验收仍需 CI 执行。详见 DESIGN §0.6。
 
 ## 快速开始
 
@@ -190,7 +191,7 @@ python tests/e2e/release_package.py      # 临时 PE fixture 必跑；真实产�
 CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py
 ```
 
-包内有 `manifest.json`（version、commit、逐文件 SHA256、PE machine、architecture、SDK `6.7.13`）、`LICENSE`、`INSTALL.txt` 和 `shim/ctpbuddy-shim-manifest.json`。脚本不读取/复制原始 `ctpsdk`，不读取/复制 `data`，不构建或执行 Shim；真实产物验收必须在 Windows 上单独完成。
+包内有 `manifest.json`（version、commit、逐文件 SHA256、PE machine、architecture、SDK `6.7.13`）、`LICENSE`、`INSTALL.txt` 和 `shim/ctpbuddy-shim-manifest.json`。脚本不读取/复制原始 `ctpsdk`，不读取/复制 `data`，不构建或执行 Shim；fixture 与 `CTPBUDDY_TEST_REAL_RELEASE=1` 的真实产物验收均已在本机通过，正式三渠道发布仍未执行。
 
 ## 许可
 

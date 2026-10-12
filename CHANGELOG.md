@@ -4,6 +4,7 @@
 
 ## 2026-10（本轮）
 
+- **架构状态与验收口径对齐**：补记交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 外部资金入口；真实 release package 与 Hugo 文档站本机验收通过，Docker daemon 验收保留为 CI 项。
 - **中金所平今费时间序池落地**（知识库 §10.4 #10 修正，生产数据 81/81 判别）：`ExchangeRules.fee_close_pool`（仅 CFFEX）+ `Position.fee_open_pool`——开仓逐笔累池、平仓取 `min(手数, 池)` 作平今手数，与明细的先开先平消耗正交（昨仓被平收平今费、池尽后平今仓收平昨费）；日结随 `today_position` 同点清池；快照 v2 携带池状态，恢复兼容 v1 并按交易日重建当日开仓池。锁定：ledger 单测（三段分叉 + DCE 对照 + 日结清池）、e2e `m3_fee_cffex.py`（bootstrap 昨仓 + scenario 自带 `refdata/commission_rates.jsonl` 走完整 server）、`tools/audit_real_accounts.py` 复跑全绿（459/459、976/983、64/64）。
 - 日结后持仓保证金按结算价重估（昨仓恒用昨结算价，逐明细按剩余手数重算）；交易所差异集中到 `exchange_rules.rs` 规则表；`SubscribePrivateTopic` 的 RESTART/RESUME 经 AUTH 的 `private_resume` 生效，登录后重放私有流。
 
@@ -27,4 +28,4 @@ M1（核心闭环 + Shim 全链路）已完成：
 - [x] 任务43 `OrderSysID`：内部订单号继续用于引擎/账本/journal关联；首条对外 OrderSysID 为空，按交易所布局在 accepted 边界后填充，交易所拒单全程为空；Trade/QryOrder/撤单使用最终非空系统号，覆盖 SHFE GFD、拒单、DCE/FAK 布局与最终关联
 - [x] M3-5（本地）：结算单原始 GBK 供给与 `ReqQrySettlementInfo` 分段查询；`tests/e2e/m3_5_settlement_info.py` 已加入 CI 矩阵，本地通过，远端 CI 已核实成功（37157525169 / 3d42505、37124374367 / 12d55e8、37124336391 / 394bff9）
 - [x] M3-6（本地 + 已验证远端）：JSONL journal 的 SQLite 投影、原子 rebuild 与只读 CLI/Web 查询；设置页已增加账户/持仓/资金快照/订单/成交/审计/结算报告只读浏览、broker/investor/day 筛选与分页；Web API 采用白名单、textContent 防注入、非实时快照边界和路径安全错误；仅开放带确认/CSRF/严格校验/审计的 `settlement_report`、`settle_day` 写入口，不暴露 reset/shutdown/任意 admin/SQL；`tests/e2e/m3_6_projection.py` 已加入 CI 矩阵，本地通过，远端 CI `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success
-- [ ] M4 交付：断言 CLI、OINK 文档站、Shim真实构建基础、真实成交受控回放、三表源对齐第一阶段已有；完整账户Core回放仍受期权/RefData/初始结算状态建模限制，三渠道发布与完整发布包仍未完成，不将 M4 总项标为完成
+- [ ] M4 交付：断言 CLI、OINK 文档站、Shim真实构建基础、真实成交受控回放、三表源对齐第一阶段已有；fixture 与真实 release package 已在本机验收，完整账户Core回放仍受期权/RefData/初始结算状态建模限制，三渠道正式发布流程仍未完成，不将 M4 总项标为完成

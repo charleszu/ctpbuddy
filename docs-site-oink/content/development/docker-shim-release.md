@@ -36,4 +36,4 @@ CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py
 
 ## 当前发布状态
 
-项目有本地发布包和 Docker 验收工具，但 M4 三渠道发布、完整发布流程和 Windows 真实产物验收仍不能统称完成。文档必须保留这些条件与 SKIP 结果。
+项目有本地发布包和 Docker 验收工具；fixture 与真实产物 opt-in 的 release package 已本机通过，Docker daemon 当前本机为 SKIP、需 CI 验收。M4 三渠道发布与完整发布流程仍不能统称完成，文档必须保留这些条件与 SKIP 结果。

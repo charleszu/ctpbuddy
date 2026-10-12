@@ -16,18 +16,20 @@ Python 侧 `ctpbuddy.calendar.TradingCalendar` 使用固定版本 JSON 快照，
 
 GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 commit、许可证和覆盖边界后人工生成快照。已核查 `gerrymanoim/exchange_calendars`（Apache-2.0，commit `bbda29fed902374bdb75acab008f421fbd567823`）：其 README 说明这是证券交易所常规时段日历，且用户贡献维护；不含 CTP 期货夜盘字段，因此不能直接替代期货日历。用户快照可通过 `with_overrides` 按自然日整条覆盖，并用 SHA256 固定复现。
 
-## 0.6 设计与当前实现的已知差距（集中登记）
+## 0.6 设计与当前实现的状态差距（集中登记）
 
-本文多处描述的是**目标设计**。以下条目在当前代码中尚未实现或实现方式不同，阅读后续章节时以此表为准：
+本文多处描述的是**目标设计**。以下条目同时登记仍未实现的差距，以及已经落地但正文容易过时的实现口径；阅读后续章节时以此表为准：
 
 | 设计条目 | 当前实现 | 影响 |
 |---|---|---|
 | §6 ZeroMQ DEALER/ROUTER + PUB/SUB | plain TCP，一连接一客户端，帧格式一致 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道 |
-| §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | Shim 只解析 `tcp://<IPv4>:<port>` 字面地址 | 下游需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」暂不成立 |
-| §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单与私有流按 BrokerID 隔离；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 场景 bootstrap、ADMIN 日结与 settlement report 仍以首个 BrokerID 为默认命名空间；跨 Broker 的批量日结编排尚未抽成独立命令 |
+| §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | `CTPBUDDY_ADDR` 已支持 `tcp://host:port`（含主机名）；Shim 仍未实现 `ctpbuddy.ini` 别名表与 `ipc://` 传输 | 下游仍需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」和 IPC 传输尚未成立 |
+| §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离；ADMIN status 暴露稳定 broker scope；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 已完成单进程多 Broker 的运行与结算编排；需要故障域、版本或管理边界时仍应运行多个核心实例 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
 | §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，snapshot 前先 flush journal；`--recover` 会读取上一轮归档 journal，并把快照之后的 `fill`、`order_update`、`reset_account`、`settlement`、`settings_updated`、`deposit`、`withdraw` 尾部应用到账本和私有流；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；历史泛型 `settle` / `admin` 仍 fail closed |
 | §5 Shim DLL/so | Windows DLL（`shim/build_msvc.py`）与 Linux `.so`（`shim/build_linux.py`，g++/WSL 已通过 `m1_shim_e2e`）；`CTPBUDDY_ADDR` 环境变量可整体重定向前置，前置地址支持主机名 | 前置别名表 `ctpbuddy.ini` 仍未实现；ADMIN 无认证，核心拒绝绑定非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 显式放行） |
+| RefData 供给与查询/计算一致性 | Rust/Python 共用 versioned `ctpbuddy.refdata` contract；表名、字段、默认值、枚举和 numeric 字段由单一 JSON contract 校验并生成 Rust 常量，fixture vectors 覆盖两侧解析 | 仍需使用者提供真实费率/申报费数据；核心不编造缺失费率，跨品种复杂组合与仓单折抵仍未建模 |
+| Live / projection read model provenance | ADMIN live status 与 SQLite journal projection 共用 `ReadModelMetadata` 字段形状；包含 source、journal/core/projection hash、calendar 与 contract provenance；Web 明确标示 realtime 与 snapshot | 实时持仓查询和完整实时账户/订单后台仍未提供；SQLite projection 仍是可重建的非实时读模型 |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | 暂不纳入当前实现范围 |
 | §8.6 / §8.7 昨仓保证金按昨结算价计 | 已实现：`settle_trading_day` 在推进交易日时按供给结算价重算每个存续明细的保证金，并更新 `last_settlement_price`；`MarginPriceType=Last` 仅对今仓按最新价做盘中重估，昨仓仍固定昨结算价；可选 `cross_margin_rules.jsonl` 以显式多空腿和 `offset_ratio` 计算跨品种 relief，重叠规则按稳定 `rule_id` 顺序消耗可用腿额，不能重复抵扣 | 真实柜台的组合保证金、复杂套利取高和仓单折抵仍取决于 provider 提供的正式关系/算法；核心不会根据品种名自行推断 |
 | World wire routing seam | `handlers.rs` 已将客户端消息号到业务路由抽为纯 `client_route` 函数，order/query 的输入解码与字段校验已有纯 command seam；engine event 已拆成 state apply 与 private notification fanout 两阶段，pulse 已拆为 playback polling、tick processing、mark-to-market、durability 四段；账本计算已按 broker 解析费率 | 连接生命周期、journal、playback、账本和回报编排仍由 `World` 统一协调；跨组件 command/result 类型和独立 side-effect coordinator 仍可继续下沉 |
@@ -180,7 +182,7 @@ flowchart TB
 
 - **本机单机（默认）**：核心监听 TD `127.0.0.1:5560` 和 ADMIN `127.0.0.1:5561`，Shim 通过 `RegisterFront()` 或 `CTPBUDDY_ADDR` 连接。
 - **团队私有部署**：核心可部署在内网主机或容器，团队成员机器上的 Shim 指向 TD 内网地址；ADMIN 仍应保持回环或置于受控网络边界内。
-- **多 Broker 隔离**：当前一个核心实例服务一个 `BrokerID`；需要硬隔离时运行多个核心实例，分别使用不同 TD/ADMIN 端口和数据目录。
+- **多 Broker 隔离**：一个核心实例可通过逗号分隔的 `BrokerID` 清单服务多个 Broker；登录、账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。需要硬隔离时仍可运行多个核心实例，分别使用不同 TD/ADMIN 端口和数据目录。
 - **形态 A（全进程内，类 LocalCTP）**：评估后不采用——崩溃耦合、无法多客户共享、Web 无处安放、版本编译负担重。
 
 ### 4.3 语言分层理由
@@ -1044,11 +1046,11 @@ CREATE TABLE audit_log (
 |---|---|---|
 | M4-1 断言 DSL 与断言 CLI | 🟡 本地实现 | 场景断言规范化、服务端求值、`ctpbuddy assertions check` 退出码与 `--total` 校验已有 Python 单测；CI 目前只执行 `--help` 入口检查，尚无真实场景中的 CLI 断言 e2e |
 | M4-2 e2e CI | 🟡 部分实现 | `.github/workflows/core-tests.yml` 已加入显式 `cargo build`，并覆盖 Rust/Python 单测、M1/M2、M3 bootstrap/settlement/order_sysid/投影/结算单及 settings e2e；已核实远端 runs `37157525169`（`3d42505`）、`37124374367`（`12d55e8`）、`37124336391`（`394bff9`）均 success，仍未覆盖 Shim/真实下游/fresh venv demo 策略，因此 M4 总项不标完成 |
-| M4-3 三渠道发布与文档站 | 🟡 文档站已具备 | `docs-site-oink/` 使用 OINK v1.1.0、Hugo Extended 0.167.0，75 pages/22 static严格构建；`.github/workflows/docs-site.yml` 已远端成功（37173389551）；发布渠道和真实域名授权仍未完成 |
+| M4-3 三渠道发布与文档站 | 🟡 文档站已具备 | `docs-site-oink/` 使用 OINK v1.1.0、Hugo Extended 0.167.0，80 pages/22 static 严格构建；`.github/workflows/docs-site.yml` 已远端成功（37173389551）；发布渠道和真实域名授权仍未完成 |
 | M4-4 Shim 安全安装与真实构建验收 | 🟡 基础+本机真实构建 | CLI `install-shim --target-dir DIR --shim-dir DIR` 默认 dry-run，只有显式 `--apply` 才替换；仅接受 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 白名单，支持 manifest 版本/架构元数据，安装前备份、原子复制、恢复和 SHA 保护。已在本机用 MSVC 实际构建两个 x64 DLL 与 `demo_td.exe`；PE Machine=0x8664，真实 DLL 临时目录 dry-run/apply/restore 与 SHA 校验通过；`m1_shim_e2e.py` 真实下游全链路 PASS。产物仍被 `.gitignore` 忽略，未触碰真实 CTP 安装目录。Linux Docker 验收明确不运行 Windows Shim。 |
 | M4-5 真实导出回放审计 | 🟡 受控成交回放已实现 | `tools/real_replay_audit.py` 严格扫描432个真实交易文件；完整账户重演仍无候选（期权/RefData缺口），不伪造通过。新增 `tests/e2e/m4_real_replay.py`：从真实导出动态选取一笔普通期货成交，重建最小行情/报单并逐字段核对 ExchangeID/InstrumentID/Direction/OffsetFlag/Price/Volume；无外部真实数据时安全 SKIP，已加入CI矩阵。该项证明成交ABI路径，不等价于整账户日结重演。 |
 | M4-6 三表确定性源对齐 | 🟡 第一阶段 | `tools/audit_three_way.py` 按交易日+账号对齐前一日结算单基线、当日order/trade/account和当日结算单；当前验证20个样本的1764条成交全部可按OrderSysID/字段关联，但仅为源数据对齐，不推断期权盈亏、不替代Core账本重演。 |
-| M4-7 Linux Docker 验收与 Windows 发布包 | 🟡 本地实现 | `docker/Dockerfile` + `docker/compose.yml` 只验收 Python wheel/CLI、Rust core build/run、refdata 与可选 Hugo/OINK；`tools/docker_acceptance.py` 在无 Docker/daemon 时安全 SKIP。`tools/release_package.py` 只从本机 `shim/bin/` 白名单复制 DLL 与可选 demo 到临时 dist，生成含 version/commit/sha256/PE machine/SDK 6.7.13/architecture 的 manifest、LICENSE、INSTALL.txt；不复制 `ctpsdk` 或真实 `data`，不在 Linux 容器执行 Shim；`tests/e2e/release_package.py` 默认 fixture，真实产物显式 opt-in。 |
+| M4-7 Linux Docker 验收与 Windows 发布包 | 🟡 本地实现 | `docker/Dockerfile` + `docker/compose.yml` 只验收 Python wheel/CLI、Rust core build/run、refdata 与可选 Hugo/OINK；`tools/docker_acceptance.py` 在无 Docker/daemon 时安全 SKIP，当前本机结果为 SKIP、应由 CI daemon 验收。`tools/release_package.py` 只从本机 `shim/bin/` 白名单复制 DLL 与可选 demo 到临时 dist，生成含 version/commit/sha256/PE machine/SDK 6.7.13/architecture 的 manifest、LICENSE、INSTALL.txt；不复制 `ctpsdk` 或真实 `data`，不在 Linux 容器执行 Shim；`tests/e2e/release_package.py` 的 fixture 与真实产物 opt-in 均已本机 PASS，三渠道正式发布仍未完成。 |
 
 
 ### 12.3 后续
