@@ -412,6 +412,7 @@ def test_calendar() -> None:
         except CalendarError:
             pass
     assert cal.night_session("2026-10-02", "SHFE") == ("20261002", "20261005")
+    assert cal.night_status("2026-10-02", "SHFE") == "open"
     assert cal.metadata["sha256"] == cal.sha256
     override = dict(snapshot, version="user-r2", days=[{"date": "2026-10-03", "is_trading_day": True, "trading_day": "20261003"}])
     merged = cal.with_overrides(override)
@@ -431,6 +432,11 @@ def test_calendar() -> None:
     try:
         cal.night_session("2026-10-02", "DCE")
         raise AssertionError("未显式供给的夜盘映射不应推断")
+    except CalendarError:
+        pass
+    try:
+        cal.night_status("2026-10-02", "DCE")
+        raise AssertionError("未显式供给的夜盘状态不应推断")
     except CalendarError:
         pass
     from unittest.mock import patch
@@ -502,6 +508,7 @@ def test_calendar() -> None:
         raise AssertionError("官方明确关闭的夜盘不能返回映射")
     except CalendarError as exc:
         assert "明确休市" in str(exc)
+    assert sample.night_status("2025-12-31", "SHFE") == "closed"
     assert cli_main(["calendar", "validate", sample_path]) == 0
     production_dir = os.path.join(REPO, "calendar", "production")
     production_path = os.path.join(production_dir, "cn-futures-day-2026.snapshot.json")

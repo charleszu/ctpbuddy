@@ -167,7 +167,7 @@ with Admin(calendar=calendar) as admin:
 
 `ctpbuddy calendar validate calendar.json` 输出规范化内容 SHA256 和实际覆盖范围；再用 `--sha256 <固定值>` 校验。对 production 快照可追加 `--manifest calendar/production/MANIFEST.json`，同时校验 manifest schema、快照 SHA256、覆盖范围和来源条目，防止 manifest 与快照漂移。SHA256 不包含 JSON 缩进差异，但包含版本、来源和全部映射。来源元数据只是可追溯声明，结构校验不能证明市场数据权威性，真实快照需由用户核验。GitHub 来源需 `kind: github`、`name: owner/repo`、`revision: <40位commit SHA>`、明确 `license` 和 `scope: futures`。官方来源需 `kind: official`、固定公告 URL 和固定摘录 revision。
 
-自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中显式标记：开放时同时提供 `night_action_day` 和 `night_trading_day`，官方明确关闭时使用 `{"status":"closed"}`；缺失时拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
+自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中显式标记：开放时同时提供 `night_action_day` 和 `night_trading_day`，官方明确关闭时使用 `{"status":"closed"}`；`night_status()` 可区分已明确的 `open/closed`，缺失时仍拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
 
 `calendar/production/cn-futures-day-2026.snapshot.json` 是项目离线快照：完整覆盖 2026 自然日的“周一至周五且不在六所同日公开节假日区间”的统一日盘候选，并将其明确标为 `scope: day-session-only`；六所日盘休市/开市日历按统一 contract 处理，manifest 以 SHFE 作为 canonical exchange，无需重复维护六份相同日盘表。它不是六所官方逐日 TradingDay 数据库，也不把民用调休工作日直接当期货交易日。六所来源、提取 revision、事实 hash、DCE 动态参考页及夜盘缺口均登记在 `calendar/production/MANIFEST.json`。夜盘只固化公告明确的 closed 边界，未知 open/closed 一律拒绝推断；生产使用前须复核公告并固定 SHA256。`build_2026.py` 仅是可审计的离线生成器，不访问网络。
 

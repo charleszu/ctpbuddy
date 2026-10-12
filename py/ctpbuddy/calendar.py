@@ -26,6 +26,7 @@ def _sha256(value: Any) -> str:
 class CalendarProvider(Protocol):
     def is_trading_day(self, date: DateLike) -> bool: ...
     def next_trading_day(self, date: DateLike) -> str: ...
+    def night_status(self, date: DateLike, exchange: str) -> str: ...
     def night_session(self, date: DateLike, exchange: str) -> Tuple[str, str]: ...
 
 
@@ -213,6 +214,11 @@ class TradingCalendar:
         if row.night_status == "closed":
             raise CalendarError("%s 的 %s 夜盘明确休市" % (_date(date, "date"), exchange))
         return row.night_action_day, row.night_trading_day
+
+    def night_status(self, date: DateLike, exchange: str) -> str:
+        """返回已显式记录的夜盘状态；缺失记录仍然拒绝推断。"""
+        row = self.day(date, exchange)
+        return row.night_status or "open"
 
 
 def load_calendar(path: Union[str, Path], override: Optional[Union[str, Path, Mapping[str, Any]]] = None, expected_sha256: Optional[str] = None) -> TradingCalendar:
