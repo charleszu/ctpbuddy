@@ -17,11 +17,11 @@ use futures::StreamExt;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc as tokio_mpsc;
 use tokio::time::{timeout, Duration};
-use zeromq::{RouterSocket, Socket, SocketEvent, SocketRecv, SocketSend, ZmqMessage};
+use zeromq::{PubSocket, RouterSocket, Socket, SocketEvent, SocketRecv, SocketSend, ZmqMessage};
 
 use ctpbuddy_wire::frame::Frame;
 
-use crate::{allocate_conn_id, WorldMsg};
+use crate::{allocate_conn_id, Broadcast, WorldMsg, ZMQ_PUB_ADDR_ENV};
 
 struct Outbound {
     identity: Vec<u8>,
@@ -32,8 +32,18 @@ struct Outbound {
 ///
 /// `endpoint` accepts `zmq://tcp://host:port`, `zmq://ipc://path`, or the
 /// convenient `zmq://host:port` form (which is normalized to TCP).
-pub(crate) fn start(endpoint: &str, world_tx: Sender<WorldMsg>) -> io::Result<()> {
+pub(crate) fn start(
+    endpoint: &str,
+    world_tx: Sender<WorldMsg>,
+) -> io::Result<Option<tokio_mpsc::Sender<Broadcast>>> {
     let endpoint = normalize_endpoint(endpoint)?;
+    let pub_endpoint = std::env::var(ZMQ_PUB_ADDR_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| normalize_pub_endpoint(&value))
+        .transpose()?;
+    let (broadcast_tx, broadcast_rx) = tokio_mpsc::channel(1024);
+    let result_tx = pub_endpoint.as_ref().map(|_| broadcast_tx.clone());
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     thread::spawn(move || {
         let runtime = match Builder::new_current_thread().enable_all().build() {
@@ -46,6 +56,15 @@ pub(crate) fn start(endpoint: &str, world_tx: Sender<WorldMsg>) -> io::Result<()
         let result = runtime.block_on(async move {
             let mut socket = RouterSocket::new();
             let mut monitor = socket.monitor();
+            let mut publisher = if let Some(pub_endpoint) = pub_endpoint {
+                let mut publisher = PubSocket::new();
+                publisher.bind(&pub_endpoint).await.map_err(|error| {
+                    io::Error::other(format!("ZeroMQ PUB bind {pub_endpoint}: {error}"))
+                })?;
+                Some(publisher)
+            } else {
+                None
+            };
             socket
                 .bind(&endpoint)
                 .await
@@ -62,6 +81,8 @@ pub(crate) fn start(endpoint: &str, world_tx: Sender<WorldMsg>) -> io::Result<()
                 world_tx.clone(),
                 crate::configured_max_conns(),
                 crate::shared_connection_counter(),
+                &mut publisher,
+                broadcast_rx,
             )
             .await;
             let _ = world_tx.send(WorldMsg::TransportClosed);
@@ -74,7 +95,17 @@ pub(crate) fn start(endpoint: &str, world_tx: Sender<WorldMsg>) -> io::Result<()
     ready_rx.recv().map_err(|_| {
         io::Error::new(io::ErrorKind::BrokenPipe, "ZeroMQ transport thread stopped")
     })??;
-    Ok(())
+    Ok(result_tx)
+}
+
+fn normalize_pub_endpoint(endpoint: &str) -> io::Result<String> {
+    if endpoint.starts_with("zmq://") {
+        normalize_endpoint(endpoint)
+    } else if endpoint.starts_with("tcp://") || endpoint.starts_with("ipc://") {
+        Ok(endpoint.to_string())
+    } else {
+        Ok(format!("tcp://{endpoint}"))
+    }
 }
 
 pub(crate) fn normalize_endpoint(endpoint: &str) -> io::Result<String> {
@@ -103,6 +134,8 @@ async fn run_loop(
     world_tx: Sender<WorldMsg>,
     max_conns: usize,
     live: Arc<AtomicUsize>,
+    publisher: &mut Option<PubSocket>,
+    mut broadcast_rx: tokio_mpsc::Receiver<Broadcast>,
 ) {
     const OUTBOUND_QUEUE: usize = 1024;
     const SEND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -186,6 +219,16 @@ async fn run_loop(
                     None => break,
                 }
             }
+            broadcast = broadcast_rx.recv(), if publisher.is_some() => {
+                let Some(broadcast) = broadcast else { continue };
+                let message = ZmqMessage::try_from(vec![
+                    Bytes::from(broadcast.topic),
+                    Bytes::from(broadcast.frame.encode()),
+                ]);
+                if let (Some(publisher), Ok(message)) = (publisher.as_mut(), message) {
+                    let _ = timeout(SEND_TIMEOUT, publisher.send(message)).await;
+                }
+            }
         }
     }
     for (_, id) in identities {
@@ -196,11 +239,15 @@ async fn run_loop(
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_endpoint;
+    use super::{normalize_endpoint, normalize_pub_endpoint};
     use bytes::Bytes;
     use ctpbuddy_wire::frame::Frame;
     use tokio::runtime::Builder;
-    use zeromq::{DealerSocket, RouterSocket, Socket, SocketRecv, SocketSend, ZmqMessage};
+    use tokio::time::{sleep, timeout, Duration};
+    use zeromq::{
+        DealerSocket, PubSocket, RouterSocket, Socket, SocketRecv, SocketSend, SubSocket,
+        ZmqMessage,
+    };
 
     #[test]
     fn normalize_zmq_endpoints() {
@@ -217,6 +264,14 @@ mod tests {
             "ipc:///tmp/ctpbuddy"
         );
         assert!(normalize_endpoint("127.0.0.1:5560").is_err());
+        assert_eq!(
+            normalize_pub_endpoint("zmq://127.0.0.1:5561").unwrap(),
+            "tcp://127.0.0.1:5561"
+        );
+        assert_eq!(
+            normalize_pub_endpoint("ipc:///tmp/ctpbuddy-pub").unwrap(),
+            "ipc:///tmp/ctpbuddy-pub"
+        );
     }
 
     #[test]
@@ -248,6 +303,44 @@ mod tests {
             let decoded = Frame::read_from(&mut cursor).unwrap().unwrap();
             assert_eq!(decoded.msg_type, 0x0102);
             assert_eq!(decoded.payload, b"world");
+        });
+    }
+
+    #[test]
+    fn pub_sub_roundtrip_preserves_topic_and_cb_frame() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let mut publisher = PubSocket::new();
+            let endpoint = publisher
+                .bind("tcp://127.0.0.1:0")
+                .await
+                .unwrap()
+                .to_string();
+            let mut subscriber = SubSocket::new();
+            subscriber.connect(&endpoint).await.unwrap();
+            subscriber.subscribe("md/").await.unwrap();
+            sleep(Duration::from_millis(50)).await;
+            let frame = Frame::new(0x1022, 0, b"tick".to_vec());
+            publisher
+                .send(
+                    ZmqMessage::try_from(vec![
+                        Bytes::from("md/cu2501"),
+                        Bytes::from(frame.encode()),
+                    ])
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            let message = timeout(Duration::from_secs(2), subscriber.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(message.len(), 2);
+            assert_eq!(message.get(0).unwrap().as_ref(), b"md/cu2501");
+            let mut cursor = std::io::Cursor::new(message.get(1).unwrap().as_ref());
+            let decoded = Frame::read_from(&mut cursor).unwrap().unwrap();
+            assert_eq!(decoded.msg_type, 0x1022);
+            assert_eq!(decoded.payload, b"tick");
         });
     }
 }

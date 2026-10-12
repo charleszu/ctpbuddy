@@ -14,7 +14,7 @@
 
 SimNow / openctp 都是远程 CS 模式：网络绑死、无法注入极端行情、不可复现、无管理面。CTPBuddy 把柜台搬到本地：替换同名 DLL 即可接入，行情可回放、场景可注入、账户可管理、团队可共用。
 
-> **当前边界（请先读）**：交易端支持明文 TCP，也支持以 `zmq://tcp://host:port`（或 `zmq://host:port`）启用 ZeroMQ ROUTER/DEALER 传输；ADMIN 仍为明文 TCP 且**无认证**（TD 登录不校验密码）。核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 当前仍使用 TCP。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，实时持仓从 ADMIN status 与 Web 回放状态读取，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。「团队共用」目前仅适用于受信内网并自行做网络隔离。
+> **当前边界（请先读）**：交易端支持明文 TCP，也支持以 `zmq://tcp://host:port`（或 `zmq://host:port`）启用 ZeroMQ ROUTER/DEALER 传输；仅在 TD 使用 `zmq://` 时设置 `CTPBUDDY_ZMQ_PUB_ADDR=tcp://host:port` 才会额外提供按 `md/...`、`td/...` topic 发布的 PUB/SUB 广播，广播采用有界 best-effort 队列，满载时允许丢帧；ADMIN 仍为明文 TCP 且**无认证**（TD 登录不校验密码）。核心拒绝把 ADMIN 绑到非回环地址（`CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 才放行）。Shim 当前仍使用 TCP。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，实时持仓从 ADMIN status 与 Web 回放状态读取，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。「团队共用」目前仅适用于受信内网并自行做网络隔离。
 
 ## 架构速览
 

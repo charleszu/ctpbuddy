@@ -217,7 +217,8 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
     let (tx, rx) = mpsc::channel::<WorldMsg>();
 
     if cfg.td_endpoint.starts_with("zmq://") {
-        transport_zmq::start(&cfg.td_endpoint, tx.clone())?;
+        let pub_tx = transport_zmq::start(&cfg.td_endpoint, tx.clone())?;
+        world.broadcast_tx = pub_tx;
     } else {
         let td = TcpListener::bind(&cfg.td_endpoint)?;
         let tx_td = tx.clone();
@@ -243,6 +244,8 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
 
 /// Env opt-out for [`ensure_admin_loopback`].
 pub const ALLOW_REMOTE_ADMIN_ENV: &str = "CTPBUDDY_ALLOW_REMOTE_ADMIN";
+/// Optional ZeroMQ PUB endpoint for market/private broadcasts.
+pub const ZMQ_PUB_ADDR_ENV: &str = "CTPBUDDY_ZMQ_PUB_ADDR";
 
 /// Err unless every address `endpoint` resolves to is loopback (or the
 /// operator set `CTPBUDDY_ALLOW_REMOTE_ADMIN=1`).
@@ -646,6 +649,12 @@ pub struct World {
     snapshot_journal_seq: Option<u64>,
     last_snapshot_at: Instant,
     shutdown: bool,
+    broadcast_tx: Option<tokio::sync::mpsc::Sender<Broadcast>>,
+}
+
+pub(crate) struct Broadcast {
+    pub(crate) topic: String,
+    pub(crate) frame: Frame,
 }
 
 struct PrivateNotification {
@@ -786,6 +795,7 @@ impl World {
             snapshot_journal_seq: None,
             last_snapshot_at: Instant::now(),
             shutdown: false,
+            broadcast_tx: None,
             cfg,
         };
         if world.cfg.recover && !world.cfg.data_dir.is_empty() {
@@ -1604,6 +1614,10 @@ impl World {
     fn push_market_data(&mut self, tick: &Tick) {
         let field = tick.to_depth_md();
         let frame = Frame::new(msgs::RTN_DEPTH_MD, 0, struct_to_bytes(&field));
+        self.publish(Broadcast {
+            topic: format!("md/{}/{}", tick.exchange_id, tick.instrument_id),
+            frame: frame.clone(),
+        });
         let subs: Vec<u64> = self
             .conns
             .iter()
@@ -1688,6 +1702,10 @@ impl World {
     }
 
     fn emit_private_notification(&mut self, notification: PrivateNotification) {
+        self.publish(Broadcast {
+            topic: format!("td/{}/{}", notification.broker, notification.investor),
+            frame: notification.frame.clone(),
+        });
         let targets = self.investor_conns(&notification.broker, &notification.investor);
         self.mark_delivered(
             &notification.broker,
@@ -1729,6 +1747,12 @@ impl World {
     pub(crate) fn send_frame(&mut self, conn_id: u64, frame: Frame) {
         if let Some(c) = self.conns.get(&conn_id) {
             let _ = c.writer.send(frame);
+        }
+    }
+
+    fn publish(&mut self, broadcast: Broadcast) {
+        if let Some(tx) = &self.broadcast_tx {
+            let _ = tx.try_send(broadcast);
         }
     }
 

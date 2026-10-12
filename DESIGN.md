@@ -22,7 +22,7 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 
 | 设计条目 | 当前实现 | 影响 |
 |---|---|---|
-| §6 ZeroMQ DEALER/ROUTER + PUB/SUB | TD 原生端点已支持 ZeroMQ ROUTER/DEALER；PUB/SUB 广播仍规划中；TCP 与 ZMQ 共用 CB 帧 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道；ZMQ/TCP 共用并发上限 |
+| §6 ZeroMQ DEALER/ROUTER + PUB/SUB | TD 原生端点已支持 ZeroMQ ROUTER/DEALER；ZMQ TD 模式设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后支持 `md/...`、`td/...` PUB/SUB 广播；TCP 与 ZMQ 共用 CB 帧 | 无 CURVE 加密；团队远程部署需自行加 VPN/隧道；ZMQ/TCP 共用并发上限 |
 | §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | `CTPBUDDY_ADDR` 已支持 `tcp://host:port`（含主机名）；Shim 仍未实现 `ctpbuddy.ini` 别名表与 `ipc://` 传输 | 下游仍需把前置地址改为 CTPBuddy 地址，「生产配置一行不改」和 IPC 传输尚未成立 |
 | §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离；ADMIN status 暴露稳定 broker scope；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 已完成单进程多 Broker 的运行与结算编排；需要故障域、版本或管理边界时仍应运行多个核心实例 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
@@ -255,7 +255,7 @@ flowchart LR
 - 请求/响应：Shim 侧 DEALER ↔ 核心 ROUTER（多客户端、天然带身份）；
 - 下行推送：核心 PUB ↔ Shim SUB，topic 过滤；
 - 控制面：Python 层 REQ ↔ 核心 REP，仅监听 loopback/ipc，JSON 负载；
-- 三组端口都在 `ctpbuddy up` 时打印，`--endpoint` 可改。
+- 原生 PUB 端点仅在 TD 使用 `zmq://` 时通过 `CTPBUDDY_ZMQ_PUB_ADDR` 显式配置，必须与 ADMIN 端点分开；未配置时仍由 ROUTER/DEALER 返回回报。PUB 使用有界 best-effort 队列，满载时允许丢帧。三组端口都应由部署配置显式记录。
 
 ### 6.2 帧格式
 
@@ -314,7 +314,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 | PUB | `td/{broker}/{investor}` | OnRtnOrder / OnRtnTrade / OnErrRtnOrder* |
 | PUB | `sys` | 广播：结算完成、系统公告 |
 
-> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。ZeroMQ 身份只负责映射连接，协议帧不变；ADMIN 保持 TCP。PUB/SUB 的行情、私有推送与 `sys` 广播仍属于后续缺口，当前 ZMQ 适配通过 ROUTER/DEALER 返回同一连接的回报。
+> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后，行情与私有回报按 `md/{exchange}/{instrument}`、`td/{broker}/{investor}` 通过 PUB/SUB 广播；ZeroMQ 身份只负责映射请求连接，协议帧不变；ADMIN 保持 TCP。`sys` 广播仍属于后续缺口。
 
 - 查询语义对齐 CTP：多帧循环 + 末帧 `is_last=1`；
 - **BrokerID 策略：单进程托管多 Broker**：broker 是核心内的一等实体（共享合约目录，按 `(broker_id, instrument_id)` 覆盖保证金/手续费规则，账户空间按 BrokerID 隔离），默认 BrokerID 为 **8888**（不与 SimNow 的 9999 及主流实盘券商号冲突，金融俗惯例里的吉利号，`--broker-id` 可改，也可传逗号分隔清单）。AUTH 按核心的 broker 清单强校验，未知 BrokerID 按 CTP 语义拒登录。多 broker **共享同一路回放行情与虚拟时钟**——同一场景下不同经纪商的成交差异来自各自费率/保证金规则，这对多券商对比测试恰是有用属性。需要硬隔离（故障域/版本/管理边界）时可一个 broker 部署一个核心实例，两者只是运维选择、不动架构；下游单进程连多个柜台依赖 §5.3 的按实例端点解析；

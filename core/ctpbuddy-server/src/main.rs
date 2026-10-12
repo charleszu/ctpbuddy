@@ -51,6 +51,7 @@ options:
       --speed <n>        playback speed multiplier    (0 = as fast as possible)
       --td <addr>        CTP td front endpoint; use zmq://tcp://host:port
                           for ZeroMQ ROUTER/DEALER transport
+                          (set CTPBUDDY_ZMQ_PUB_ADDR for optional PUB/SUB)
                           (default 127.0.0.1:5560)
   -v, --version          show version
 ";
