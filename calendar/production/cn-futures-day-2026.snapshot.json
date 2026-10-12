@@ -1,12 +1,13 @@
 {
   "schema": "ctpbuddy.trading-calendar/v1",
-  "version": "cn-futures-day-2026-20261004-r1",
+  "version": "cn-futures-day-2026-20261013-r1",
   "source": {
-    "kind": "user",
-    "name": "六所公开休市事实摘录+周末日盘关闭规则；非逐日官方夜盘日历",
-    "revision": "six-exchange-extract-20261004-r1",
-    "license": "公开休市事实摘录，原网页再分发许可未确认",
-    "scope": "futures"
+    "kind": "official",
+    "name": "SHFE 2026 官方日盘安排；统一六所日盘 contract",
+    "revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018",
+    "license": "官方公告固定摘录；原网页再分发许可未单独确认",
+    "scope": "futures",
+    "url": "https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html"
   },
   "days": [
     {

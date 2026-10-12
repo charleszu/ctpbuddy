@@ -171,7 +171,7 @@ with Admin(calendar=calendar) as admin:
 
 `calendar/production/cn-futures-day-2026.snapshot.json` 是项目离线快照：完整覆盖 2026 自然日的“周一至周五且不在六所同日公开节假日区间”的统一日盘候选，并将其明确标为 `scope: day-session-only`；六所日盘休市/开市日历按统一 contract 处理，manifest 以 SHFE 作为 canonical exchange，无需重复维护六份相同日盘表。它不是六所官方逐日 TradingDay 数据库，也不把民用调休工作日直接当期货交易日。六所来源、提取 revision、事实 hash、DCE 动态参考页及夜盘缺口均登记在 `calendar/production/MANIFEST.json`。夜盘只固化公告明确的 closed 边界，未知 open/closed 一律拒绝推断；生产使用前须复核公告并固定 SHA256。`build_2026.py` 仅是可审计的离线生成器，不访问网络。
 
-生产目录仍保留 `shfe-2026-new-year.sample.json`：固定来源为上期所 2025-12-17〔2025〕157号公告，覆盖 2025-12-31 至 2026-01-05 的元旦样本及 2025-12-31 夜盘关闭边界，SHA256 为 `3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a`。新增全年日盘快照 SHA256 为 `b9217ede09a806e99d3819331367b76731bf4407fade96f2a02ed3123fdb71e3`，覆盖 365 自然日、24 条显式夜盘关闭记录；完整逐日夜盘仍未取得，manifest 明确记录缺口。不能把缺失夜盘解释为关闭或开放。
+生产目录仍保留 `shfe-2026-new-year.sample.json`：固定来源为上期所 2025-12-17〔2025〕157号公告，覆盖 2025-12-31 至 2026-01-05 的元旦样本及 2025-12-31 夜盘关闭边界，SHA256 为 `3a1929f644c903ffaea2f8751e9f998a2be8cd71d9937c0e321f1aa9b768b67a`。全年日盘快照现以该公告作为统一六所日盘 contract 的 official source，版本为 `cn-futures-day-2026-20261013-r1`，SHA256 为 `470ff8b2cd9570451bbd84014b59ffc865e6b6ac79ef9eb0400f7d6cd2609848`，覆盖 365 自然日、24 条显式夜盘关闭记录；完整逐日夜盘仍未取得，manifest 明确记录缺口。不能把缺失夜盘解释为关闭或开放。
 
 Web 启动可指定 `ctpbuddy web --workspace . --db data/ctpbuddy.db`；目录与详情为只读，场景加载只接受 `scenarios/<name>` 和 `confirmed=true`。加载前必须暂停已有回放、无活动订单且无持仓保证金，不自动重置账户；账户、持仓明细、最新订单状态和当日成交通过 `/api/live` 每两秒从核心刷新，支持 broker/investor 筛选和分页；初始持仓与历史投影各有独立状态标识。页面提供场景、账户/持仓、订单/成交、结算/审计和回放导航，不实现 Core 不存在的功能。
 

@@ -2,7 +2,7 @@
 
 提取日期：2026-10-13（Asia/Shanghai）
 
-这份记录只登记官方一手来源和可复核的访问结果。它不把搜索摘要、周末规则或股票市场日历当作 CTP `TradingDay`/`ActionDay` 数据。当前生产快照因此仍保持 `source.kind=user`、`status=complete-day-session-partial-night`，不能宣称为六所完整官方逐日数据库。
+这份记录只登记官方一手来源和可复核的访问结果。它不把搜索摘要、周末规则或股票市场日历当作 CTP `TradingDay`/`ActionDay` 数据。当前生产快照已将 SHFE 公告固定为统一六所日盘 contract 的官方来源，仍保持 `status=complete-day-session-partial-night`，不能宣称为六所完整官方逐日夜盘数据库。
 
 ## 已固定的官方正文
 
@@ -36,9 +36,9 @@ DCE 的索引结果曾命中 <https://dce.com.cn/dce/content/2026/ywggytz/186310
 
 ## 当前快照能证明什么
 
-`cn-futures-day-2026.snapshot.json` 覆盖 2026-01-01 至 2026-12-31 共 365 个自然日，记录的是项目离线整理的日盘候选状态，并在六个已登记边界记录 SHFE/INE/CZCE/DCE 明确的夜盘 `closed`。其 manifest SHA256 为：
+`cn-futures-day-2026.snapshot.json` 覆盖 2026-01-01 至 2026-12-31 共 365 个自然日，记录 SHFE 官方公告按统一六所日盘 contract 展开的日盘状态，并在六个已登记边界记录 SHFE/INE/CZCE/DCE 明确的夜盘 `closed`。夜盘仍不是全年逐日数据库。其 manifest SHA256 为：
 
-`b9217ede09a806e99d3819331367b76731bf4407fade96f2a02ed3123fdb71e3`
+`470ff8b2cd9570451bbd84014b59ffc865e6b6ac79ef9eb0400f7d6cd2609848`
 
 这些字段可以用于离线回放的覆盖检查和 fail-closed 查询；它们不等价于六所各自发布的完整逐日 `TradingDay`、`ActionDay` 数据库。尤其是：
 

@@ -37,10 +37,12 @@ def build():
             row["exchanges"] = {exchange: {"status": "closed"} for exchange in ("SHFE", "INE", "CZCE", "DCE")}
         rows.append(row)
         date += dt.timedelta(days=1)
-    snapshot = {"schema": "ctpbuddy.trading-calendar/v1", "version": "cn-futures-day-2026-20261004-r1",
-                "source": {"kind": "user", "name": "六所公开休市事实摘录+周末日盘关闭规则；非逐日官方夜盘日历",
-                           "revision": "six-exchange-extract-20261004-r1", "license": "公开休市事实摘录，原网页再分发许可未确认",
-                           "scope": "futures"}, "days": rows}
+    snapshot = {"schema": "ctpbuddy.trading-calendar/v1", "version": "cn-futures-day-2026-20261013-r1",
+                "source": {"kind": "official", "name": "SHFE 2026 官方日盘安排；统一六所日盘 contract",
+                           "revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018",
+                           "license": "官方公告固定摘录；原网页再分发许可未单独确认",
+                           "scope": "futures",
+                           "url": "https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html"}, "days": rows}
     sha = hashlib.sha256(canonical(snapshot)).hexdigest()
     path = ROOT / "cn-futures-day-2026.snapshot.json"
     path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -55,9 +57,9 @@ def build():
         "exchanges": ["SHFE", "INE", "CZCE", "DCE", "CFFEX", "GFEX"],
     }
     manifest["snapshots"] = [manifest["snapshots"][0], {"path": path.name, "sha256": sha,
-        "source_revision": "six-exchange-extract-20261004-r1", "sources": SOURCES,
+        "source_revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018", "sources": SOURCES,
         "facts_sha256": hashlib.sha256(canonical({"sources": SOURCES, "holidays": HOLIDAYS, "night_closed": NIGHT_CLOSED})).hexdigest(),
-        "authority": "项目离线事实整理，非官方逐日数据库", "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市"}]
+        "authority": "SHFE 官方 2026 日盘休市安排；按统一六所日盘 contract 展开，夜盘仍不完整", "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市"}]
     manifest["gaps"] = [
         "完整365个自然日日盘状态不是完整官方逐日TradingDay/ActionDay数据库；不得把每个自然日直接当TradingDay。",
         "六所公布的节假日日盘关闭区间一致；周末不因民用调休上班而开市，不供给民用工作日日历。",

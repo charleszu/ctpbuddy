@@ -23,8 +23,8 @@
     },
     {
       "path": "cn-futures-day-2026.snapshot.json",
-      "sha256": "b9217ede09a806e99d3819331367b76731bf4407fade96f2a02ed3123fdb71e3",
-      "source_revision": "six-exchange-extract-20261004-r1",
+      "sha256": "470ff8b2cd9570451bbd84014b59ffc865e6b6ac79ef9eb0400f7d6cd2609848",
+      "source_revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018",
       "sources": [
         {
           "exchange": "SHFE",
@@ -76,7 +76,7 @@
         }
       ],
       "facts_sha256": "f862634d66352ea668c970aa7983b2efff33524d3da02c5b80372c5725945e15",
-      "authority": "项目离线事实整理，非官方逐日数据库",
+      "authority": "SHFE 官方 2026 日盘休市安排；按统一六所日盘 contract 展开，夜盘仍不完整",
       "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市"
     }
   ],

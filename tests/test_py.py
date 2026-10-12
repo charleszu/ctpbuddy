@@ -513,6 +513,9 @@ def test_calendar() -> None:
     production_dir = os.path.join(REPO, "calendar", "production")
     production_path = os.path.join(production_dir, "cn-futures-day-2026.snapshot.json")
     manifest_path = os.path.join(production_dir, "MANIFEST.json")
+    production = TradingCalendar.from_file(production_path)
+    assert production.metadata["source"]["kind"] == "official"
+    assert production.metadata["source"]["url"].startswith("https://www.shfe.com.cn/")
     with open(manifest_path, "rb") as fh:
         manifest = validate_manifest(fh.read(), snapshot_path=production_path)
     assert manifest["status"] == "complete-day-session-partial-night"
