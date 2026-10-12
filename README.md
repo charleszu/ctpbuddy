@@ -165,7 +165,7 @@ with Admin(calendar=calendar) as admin:
 }
 ```
 
-`ctpbuddy calendar validate calendar.json` 输出规范化内容 SHA256 和实际覆盖范围；再用 `--sha256 <固定值>` 校验。SHA256 不包含 JSON 缩进差异，但包含版本、来源和全部映射。来源元数据只是可追溯声明，结构校验不能证明市场数据权威性，真实快照需由用户核验。GitHub 来源需 `kind: github`、`name: owner/repo`、`revision: <40位commit SHA>`、明确 `license` 和 `scope: futures`。官方来源需 `kind: official`、固定公告 URL 和固定摘录 revision。
+`ctpbuddy calendar validate calendar.json` 输出规范化内容 SHA256 和实际覆盖范围；再用 `--sha256 <固定值>` 校验。对 production 快照可追加 `--manifest calendar/production/MANIFEST.json`，同时校验 manifest schema、快照 SHA256、覆盖范围和来源条目，防止 manifest 与快照漂移。SHA256 不包含 JSON 缩进差异，但包含版本、来源和全部映射。来源元数据只是可追溯声明，结构校验不能证明市场数据权威性，真实快照需由用户核验。GitHub 来源需 `kind: github`、`name: owner/repo`、`revision: <40位commit SHA>`、明确 `license` 和 `scope: futures`。官方来源需 `kind: official`、固定公告 URL 和固定摘录 revision。
 
 自然日使用 `YYYY-MM-DD`，期货 `TradingDay` 使用 `YYYYMMDD`；`next_trading_day` 只返回快照明确标记的期货交易日。夜盘必须在 `days[].exchanges[EXCHANGE]` 中显式标记：开放时同时提供 `night_action_day` 和 `night_trading_day`，官方明确关闭时使用 `{"status":"closed"}`；缺失时拒绝查询，绝不从周末、股票休市表或交易所名称推断。显式传入 `Admin.settle_day(..., next_trading_day="YYYYMMDD")` 仍兼容旧调用。
 

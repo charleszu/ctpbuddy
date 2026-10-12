@@ -37,7 +37,7 @@ from .sdk import Admin
 
 
 def cmd_calendar_validate(args: argparse.Namespace) -> int:
-    from .calendar import CalendarError, TradingCalendar
+    from .calendar import CalendarError, TradingCalendar, validate_manifest
 
     try:
         calendar = TradingCalendar.from_file(args.file, expected_sha256=args.sha256)
@@ -55,6 +55,19 @@ def cmd_calendar_validate(args: argparse.Namespace) -> int:
     coverage = calendar.coverage
     print("coverage     %s..%s (%d rows, %d missing natural days, %d night records)" % (
         coverage["start"], coverage["end"], coverage["days"], coverage["missing_days"], coverage["night_records"]))
+    if args.manifest:
+        try:
+            with open(args.manifest, "rb") as manifest_file:
+                manifest_bytes = manifest_file.read()
+            manifest = validate_manifest(
+                manifest_bytes,
+                snapshot_path=args.file,
+            )
+        except (CalendarError, OSError) as exc:
+            print("INVALID manifest: %s" % exc, file=sys.stderr)
+            return 1
+        print("manifest     %s@%s (%s)" % (
+            args.manifest, manifest["version"], manifest["status"]))
     return 0
 
 
@@ -572,6 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
     cv = csub.add_parser("validate", help="校验 JSON 快照并输出固定版本和 SHA256")
     cv.add_argument("file")
     cv.add_argument("--sha256", help="期望的快照 SHA256")
+    cv.add_argument("--manifest", help="可选 production manifest；同时校验快照 SHA256/覆盖范围")
     cv.set_defaults(func=cmd_calendar_validate)
 
     sp = sub.add_parser(

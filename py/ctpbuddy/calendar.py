@@ -17,6 +17,12 @@ class CalendarError(ValueError):
     """快照无效或查询超出明确覆盖范围。"""
 
 
+def _sha256(value: Any) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        raise CalendarError("sha256 必须是 64 位小写十六进制字符串")
+    return value
+
+
 class CalendarProvider(Protocol):
     def is_trading_day(self, date: DateLike) -> bool: ...
     def next_trading_day(self, date: DateLike) -> str: ...
@@ -214,4 +220,106 @@ def load_calendar(path: Union[str, Path], override: Optional[Union[str, Path, Ma
     return calendar.with_overrides(override) if override is not None else calendar
 
 
-__all__ = ["CalendarProvider", "CalendarDay", "CalendarError", "TradingCalendar", "load_calendar"]
+def validate_manifest(
+    value: Union[str, bytes, Mapping[str, Any]],
+    *,
+    snapshot_path: Optional[Union[str, Path]] = None,
+) -> Mapping[str, Any]:
+    """Validate a production calendar manifest and its snapshot provenance.
+
+    A manifest is an audit record, not a replacement for the calendar schema.
+    When ``snapshot_path`` is supplied, the referenced snapshot must be present
+    in the manifest and its canonical SHA256/coverage must match exactly.
+    """
+    try:
+        raw = value if isinstance(value, Mapping) else json.loads(value, object_pairs_hook=_pairs)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise CalendarError("交易日历 manifest JSON 无法解析") from exc
+    _keys(raw, {
+        "schema", "version", "created_at", "scope", "runtime", "status",
+        "coverage", "snapshots", "not_authoritative", "gaps", "research",
+    }, "manifest")
+    if raw.get("schema") != "ctpbuddy.trading-calendar-manifest/v1":
+        raise CalendarError("不支持的交易日历 manifest schema")
+    for field in ("version", "created_at", "scope", "runtime", "status"):
+        if not isinstance(raw.get(field), str) or not raw[field].strip():
+            raise CalendarError("manifest.%s 必须是非空字符串" % field)
+    if raw["scope"] != "futures":
+        raise CalendarError("manifest.scope 必须是 futures")
+    if raw["runtime"] != "offline-only":
+        raise CalendarError("manifest.runtime 必须是 offline-only")
+    if raw["status"] not in {"complete", "complete-day-session-partial-night", "partial"}:
+        raise CalendarError("manifest.status 不受支持")
+    coverage = raw.get("coverage")
+    _keys(coverage, {"start", "end", "complete_range", "scope", "night_complete"}, "manifest.coverage")
+    start = _date(coverage.get("start"), "manifest.coverage.start")
+    end = _date(coverage.get("end"), "manifest.coverage.end")
+    if start > end:
+        raise CalendarError("manifest.coverage.start 不能晚于 end")
+    if type(coverage.get("complete_range")) is not bool or type(coverage.get("night_complete")) is not bool:
+        raise CalendarError("manifest.coverage.complete_range/night_complete 必须是布尔值")
+    if coverage.get("scope") != "day-session-only":
+        raise CalendarError("manifest.coverage.scope 必须是 day-session-only")
+    snapshots = raw.get("snapshots")
+    if not isinstance(snapshots, list) or not snapshots:
+        raise CalendarError("manifest.snapshots 必须是非空数组")
+    normalized_snapshots = []
+    for index, entry in enumerate(snapshots):
+        field = "manifest.snapshots[%d]" % index
+        _keys(entry, {"path", "sha256", "source_url", "source_revision", "sources", "facts_sha256", "authority", "scope"}, field)
+        if not isinstance(entry.get("path"), str) or not entry["path"].strip():
+            raise CalendarError("%s.path 必须是非空字符串" % field)
+        _sha256(entry.get("sha256"))
+        for key in ("source_revision", "authority", "scope"):
+            if not isinstance(entry.get(key), str) or not entry[key].strip():
+                raise CalendarError("%s.%s 必须是非空字符串" % (field, key))
+        if "source_url" in entry and (not isinstance(entry["source_url"], str) or not entry["source_url"].strip()):
+            raise CalendarError("%s.source_url 必须是非空字符串" % field)
+        if "facts_sha256" in entry:
+            _sha256(entry["facts_sha256"])
+        if "sources" in entry:
+            if not isinstance(entry["sources"], list) or not entry["sources"]:
+                raise CalendarError("%s.sources 必须是非空数组" % field)
+            for source_index, source in enumerate(entry["sources"]):
+                source_field = "%s.sources[%d]" % (field, source_index)
+                _keys(source, {
+                    "exchange", "revision", "url", "verified", "title", "published_at",
+                    "notice_no", "content_sha256",
+                }, source_field)
+                for key in ("exchange", "revision", "url", "verified"):
+                    if not isinstance(source.get(key), str) or not source[key].strip():
+                        raise CalendarError("%s.%s 必须是非空字符串" % (source_field, key))
+                for key in ("title", "published_at", "notice_no"):
+                    if key in source and (not isinstance(source[key], str) or not source[key].strip()):
+                        raise CalendarError("%s.%s 必须是非空字符串" % (source_field, key))
+                if "content_sha256" in source:
+                    _sha256(source["content_sha256"])
+        normalized_snapshots.append(entry)
+    if "gaps" in raw:
+        if not isinstance(raw["gaps"], list) or any(not isinstance(item, str) or not item.strip() for item in raw["gaps"]):
+            raise CalendarError("manifest.gaps 必须是字符串数组")
+    if "not_authoritative" in raw and not isinstance(raw["not_authoritative"], list):
+        raise CalendarError("manifest.not_authoritative 必须是数组")
+    if "research" in raw and (not isinstance(raw["research"], str) or not raw["research"].strip()):
+        raise CalendarError("manifest.research 必须是非空字符串")
+
+    if snapshot_path is not None:
+        path = Path(snapshot_path)
+        calendar = TradingCalendar.from_file(path)
+        try:
+            entry = next(item for item in normalized_snapshots if item["path"] == path.name)
+        except StopIteration as exc:
+            raise CalendarError("manifest 未登记快照: %s" % path.name) from exc
+        if entry["sha256"] != calendar.sha256:
+            raise CalendarError("manifest 快照 SHA256 不匹配: %s" % path.name)
+        actual = calendar.coverage
+        if actual["start"] != start or actual["end"] != end:
+            raise CalendarError("manifest.coverage 与快照覆盖范围不匹配")
+        if bool(coverage["complete_range"]) != (actual["missing_days"] == 0):
+            raise CalendarError("manifest.complete_range 与快照缺失自然日不匹配")
+        if bool(coverage["night_complete"]) and actual["night_records"] == 0:
+            raise CalendarError("manifest.night_complete 不能在没有夜盘记录时为 true")
+    return MappingProxyType(dict(raw))
+
+
+__all__ = ["CalendarProvider", "CalendarDay", "CalendarError", "TradingCalendar", "load_calendar", "validate_manifest"]

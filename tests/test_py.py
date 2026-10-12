@@ -30,7 +30,7 @@ READ_MODEL_METADATA_FIELDS = {
 }
 sys.path.insert(0, os.path.join(REPO, "py"))
 
-from ctpbuddy.calendar import CalendarError, TradingCalendar  # noqa: E402
+from ctpbuddy.calendar import CalendarError, TradingCalendar, validate_manifest  # noqa: E402
 from ctpbuddy.generated import structs  # noqa: E402
 from ctpbuddy.scenario import (  # noqa: E402
     ScenarioError,
@@ -503,6 +503,26 @@ def test_calendar() -> None:
     except CalendarError as exc:
         assert "明确休市" in str(exc)
     assert cli_main(["calendar", "validate", sample_path]) == 0
+    production_dir = os.path.join(REPO, "calendar", "production")
+    production_path = os.path.join(production_dir, "cn-futures-day-2026.snapshot.json")
+    manifest_path = os.path.join(production_dir, "MANIFEST.json")
+    with open(manifest_path, "rb") as fh:
+        manifest = validate_manifest(fh.read(), snapshot_path=production_path)
+    assert manifest["status"] == "complete-day-session-partial-night"
+    assert manifest["research"] == "official-calendar-2026-research.md"
+    assert cli_main(["calendar", "validate", production_path, "--manifest", manifest_path]) == 0
+    with tempfile.TemporaryDirectory() as root:
+        broken_manifest = os.path.join(root, "MANIFEST.json")
+        with open(manifest_path, "r", encoding="utf-8") as src:
+            tampered = json.load(src)
+        tampered["snapshots"][1]["sha256"] = "0" * 64
+        with open(broken_manifest, "w", encoding="utf-8") as dst:
+            json.dump(tampered, dst)
+        try:
+            validate_manifest(open(broken_manifest, "rb").read(), snapshot_path=production_path)
+            raise AssertionError("manifest 与快照 SHA256 不一致时应拒绝")
+        except CalendarError as exc:
+            assert "SHA256" in str(exc)
     print("[ok] calendar: offline validation/hash/CLI, coverage, override, explicit nights and Admin compatibility")
 
 

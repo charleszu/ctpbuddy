@@ -6,12 +6,12 @@ import json
 
 ROOT = Path(__file__).parent
 SOURCES = [
-    {"exchange": "SHFE", "revision": "2025-12-17-[2025]157", "url": "https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html?updatetime=short", "verified": "official-page"},
-    {"exchange": "INE", "revision": "2025-12-17-[2025]114", "url": "https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html", "verified": "official-search-excerpt"},
+    {"exchange": "SHFE", "revision": "2025-12-17-[2025]157", "url": "https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html", "title": "上海期货交易所关于2026年休市安排的公告", "published_at": "2025-12-17", "notice_no": "〔2025〕157号", "content_sha256": "3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018", "verified": "official-page"},
+    {"exchange": "INE", "revision": "2025-12-17-[2025]114", "url": "https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html", "title": "上海国际能源交易中心关于2026年休市安排的公告", "published_at": "2025-12-17", "notice_no": "〔2025〕114号", "content_sha256": "6c760411d649c724b9bd7f90190a69c578d520fc78a94b8dba06fbd1d449635a", "verified": "official-page"},
     {"exchange": "CZCE", "revision": "2025-12-17-[2025]939", "url": "https://www.czce.com.cn/cn/gyjys/jysdt/ggytz/webinfo/2025/12/528a2b72a3c949ae88ee93391e1d6c0f.htm?t=aged&updatetime=short", "verified": "official-search-excerpt"},
     {"exchange": "DCE", "revision": "2026-holiday-page-extract-20261004", "url": "http://www.dce.com.cn/dce/channel/list/226.html", "verified": "official-search-excerpt; 页面注明仅做参考，以交易所公布为准；未取得固定公告正文"},
     {"exchange": "GFEX", "revision": "2025-12-17-[2025]414", "url": "https://www.gfex.com.cn/gfex/tzts/202512/0134914f8c674fa68c2ba9041a5cd798.shtml", "verified": "official-search-excerpt"},
-    {"exchange": "CFFEX", "revision": "2025-12-17-[2025]55", "url": "http://www.cffex.com.cn/cn/jystz/20251217/47006.html", "verified": "official-search-excerpt"},
+    {"exchange": "CFFEX", "revision": "2025-12-17-[2025]55", "url": "http://www.cffex.com.cn/cn/jystz/20251217/47006.html", "title": "中国金融期货交易所关于2026年部分节假日休市安排的通知", "published_at": "2025-12-17", "notice_no": "中金所发〔2025〕55号", "content_sha256": "48a77f47e6d9ac45f33e096fc8ff121ba1f3b356e25c527fa7025018df24330e", "verified": "official-page"},
 ]
 HOLIDAYS = [("2026-01-01", "2026-01-03"), ("2026-02-15", "2026-02-23"),
             ("2026-04-04", "2026-04-06"), ("2026-05-01", "2026-05-05"),
@@ -57,7 +57,7 @@ def build():
         "六所公布的节假日日盘关闭区间一致；周末不因民用调休上班而开市，不供给民用工作日日历。",
         "SHFE/INE/CZCE/DCE仅记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。其他夜盘未知，不由日盘或周末推断。",
         "GFEX/CFFEX未在本快照填充夜盘；未核验官方逐日open映射，绝不推断。",
-        "除SHFE外来源为官方域名搜索摘录；DCE为动态参考页，未取得固定原公告正文。需使用者复核后用于生产。",
+        "SHFE/INE/CFFEX 已固定官方正文 hash；DCE 为动态/不可达参考页，CZCE/GFEX 未取得可固定的休市正文。需使用者复核后用于生产。",
         "不覆盖临时停市、品种交易时段、公告后修订、2027下一交易日；快照年末next_trading_day超范围必须失败。"]
     (ROOT / "MANIFEST.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(sha)

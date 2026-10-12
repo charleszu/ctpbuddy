@@ -29,14 +29,22 @@
         {
           "exchange": "SHFE",
           "revision": "2025-12-17-[2025]157",
-          "url": "https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html?updatetime=short",
+          "url": "https://www.shfe.com.cn/publicnotice/notice/202512/t20251217_829805.html",
+          "title": "上海期货交易所关于2026年休市安排的公告",
+          "published_at": "2025-12-17",
+          "notice_no": "〔2025〕157号",
+          "content_sha256": "3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018",
           "verified": "official-page"
         },
         {
           "exchange": "INE",
           "revision": "2025-12-17-[2025]114",
           "url": "https://www.ine.cn/publicnotice/notice/202512/t20251217_829804.html",
-          "verified": "official-search-excerpt"
+          "title": "上海国际能源交易中心关于2026年休市安排的公告",
+          "published_at": "2025-12-17",
+          "notice_no": "〔2025〕114号",
+          "content_sha256": "6c760411d649c724b9bd7f90190a69c578d520fc78a94b8dba06fbd1d449635a",
+          "verified": "official-page"
         },
         {
           "exchange": "CZCE",
@@ -60,10 +68,14 @@
           "exchange": "CFFEX",
           "revision": "2025-12-17-[2025]55",
           "url": "http://www.cffex.com.cn/cn/jystz/20251217/47006.html",
-          "verified": "official-search-excerpt"
+          "title": "中国金融期货交易所关于2026年部分节假日休市安排的通知",
+          "published_at": "2025-12-17",
+          "notice_no": "中金所发〔2025〕55号",
+          "content_sha256": "48a77f47e6d9ac45f33e096fc8ff121ba1f3b356e25c527fa7025018df24330e",
+          "verified": "official-page"
         }
       ],
-      "facts_sha256": "e9b8d61e22b52c29baf8f45e0175e58f5795b0eb34a8808132875cb1e73c78ed",
+      "facts_sha256": "f862634d66352ea668c970aa7983b2efff33524d3da02c5b80372c5725945e15",
       "authority": "项目离线事实整理，非官方逐日数据库",
       "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市"
     }
@@ -80,7 +92,8 @@
     "六所公布的节假日日盘关闭区间一致；周末不因民用调休上班而开市，不供给民用工作日日历。",
     "SHFE/INE/CZCE/DCE仅记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。其他夜盘未知，不由日盘或周末推断。",
     "GFEX/CFFEX未在本快照填充夜盘；未核验官方逐日open映射，绝不推断。",
-    "除SHFE外来源为官方域名搜索摘录；DCE为动态参考页，未取得固定原公告正文。需使用者复核后用于生产。",
+    "SHFE/INE/CFFEX 已固定官方正文 hash；DCE 为动态/不可达参考页，CZCE/GFEX 未取得可固定的休市正文。需使用者复核后用于生产。",
     "不覆盖临时停市、品种交易时段、公告后修订、2027下一交易日；快照年末next_trading_day超范围必须失败。"
-  ]
+  ],
+  "research": "official-calendar-2026-research.md"
 }
