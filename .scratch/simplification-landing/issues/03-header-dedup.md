@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (landed as 151edc1)
 
 - [ ] 验证步：逐个 md5 复核 5 个 .h（Struct/DataType/TraderApi/MdApi/DataCollect）在两目录下仍一致；grep 全仓非生成消费方——预期仅 CI 两个 `--sdk` 调用与 DESIGN §2/§15、README 的表述、`docs/错误码全集.md` 对 error.xml 的链接（error.xml 不动）；若发现 .h 的其他消费方，降级为方案 b（保留双份 + 两目录互指 README），不强删
 - [ ] CI 两平台 `--sdk` 改指 CHM 原件目录（字节相同 → 构建产物相同）

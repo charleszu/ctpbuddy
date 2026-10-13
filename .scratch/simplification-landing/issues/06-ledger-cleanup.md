@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (landed as c04199a)
 
 - [ ] 验证步：逐项复核 A1-A7 引用与行号；B1~B7 死面（INITIAL_FUNDS、PositionDetail::profit、Neg for Money、from_snapshot/account_mut 仅测试、五个可降私项、Cargo.toml ctpbuddy-market 依赖零引用——依赖项已预核）；C1 第二次价格校验被前序循环支配（纯控制流证明）
 - [ ] 收敛 A1~A7；删除 B1~B6（或 `#[cfg(test)]`）并降私；删除 Cargo.toml 无用依赖行；C1 删除支配性重复校验保留缺价检测

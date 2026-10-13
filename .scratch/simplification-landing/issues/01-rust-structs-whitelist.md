@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (landed as 3f3d17e)
 
 - [ ] 验证步：复核 `structs.rs` 共 519 个 `pub struct`；以"全仓非 generated Rust 源（含 core tests）中出现的 `CThostFtdc*` 名字"机械推导实际引用集（不得照抄评审的 34 个清单）；确认评审后无新增引用面
 - [ ] codegen 的 Rust 发射增加白名单 = 实际引用集 ∪ MESSAGE_STRUCTS 值集；白名单以可维护的显式清单落库（含来源注释）

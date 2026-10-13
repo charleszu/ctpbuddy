@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (landed as 652a4a0)
 
 - [ ] 验证步：逐项复核 G2 清单（catalog_mut、refdata_mut、maker_fill_at_limit getter、Catalog::estimated_commission/margin/commission 非 _for 版、OrderCommRate::insert_fee/action_fee、cross_margin_rules getter、三个未排序 *_rows、*_rows_sorted 仅测试用、Direction::opposite/label、OffsetFlag::label、Catalog::is_empty）全仓零生产调用；G3 死常量；A1 转发壳比例；F1 四处内联
 - [ ] 删除 G2/G3 死面（仅测试使用的随测试迁移或删除；`msgs.rs` LOGOUT/LOGOUT_RSP 保留并加"Rust 侧未路由"注释；frame.rs encoded_len 降私）

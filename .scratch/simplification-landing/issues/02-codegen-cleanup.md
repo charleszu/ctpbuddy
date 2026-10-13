@@ -4,7 +4,7 @@
 
 **Blocked by:** 01（同一 codegen 文件与同一重新生成流程，先后落避免冲突）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as 9e91697)
 
 - [ ] 验证步：复核 StructId 枚举 519 项在全仓（shim src/demo、core、py、tools）零消费者；复核 static_assert 段使用字面量尺寸、不依赖枚举（已预核）；复核 gen_shim 两条 errrtn 死分支当前不可达（所有 errrtn 行均带 payload_input）、`cstr()` 零调用、gen_structs 死形参
 - [ ] C++ 发射停止输出枚举段，static_assert 段逐字节保留；gen_shim 删除死分支/死助手并保留 fail-loud 行为（缺 payload_input 时明确报错）

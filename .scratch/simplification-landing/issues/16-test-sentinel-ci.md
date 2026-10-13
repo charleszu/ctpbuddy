@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (landed as 476b499)
 
 - [ ] 验证步：AST 比对当前 25/25 全注册、定义序≠调用序（哨兵须保持调用序列原样）；复核 CI unit job 内 `-p ctpbuddy-server journal_contract` 是 workspace 测试的子集、该步 python vectors 检查独有价值保留；复核 m4_install_shim 仍无任何 CI 入口且本机可独立运行
 - [ ] main() 顶部加集合断言哨兵（+4 行），调用序列不动；CI 删 cargo 子集行、步名保留；m4_install_shim 加入 unit job（pip install ./py 之后）
