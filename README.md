@@ -204,7 +204,7 @@ CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py
 
 本项目代码以 [MIT](LICENSE) 许可发布。以下随仓库附带的数据**不在 MIT 范围内**，各自按来源声明使用：
 
-- `docs/api-doc-html/files/` 中由官方 CHM 转换得到的头文件、`error.xml` 与 PDF 属上期技术所有，仅供文档交叉引用，不构成再分发授权；`ctpsdk/*/` 二进制 SDK 不入库。
+- `docs/notes/assets/compiled_html/` 中官方 CHM 反编译原件（含头文件，Shim 构建的 `--sdk` 亦取自这里）与 `docs/api-doc-html/files/` 中转换得到的 `error.xml` 与 PDF 属上期技术所有，仅供文档交叉引用，不构成再分发授权；`ctpsdk/*/` 二进制 SDK 不入库。
 - `calendar/production/` 下的交易日历快照取自六所公开休市公告的事实摘录（来源、提取 revision 与事实 hash 登记在 `calendar/production/MANIFEST.json`），快照 `source.license` 自述「原网页再分发许可未确认」——即这些数据**不随 MIT 授权、再分发许可状态未确认**，生产使用前须自行复核公告并固定 SHA256。
 - `refdata/` 随包合约快照源自 LocalCTP 参考实现的 `instrument.csv` 导出，见 DESIGN §8.6.1。
 
@@ -212,7 +212,7 @@ CTPBUDDY_TEST_REAL_RELEASE=1 python tests/e2e/release_package.py
 
 ```
 ctpsdk/                  # 使用者自备的官方 SDK 二进制（禁止入库，见 .gitignore）
-docs/                    # 设计文档 + CTP 语义知识库 + 官方 API 文档/错误码全集（CHM 与 error.xml 的可读化；api-doc-html/files/ 附带 CHM 转出的 .h/error.xml/PDF）
+docs/                    # 设计文档 + CTP 语义知识库 + 官方 API 文档/错误码全集（CHM 与 error.xml 的可读化；头文件唯一份在 notes/assets/compiled_html）
 shim/                    # C++ Shim（DLL/so 同名替换）+ codegen
 core/                    # Rust workspace：wire / market / matching / ledger / server
 py/                      # Python 包 ctpbuddy
