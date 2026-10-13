@@ -34,8 +34,6 @@ SCHEMA_VERSION = 2
 APPLICATION_ID = 0x43545042
 TABLES = ("journal_event", "account", "order_record", "trade_record",
           "position_change", "position_snapshot", "account_snapshot", "audit_log", "settlement_report")
-WEB_TABLES = ("account", "position_snapshot", "account_snapshot", "order_record",
-              "trade_record", "audit_log", "settlement_report")
 READ_MODEL_METADATA_FIELDS = (
     "source_kind", "journal_seq", "virtual_time", "core_hash", "projection_hash",
     "journal_hash", "calendar_version", "calendar_sha256", "schema_version",
