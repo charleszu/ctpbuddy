@@ -66,7 +66,7 @@
 
 Web 不是 Core 的替代实现：场景目录只允许 `workspace/scenarios/<name>` 的直接子目录，加载入口只接受 workspace 相对路径，拒绝绝对路径、`..`、NUL、非 CSV source 和任意命令；写操作必须确认、同源、CSRF、字段白名单，并进入既有审计。账户与初始持仓展示分为三层：ADMIN `status` 的账户实时摘要、场景 spec 的初始持仓摘要、journal SQLite 的历史持仓快照；Core 没有提供的实时持仓查询必须标明不可用，不能用投影或初始值冒充。
 
-`calendar/production/cn-futures-day-2026.snapshot.json` 的 `TradingCalendar` 日期记录是离线日盘候选快照，不等于交易所逐日 TradingDay；民用调休工作日不会自动成为期货交易日。六所同日节假日关闭区间、来源 URL、固定 revision、事实 hash 和不确定边界在 `MANIFEST.json` 登记。夜盘只有公告明确的 `closed` 或显式 ActionDay/TradingDay 才可查询；缺失就报错，不从周末、交易所名称或股票日历推断。
+`calendar/production/cn-futures-day-2026.snapshot.json` 的 `TradingCalendar` 日期记录是离线日盘候选快照，不等于交易所逐日 TradingDay；民用调休工作日不会自动成为期货交易日。六所同日节假日关闭区间、来源 URL、固定 revision、事实 hash 和不确定边界在 `MANIFEST.json` 登记。夜盘按快照中的逐交易所映射 contract 查询：SHFE/INE 为自然日 ActionDay、下一交易日 TradingDay；DCE/GFEX 两字段均为下一交易日；CZCE 两字段均为当日；CFFEX 明确无夜盘。公告明确的 `closed` 仍优先，缺失就报错，不从周末、交易所名称或股票日历推断。
 
 ### 1.0.2 断连原因码 `nReason`（notes/11 §E.2，SDK 头文件口径）
 

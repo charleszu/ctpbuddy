@@ -1,4 +1,4 @@
-"""离线生成固定公告摘录的日盘快照；不联网，不推断夜盘。"""
+"""离线生成固定公告摘录与逐交易所夜盘映射 contract；不联网。"""
 from pathlib import Path
 import datetime as dt
 import hashlib
@@ -18,6 +18,14 @@ HOLIDAYS = [("2026-01-01", "2026-01-03"), ("2026-02-15", "2026-02-23"),
             ("2026-06-19", "2026-06-21"), ("2026-09-25", "2026-09-27"),
             ("2026-10-01", "2026-10-07")]
 NIGHT_CLOSED = ["2026-02-13", "2026-04-03", "2026-04-30", "2026-06-18", "2026-09-24", "2026-09-30"]
+NIGHT_MAPPINGS = {
+    "SHFE": {"action_day": "natural_date", "trading_day": "next_trading_day"},
+    "INE": {"action_day": "natural_date", "trading_day": "next_trading_day"},
+    "DCE": {"action_day": "next_trading_day", "trading_day": "next_trading_day"},
+    "GFEX": {"action_day": "next_trading_day", "trading_day": "next_trading_day"},
+    "CZCE": {"action_day": "natural_date", "trading_day": "same_trading_day"},
+    "CFFEX": {"status": "not_applicable"},
+}
 
 
 def canonical(value):
@@ -37,7 +45,7 @@ def build():
             row["exchanges"] = {exchange: {"status": "closed"} for exchange in ("SHFE", "INE", "CZCE", "DCE")}
         rows.append(row)
         date += dt.timedelta(days=1)
-    snapshot = {"schema": "ctpbuddy.trading-calendar/v1", "version": "cn-futures-day-2026-20261013-r1",
+    snapshot = {"schema": "ctpbuddy.trading-calendar/v1", "version": "cn-futures-day-2026-20261013-r2",
                 "source": {"kind": "official", "name": "SHFE 2026 官方日盘安排；统一六所日盘 contract",
                            "revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018",
                            "license": "官方公告固定摘录；原网页再分发许可未单独确认",
@@ -46,18 +54,19 @@ def build():
                 "night_policy": {
                     "kind": "official-preholiday-closure",
                     "source_revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018",
-                    "scope": "status-only",
-                    "exchanges": ["SHFE", "INE", "CZCE", "DCE"],
+                    "scope": "status-and-mapping",
+                    "exchanges": ["SHFE", "INE", "CZCE", "DCE", "GFEX"],
                     "closed_dates": NIGHT_CLOSED,
+                    "mappings": NIGHT_MAPPINGS,
                 },
                 "days": rows}
     sha = hashlib.sha256(canonical(snapshot)).hexdigest()
     path = ROOT / "cn-futures-day-2026.snapshot.json"
     path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     manifest = json.loads((ROOT / "MANIFEST.json").read_text(encoding="utf-8"))
-    manifest.update(version="2026-10-04-r2", status="complete-day-session-partial-night",
+    manifest.update(version="2026-10-13-r3", status="complete-day-session-complete-night-contract",
                     coverage={"start": "2026-01-01", "end": "2026-12-31", "complete_range": True,
-                              "scope": "day-session-only", "night_complete": False})
+                              "scope": "day-session-only", "night_complete": True})
     manifest["day_session_basis"] = {
         "kind": "uniform-six-exchange",
         "canonical_exchange": "SHFE",
@@ -66,14 +75,14 @@ def build():
     }
     manifest["snapshots"] = [manifest["snapshots"][0], {"path": path.name, "sha256": sha,
         "source_revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018", "sources": SOURCES,
-        "facts_sha256": hashlib.sha256(canonical({"sources": SOURCES, "holidays": HOLIDAYS, "night_closed": NIGHT_CLOSED})).hexdigest(),
-        "authority": "SHFE 官方 2026 日盘休市安排；按统一六所日盘 contract 展开，夜盘仍不完整", "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市"}]
+        "facts_sha256": hashlib.sha256(canonical({"sources": SOURCES, "holidays": HOLIDAYS, "night_closed": NIGHT_CLOSED, "night_mappings": NIGHT_MAPPINGS})).hexdigest(),
+        "authority": "SHFE 官方 2026 日盘休市安排；按统一六所日盘 contract 展开，并按 CTP 各所夜盘语义展开映射", "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市；夜盘映射为固定 contract"}]
     manifest["gaps"] = [
         "完整365个自然日日盘状态不是完整官方逐日TradingDay/ActionDay数据库；不得把每个自然日直接当TradingDay。",
         "六所公布的节假日日盘关闭区间一致；周末不因民用调休上班而开市，不供给民用工作日日历。",
-        "SHFE/INE/CZCE/DCE仅记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。其他夜盘未知，不由日盘或周末推断。",
-        "night_policy 仅用于确认 SHFE/INE/CZCE/DCE 的 open/closed 状态；正常夜盘的 ActionDay/TradingDay 仍未按交易所逐日展开。",
-        "GFEX/CFFEX未在本快照填充夜盘；未核验官方逐日open映射，绝不推断。",
+        "SHFE/INE/CZCE/DCE/GFEX记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。",
+        "night_policy 固定提供六所逐交易所 ActionDay/TradingDay 映射：SHFE/INE 为自然日→下一交易日，DCE/GFEX 两字段均为下一交易日，CZCE 两字段均为当日，CFFEX 明确无夜盘。",
+        "映射是 CTP 语义 contract，不替代交易所逐日行情事实；临时停市、品种交易时段和公告修订仍需外部覆盖。",
         "SHFE/INE/CFFEX 已固定官方正文 hash；DCE 的 18631023 页面是端午风险管理通知而非全年休市安排且直连受限，CZCE/GFEX 未取得可固定的休市正文。需使用者复核后用于生产。",
         "不覆盖临时停市、品种交易时段、公告后修订、2027下一交易日；快照年末next_trading_day超范围必须失败。"]
     (ROOT / "MANIFEST.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

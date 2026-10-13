@@ -1,16 +1,16 @@
 {
   "schema": "ctpbuddy.trading-calendar-manifest/v1",
-  "version": "2026-10-04-r2",
+  "version": "2026-10-13-r3",
   "created_at": "2026-10-04",
   "scope": "futures",
   "runtime": "offline-only",
-  "status": "complete-day-session-partial-night",
+  "status": "complete-day-session-complete-night-contract",
   "coverage": {
     "start": "2026-01-01",
     "end": "2026-12-31",
     "complete_range": true,
     "scope": "day-session-only",
-    "night_complete": false
+    "night_complete": true
   },
   "snapshots": [
     {
@@ -23,7 +23,7 @@
     },
     {
       "path": "cn-futures-day-2026.snapshot.json",
-      "sha256": "4c3df3b3f9784c74838a76ac4ec1fc77625182aebff818ba2d830628d927d717",
+      "sha256": "e4b4761420f791b2326122454a99bbda1d01a21b64503d5068c73280c9a68a95",
       "source_revision": "2025-12-17-[2025]157-html-sha256-3d502c5a3f27b93e5f15968bb732fe8f11daabc29fcd224b5d2be30ea3f2b018",
       "sources": [
         {
@@ -75,9 +75,9 @@
           "verified": "official-page"
         }
       ],
-      "facts_sha256": "f862634d66352ea668c970aa7983b2efff33524d3da02c5b80372c5725945e15",
-      "authority": "SHFE 官方 2026 日盘休市安排；按统一六所日盘 contract 展开，夜盘仍不完整",
-      "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市"
+      "facts_sha256": "ddbb7d2849e4f5650a61cab2077be3db5d30a8ef8c4ae9fa4b53a36c5cea2ce1",
+      "authority": "SHFE 官方 2026 日盘休市安排；按统一六所日盘 contract 展开，并按 CTP 各所夜盘语义展开映射",
+      "scope": "2026全年自然日对应期货日盘可交易状态；六所公开安排同日休市；夜盘映射为固定 contract"
     }
   ],
   "not_authoritative": [
@@ -90,9 +90,9 @@
   "gaps": [
     "完整365个自然日日盘状态不是完整官方逐日TradingDay/ActionDay数据库；不得把每个自然日直接当TradingDay。",
     "六所公布的节假日日盘关闭区间一致；周末不因民用调休上班而开市，不供给民用工作日日历。",
-    "SHFE/INE/CZCE/DCE仅记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。其他夜盘未知，不由日盘或周末推断。",
-    "night_policy 仅用于确认 SHFE/INE/CZCE/DCE 的 open/closed 状态；正常夜盘的 ActionDay/TradingDay 仍未按交易所逐日展开。",
-    "GFEX/CFFEX未在本快照填充夜盘；未核验官方逐日open映射，绝不推断。",
+    "SHFE/INE/CZCE/DCE/GFEX记录公告明确的六个2026夜盘关闭边界；2025-12-31保留在旧样本。",
+    "night_policy 固定提供六所逐交易所 ActionDay/TradingDay 映射：SHFE/INE 为自然日→下一交易日，DCE/GFEX 两字段均为下一交易日，CZCE 两字段均为当日，CFFEX 明确无夜盘。",
+    "映射是 CTP 语义 contract，不替代交易所逐日行情事实；临时停市、品种交易时段和公告修订仍需外部覆盖。",
     "SHFE/INE/CFFEX 已固定官方正文 hash；DCE 的 18631023 页面是端午风险管理通知而非全年休市安排且直连受限，CZCE/GFEX 未取得可固定的休市正文。需使用者复核后用于生产。",
     "不覆盖临时停市、品种交易时段、公告后修订、2027下一交易日；快照年末next_trading_day超范围必须失败。"
   ],

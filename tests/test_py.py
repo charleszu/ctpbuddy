@@ -518,14 +518,20 @@ def test_calendar() -> None:
     assert production.metadata["source"]["url"].startswith("https://www.shfe.com.cn/")
     assert production.night_status("2026-02-12", "SHFE") == "open"
     assert production.night_status("2026-02-13", "SHFE") == "closed"
+    assert production.night_session("2026-02-12", "SHFE") == ("20260212", "20260213")
+    assert production.night_session("2026-02-12", "INE") == ("20260212", "20260213")
+    assert production.night_session("2026-02-12", "DCE") == ("20260213", "20260213")
+    assert production.night_session("2026-02-12", "GFEX") == ("20260213", "20260213")
+    assert production.night_session("2026-02-12", "CZCE") == ("20260212", "20260212")
+    assert production.night_status("2026-02-12", "CFFEX") == "not_applicable"
     try:
-        production.night_status("2026-02-12", "CFFEX")
-        raise AssertionError("未声明夜盘规则的交易所不应推断状态")
-    except CalendarError:
-        pass
+        production.night_session("2026-02-12", "CFFEX")
+        raise AssertionError("无夜盘交易所不应返回 ActionDay/TradingDay")
+    except CalendarError as exc:
+        assert "没有" in str(exc)
     with open(manifest_path, "rb") as fh:
         manifest = validate_manifest(fh.read(), snapshot_path=production_path)
-    assert manifest["status"] == "complete-day-session-partial-night"
+    assert manifest["status"] == "complete-day-session-complete-night-contract"
     assert manifest["research"] == "official-calendar-2026-research.md"
     assert manifest["day_session_basis"] == {
         "kind": "uniform-six-exchange",

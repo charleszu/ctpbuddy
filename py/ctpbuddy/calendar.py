@@ -146,16 +146,16 @@ class TradingCalendar:
                     self._nights[(date, exchange)] = CalendarDay(date, opened, trading, exchange=exchange, night_status=status)
                     continue
                 action = _date(night.get("night_action_day"), "night_action_day")
-                _date(night.get("night_trading_day"), "night_trading_day", True)
-                self._nights[(date, exchange)] = CalendarDay(date, opened, trading, night["night_trading_day"], action.replace("-", ""), exchange, status)
+                night_trading = _date(night.get("night_trading_day"), "night_trading_day", True)
+                self._nights[(date, exchange)] = CalendarDay(date, opened, trading, night_trading.replace("-", ""), action.replace("-", ""), exchange, status)
         policy = snapshot.get("night_policy")
         self._night_policy = None
         if policy is not None:
-            _keys(policy, {"kind", "source_revision", "scope", "exchanges", "closed_dates"}, "night_policy")
+            _keys(policy, {"kind", "source_revision", "scope", "exchanges", "closed_dates", "mappings"}, "night_policy")
             if policy.get("kind") != "official-preholiday-closure":
                 raise CalendarError("night_policy.kind 不受支持")
-            if policy.get("scope") != "status-only":
-                raise CalendarError("night_policy.scope 必须是 status-only")
+            if policy.get("scope") not in {"status-only", "status-and-mapping"}:
+                raise CalendarError("night_policy.scope 必须是 status-only 或 status-and-mapping")
             for field in ("source_revision",):
                 if not isinstance(policy.get(field), str) or not policy[field].strip():
                     raise CalendarError("night_policy.%s 必须是非空字符串" % field)
@@ -168,12 +168,48 @@ class TradingCalendar:
             normalized_closed = tuple(_date(item, "night_policy.closed_dates") for item in closed_dates)
             if len(set(normalized_closed)) != len(normalized_closed):
                 raise CalendarError("night_policy.closed_dates 不能重复")
+            mappings = policy.get("mappings")
+            normalized_mappings = {}
+            if policy["scope"] == "status-and-mapping":
+                if not isinstance(mappings, Mapping) or not mappings:
+                    raise CalendarError("status-and-mapping 必须提供 night_policy.mappings")
+            elif mappings is not None:
+                raise CalendarError("status-only 不能提供 night_policy.mappings")
+            if mappings is not None:
+                for exchange, mapping in mappings.items():
+                    if not isinstance(exchange, str) or not exchange.strip():
+                        raise CalendarError("night_policy.mappings 的交易所必须是非空字符串")
+                    _keys(mapping, {"status", "action_day", "trading_day"}, "night_policy.mapping")
+                    status = mapping.get("status", "open")
+                    if status not in {"open", "not_applicable"}:
+                        raise CalendarError("night_policy.mapping.status 必须是 open/not_applicable")
+                    if status == "not_applicable":
+                        if mapping.get("action_day") is not None or mapping.get("trading_day") is not None:
+                            raise CalendarError("not_applicable 映射不能设置 ActionDay/TradingDay")
+                        normalized_mappings[exchange] = MappingProxyType({"status": status})
+                        continue
+                    action_mode = mapping.get("action_day")
+                    trading_mode = mapping.get("trading_day")
+                    if action_mode not in {"natural_date", "next_trading_day"}:
+                        raise CalendarError("night_policy.mapping.action_day 必须是 natural_date/next_trading_day")
+                    if trading_mode not in {"same_trading_day", "next_trading_day"}:
+                        raise CalendarError("night_policy.mapping.trading_day 必须是 same_trading_day/next_trading_day")
+                    normalized_mappings[exchange] = MappingProxyType({
+                        "status": status,
+                        "action_day": action_mode,
+                        "trading_day": trading_mode,
+                    })
+                if policy["scope"] == "status-and-mapping":
+                    missing = sorted(set(exchanges) - set(normalized_mappings))
+                    if missing:
+                        raise CalendarError("night_policy.mappings 缺少状态覆盖交易所: %s" % missing)
             self._night_policy = MappingProxyType({
                 "kind": policy["kind"],
                 "source_revision": policy["source_revision"],
                 "scope": policy["scope"],
                 "exchanges": tuple(exchanges),
                 "closed_dates": frozenset(normalized_closed),
+                "mappings": MappingProxyType(normalized_mappings),
             })
         normalized = dict(snapshot)
         normalized["version"] = version
@@ -236,11 +272,21 @@ class TradingCalendar:
         raise CalendarError("快照中无下一交易日")
 
     def night_session(self, date: DateLike, exchange: str) -> Tuple[str, str]:
-        """按实际自然日查询显式 CTP ActionDay/TradingDay，不做兜底推断。"""
-        row = self.day(date, exchange)
-        if row.night_status == "closed":
-            raise CalendarError("%s 的 %s 夜盘明确休市" % (_date(date, "date"), exchange))
-        return row.night_action_day, row.night_trading_day
+        """按实际自然日查询 CTP ActionDay/TradingDay，遵循逐交易所映射 contract。"""
+        key = _date(date, "date")
+        explicit = self._nights.get((key, exchange))
+        if explicit is not None:
+            if explicit.night_status == "closed":
+                raise CalendarError("%s 的 %s 夜盘明确休市" % (key, exchange))
+            return explicit.night_action_day, explicit.night_trading_day
+        mapping = self._policy_mapping(exchange)
+        if mapping.get("status") == "not_applicable":
+            raise CalendarError("%s 没有 %s 夜盘" % (exchange, key))
+        self._policy_night_status(key, exchange, mapping)
+        day = self.day(key)
+        action = self._resolve_night_day(key, day, mapping["action_day"])
+        trading = self._resolve_night_day(key, day, mapping["trading_day"])
+        return action, trading
 
     def night_status(self, date: DateLike, exchange: str) -> str:
         """返回显式或经固定官方规则确认的夜盘状态；其余情况拒绝推断。"""
@@ -248,11 +294,45 @@ class TradingCalendar:
         explicit = self._nights.get((key, exchange))
         if explicit is not None:
             return explicit.night_status or "open"
+        mapping = self._policy_mapping(exchange)
+        if mapping.get("status") == "not_applicable":
+            return "not_applicable"
         day = self.day(key)
-        policy = self._night_policy
-        if policy is not None and exchange in policy["exchanges"] and day.is_trading_day:
-            return "closed" if key in policy["closed_dates"] else "open"
+        if exchange in self._night_policy["exchanges"] and day.is_trading_day:
+            return "closed" if key in self._night_policy["closed_dates"] else "open"
         raise CalendarError("快照未覆盖 %s 的 %s 夜盘" % (key, exchange))
+
+    def _policy_mapping(self, exchange: str) -> Mapping[str, str]:
+        policy = self._night_policy
+        if policy is None:
+            raise CalendarError("快照未覆盖夜盘映射: %s" % exchange)
+        mapping = policy["mappings"].get(exchange)
+        if mapping is None:
+            raise CalendarError("快照未覆盖夜盘映射: %s" % exchange)
+        return mapping
+
+    def _policy_night_status(self, key: str, exchange: str, mapping: Mapping[str, str]) -> str:
+        if mapping.get("status") == "not_applicable":
+            return "not_applicable"
+        if exchange not in self._night_policy["exchanges"]:
+            raise CalendarError("快照未覆盖 %s 的 %s 夜盘" % (key, exchange))
+        day = self.day(key)
+        if not day.is_trading_day:
+            raise CalendarError("快照明确标记 %s 为休市，不能查询 %s 夜盘" % (key, exchange))
+        if key in self._night_policy["closed_dates"]:
+            raise CalendarError("%s 的 %s 夜盘明确休市" % (key, exchange))
+        return "open"
+
+    def _resolve_night_day(self, key: str, day: CalendarDay, mode: str) -> str:
+        if mode == "natural_date":
+            return key.replace("-", "")
+        if mode == "same_trading_day":
+            if not day.trading_day:
+                raise CalendarError("%s 没有可用的日盘 TradingDay" % key)
+            return day.trading_day
+        if mode == "next_trading_day":
+            return self.next_trading_day(key)
+        raise CalendarError("不支持的夜盘日期映射: %s" % mode)
 
 
 def load_calendar(path: Union[str, Path], override: Optional[Union[str, Path, Mapping[str, Any]]] = None, expected_sha256: Optional[str] = None) -> TradingCalendar:
@@ -288,7 +368,7 @@ def validate_manifest(
         raise CalendarError("manifest.scope 必须是 futures")
     if raw["runtime"] != "offline-only":
         raise CalendarError("manifest.runtime 必须是 offline-only")
-    if raw["status"] not in {"complete", "complete-day-session-partial-night", "partial"}:
+    if raw["status"] not in {"complete", "complete-day-session-partial-night", "complete-day-session-complete-night-contract", "partial"}:
         raise CalendarError("manifest.status 不受支持")
     coverage = raw.get("coverage")
     _keys(coverage, {"start", "end", "complete_range", "scope", "night_complete"}, "manifest.coverage")

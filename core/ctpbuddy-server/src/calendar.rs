@@ -2,9 +2,10 @@
 //!
 //! Python remains the authoring and SHA256 authority. The core still reads the
 //! snapshot so ADMIN settlement can derive the next TradingDay without
-//! falling back to weekend arithmetic.
+//! falling back to weekend arithmetic. Night sessions use the same explicit
+//! rows and exchange mapping policy as the Python authoring side.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
 
 use serde_json::Value;
@@ -16,6 +17,7 @@ pub struct CalendarSnapshot {
     pub version: String,
     trading_days: BTreeMap<String, bool>,
     night_sessions: BTreeMap<(String, String), NightSession>,
+    night_policy: Option<NightPolicy>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +25,20 @@ pub struct NightSession {
     pub status: String,
     pub action_day: Option<String>,
     pub trading_day: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NightPolicy {
+    exchanges: BTreeSet<String>,
+    closed_dates: BTreeSet<String>,
+    mappings: BTreeMap<String, NightMapping>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct NightMapping {
+    status: String,
+    action_day: Option<String>,
+    trading_day: Option<String>,
 }
 
 impl CalendarSnapshot {
@@ -139,10 +155,12 @@ impl CalendarSnapshot {
                 }
             }
         }
+        let night_policy = parse_night_policy(object.get("night_policy"))?;
         Ok(Self {
             version,
             trading_days,
             night_sessions,
+            night_policy,
         })
     }
 
@@ -157,19 +175,76 @@ impl CalendarSnapshot {
 
     pub fn night_session(&self, date: &str, exchange: &str) -> Result<(String, String), String> {
         let date = compact_date(date)?;
-        let Some(session) = self
+        if let Some(session) = self
             .night_sessions
             .get(&(date.clone(), exchange.to_string()))
-        else {
+        {
+            if session.status == "closed" {
+                return Err(format!("交易日历明确标记 {date} 的 {exchange} 夜盘休市"));
+            }
+            return Ok((
+                session.action_day.clone().expect("open night action day"),
+                session.trading_day.clone().expect("open night trading day"),
+            ));
+        }
+        let policy = self
+            .night_policy
+            .as_ref()
+            .ok_or_else(|| format!("交易日历未覆盖 {date} 的 {exchange} 夜盘"))?;
+        let mapping = policy
+            .mappings
+            .get(exchange)
+            .ok_or_else(|| format!("交易日历未覆盖 {date} 的 {exchange} 夜盘映射"))?;
+        if mapping.status == "not_applicable" {
+            return Err(format!("{exchange} 没有夜盘"));
+        }
+        if !policy.exchanges.contains(exchange) {
             return Err(format!("交易日历未覆盖 {date} 的 {exchange} 夜盘"));
-        };
-        if session.status == "closed" {
+        }
+        if !self.trading_days.get(&date).copied().unwrap_or(false) {
+            return Err(format!("交易日历明确标记 {date} 为休市"));
+        }
+        if policy.closed_dates.contains(&date) {
             return Err(format!("交易日历明确标记 {date} 的 {exchange} 夜盘休市"));
         }
-        Ok((
-            session.action_day.clone().expect("open night action day"),
-            session.trading_day.clone().expect("open night trading day"),
-        ))
+        let action = resolve_night_day(self, &date, mapping.action_day.as_deref())?;
+        let trading = resolve_night_day(self, &date, mapping.trading_day.as_deref())?;
+        Ok((action, trading))
+    }
+
+    pub fn night_status(&self, date: &str, exchange: &str) -> Result<&'static str, String> {
+        let date = compact_date(date)?;
+        if let Some(session) = self
+            .night_sessions
+            .get(&(date.clone(), exchange.to_string()))
+        {
+            return Ok(if session.status == "closed" {
+                "closed"
+            } else {
+                "open"
+            });
+        }
+        let policy = self
+            .night_policy
+            .as_ref()
+            .ok_or_else(|| format!("交易日历未覆盖 {date} 的 {exchange} 夜盘"))?;
+        let mapping = policy
+            .mappings
+            .get(exchange)
+            .ok_or_else(|| format!("交易日历未覆盖夜盘映射: {exchange}"))?;
+        if mapping.status == "not_applicable" {
+            return Ok("not_applicable");
+        }
+        if !policy.exchanges.contains(exchange)
+            || !self.trading_days.get(&date).copied().unwrap_or(false)
+        {
+            return Err(format!("交易日历未覆盖 {date} 的 {exchange} 夜盘"));
+        }
+        Ok(if policy.closed_dates.contains(&date) {
+            "closed"
+        } else {
+            "open"
+        })
     }
 
     pub fn next_trading_day(&self, current: &str) -> Result<String, String> {
@@ -183,6 +258,130 @@ impl CalendarSnapshot {
             }
         }
         Err(format!("交易日历没有 {} 之后的下一交易日", current))
+    }
+}
+
+fn parse_night_policy(value: Option<&Value>) -> Result<Option<NightPolicy>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let object = value
+        .as_object()
+        .ok_or("交易日历 night_policy 必须是对象")?;
+    if object.get("kind").and_then(Value::as_str) != Some("official-preholiday-closure") {
+        return Err("交易日历 night_policy.kind 不受支持".into());
+    }
+    let scope = object.get("scope").and_then(Value::as_str).unwrap_or("");
+    if !matches!(scope, "status-only" | "status-and-mapping") {
+        return Err("交易日历 night_policy.scope 不受支持".into());
+    }
+    let exchanges = object
+        .get("exchanges")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .ok_or("交易日历 night_policy.exchanges 必须是非空数组")?;
+    let exchanges = exchanges
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| "交易日历 night_policy.exchanges 必须是非空字符串数组".to_string())
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let closed_dates = object
+        .get("closed_dates")
+        .and_then(Value::as_array)
+        .ok_or("交易日历 night_policy.closed_dates 必须是数组")?
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .ok_or_else(|| "交易日历 night_policy.closed_dates 必须是字符串数组".to_string())
+                .and_then(compact_date)
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let mappings_value = object.get("mappings");
+    if scope == "status-and-mapping" && mappings_value.is_none() {
+        return Err("交易日历 status-and-mapping 缺少 mappings".into());
+    }
+    if scope == "status-only" && mappings_value.is_some() {
+        return Err("交易日历 status-only 不能提供 mappings".into());
+    }
+    let mut mappings = BTreeMap::new();
+    if let Some(value) = mappings_value {
+        let value = value
+            .as_object()
+            .ok_or("交易日历 night_policy.mappings 必须是对象")?;
+        for (exchange, mapping) in value {
+            let mapping = mapping
+                .as_object()
+                .ok_or("交易日历 night_policy.mapping 必须是对象")?;
+            let status = mapping
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("open");
+            if !matches!(status, "open" | "not_applicable") {
+                return Err("交易日历 night_policy.mapping.status 不受支持".into());
+            }
+            let action_day = mapping
+                .get("action_day")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let trading_day = mapping
+                .get("trading_day")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            if status == "not_applicable" {
+                if action_day.is_some() || trading_day.is_some() {
+                    return Err("交易日历 not_applicable 映射不能设置日期模式".into());
+                }
+            } else {
+                if !matches!(
+                    action_day.as_deref(),
+                    Some("natural_date") | Some("next_trading_day")
+                ) {
+                    return Err("交易日历 mapping.action_day 不受支持".into());
+                }
+                if !matches!(
+                    trading_day.as_deref(),
+                    Some("same_trading_day") | Some("next_trading_day")
+                ) {
+                    return Err("交易日历 mapping.trading_day 不受支持".into());
+                }
+            }
+            mappings.insert(
+                exchange.clone(),
+                NightMapping {
+                    status: status.to_string(),
+                    action_day,
+                    trading_day,
+                },
+            );
+        }
+    }
+    if scope == "status-and-mapping"
+        && exchanges
+            .iter()
+            .any(|exchange| !mappings.contains_key(exchange))
+    {
+        return Err("交易日历 night_policy.mappings 缺少状态覆盖交易所".into());
+    }
+    Ok(Some(NightPolicy {
+        exchanges,
+        closed_dates,
+        mappings,
+    }))
+}
+
+fn resolve_night_day(
+    calendar: &CalendarSnapshot,
+    date: &str,
+    mode: Option<&str>,
+) -> Result<String, String> {
+    match mode {
+        Some("natural_date") | Some("same_trading_day") => Ok(date.to_string()),
+        Some("next_trading_day") => calendar.next_trading_day(date),
+        _ => Err("交易日历缺少有效的夜盘日期模式".into()),
     }
 }
 
@@ -275,6 +474,52 @@ mod tests {
             .unwrap()
             .night_session("20261002", "SHFE")
             .is_err());
+    }
+
+    #[test]
+    fn derives_exchange_specific_night_mapping_from_policy() {
+        let value = json!({
+            "schema": "ctpbuddy.trading-calendar/v1",
+            "version": "fixture-r2",
+            "night_policy": {
+                "kind": "official-preholiday-closure",
+                "source_revision": "fixture",
+                "scope": "status-and-mapping",
+                "exchanges": ["SHFE", "DCE", "CZCE"],
+                "closed_dates": ["2026-10-04"],
+                "mappings": {
+                    "SHFE": {"action_day": "natural_date", "trading_day": "next_trading_day"},
+                    "DCE": {"action_day": "next_trading_day", "trading_day": "next_trading_day"},
+                    "CZCE": {"action_day": "natural_date", "trading_day": "same_trading_day"},
+                    "CFFEX": {"status": "not_applicable"}
+                }
+            },
+            "days": [
+                {"date": "2026-10-02", "is_trading_day": true, "trading_day": "20261002"},
+                {"date": "2026-10-03", "is_trading_day": false},
+                {"date": "2026-10-04", "is_trading_day": false},
+                {"date": "2026-10-05", "is_trading_day": true, "trading_day": "20261005"}
+            ]
+        });
+        let calendar = CalendarSnapshot::from_value(&value).unwrap();
+        assert_eq!(
+            calendar.night_session("20261002", "SHFE").unwrap(),
+            ("20261002".into(), "20261005".into())
+        );
+        assert_eq!(
+            calendar.night_session("20261002", "DCE").unwrap(),
+            ("20261005".into(), "20261005".into())
+        );
+        assert_eq!(
+            calendar.night_session("20261002", "CZCE").unwrap(),
+            ("20261002".into(), "20261002".into())
+        );
+        assert_eq!(
+            calendar.night_status("20261002", "CFFEX").unwrap(),
+            "not_applicable"
+        );
+        assert!(calendar.night_session("20261002", "CFFEX").is_err());
+        assert!(calendar.night_session("20261004", "SHFE").is_err());
     }
 
     #[test]
