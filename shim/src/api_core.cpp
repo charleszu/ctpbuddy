@@ -563,6 +563,9 @@ bool zmq_recv_part(void* socket, std::vector<uint8_t>& out) {
 }  // namespace
 
 bool ApiCore::read_zmq_frame(Frame& out) {
+    // Reader-thread-private receive buffers, reused across iterations: a
+    // fresh ~1MB allocation per part (idle heartbeats included) was pure churn.
+    std::vector<uint8_t> first, frame, ignored;
     while (!stopped_.load()) {
         flush_zmq_outbound();
         drain_auth_errors();
@@ -598,14 +601,11 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             is_sub = true;
         }
         if (!selected) continue;
-        std::vector<uint8_t> first;
         if (!zmq_recv_part(selected, first)) return false;
         if (is_sub) {
             if (!zmq_more(selected)) continue;
-            std::vector<uint8_t> frame;
             if (!zmq_recv_part(selected, frame)) return false;
             while (zmq_more(selected)) {
-                std::vector<uint8_t> ignored;
                 if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(frame.data(), frame.size(), out)) {
@@ -619,7 +619,6 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             }
         } else {
             while (zmq_more(selected)) {
-                std::vector<uint8_t> ignored;
                 if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(first.data(), first.size(), out)) return true;
