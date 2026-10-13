@@ -1686,7 +1686,7 @@ impl World {
         }
         // scenario assertions fire at deterministic virtual times (§7.4)
         self.eval_assertions();
-        self.mark_to_market();
+        self.mark_to_market_now();
         if let Some(j) = self.journal.as_mut() {
             j.flush_if_due(now);
         }
@@ -1805,18 +1805,6 @@ impl World {
                 self.dispatch_event(ev);
             }
         }
-    }
-
-    fn mark_to_market(&mut self) {
-        // mark to market (unrealized PnL drives account queries)
-        let prices = self.engine.last_prices();
-        let pre_settlements = self.engine.pre_settlements();
-        self.ledger.mark_to_market(
-            self.engine.catalog(),
-            &prices,
-            &pre_settlements,
-            &self.vt_trading_day,
-        );
     }
 
     fn push_market_data(&mut self, tick: &Tick) {
