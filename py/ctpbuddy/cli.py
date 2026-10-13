@@ -138,7 +138,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if core is None:
         print("error: ctpbuddy-server binary not found; set CTPBUDDY_CORE or add it to PATH", file=sys.stderr)
         return 1
-    cmd: List[str] = [core, "--td", args.td, "--admin", args.admin, "--broker-id", args.broker_id]
+    from .replay import core_argv
+    cmd: List[str] = core_argv(core, args.td, args.admin, args.broker_id)
     calendar_path = getattr(args, "calendar", None)
     calendar_sha256 = getattr(args, "calendar_sha256", None)
     try:

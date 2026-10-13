@@ -1143,6 +1143,76 @@ void run(const char* front, const char* broker, const char* investor, bool expli
 
 }  // namespace
 
+// ---- e2e-only probes (never part of the normal round trip) ------------------
+//
+// flood: fire ReqOrderInsert calls WITHOUT waiting for responses. Against a
+// ZeroMQ peer whose ROUTER never reads, the shim's outbound queue fills and
+// later calls must return -2 (vendor "too many pending requests") instead of
+// silently dropping a frame whose pending entry would then never complete.
+void run_flood(const char* front) {
+    struct FloodSpi : public CThostFtdcTraderSpi {
+        Sync sync;
+        bool connected = false;
+        bool disconnected = false;
+        void OnFrontConnected() override {
+            std::lock_guard<std::mutex> g(sync.mu);
+            connected = true;
+            sync.notify();
+        }
+        void OnFrontDisconnected(int) override {
+            std::lock_guard<std::mutex> g(sync.mu);
+            disconnected = true;
+            sync.notify();
+        }
+    } spi;
+    auto* api = CThostFtdcTraderApi::CreateFtdcTraderApi("");
+    struct Guard {
+        CThostFtdcTraderApi* a;
+        ~Guard() { a->Release(); }
+    } guard{api};
+    api->RegisterSpi(&spi);
+    api->RegisterFront(const_cast<char*>(front));
+    api->Init();
+    spi.sync.wait([&] { return spi.connected || spi.disconnected; }, "OnFrontConnected (flood)");
+    if (!spi.connected) throw DemoFail("flood: front never connected");
+    CThostFtdcInputOrderField o{};
+    std::snprintf(o.BrokerID, sizeof(o.BrokerID), "%s", "8888");
+    std::snprintf(o.InvestorID, sizeof(o.InvestorID), "%s", "flood001");
+    std::snprintf(o.UserID, sizeof(o.UserID), "%s", "flood001");
+    std::snprintf(o.InstrumentID, sizeof(o.InstrumentID), "%s", "rb2601");
+    std::snprintf(o.ExchangeID, sizeof(o.ExchangeID), "%s", "SHFE");
+    o.OrderPriceType = THOST_FTDC_OPT_LimitPrice;
+    o.Direction = THOST_FTDC_D_Buy;
+    o.CombOffsetFlag[0] = THOST_FTDC_OF_Open;
+    o.CombHedgeFlag[0] = THOST_FTDC_HF_Speculation;
+    o.LimitPrice = 3500.0;
+    o.VolumeTotalOriginal = 1;
+    o.TimeCondition = THOST_FTDC_TC_GFD;
+    o.VolumeCondition = THOST_FTDC_VC_AV;
+    o.MinVolume = 1;
+    o.ContingentCondition = THOST_FTDC_CC_Immediately;
+    int refused = 0;
+    int accepted = 0;
+    for (int i = 0; i < 1200; ++i) {
+        std::snprintf(o.OrderRef, sizeof(o.OrderRef), "%d", 90000 + i);
+        o.RequestID = i;
+        int rc = api->ReqOrderInsert(&o, i);
+        if (rc == -2) {
+            ++refused;
+        } else if (rc == 0) {
+            ++accepted;
+        } else {
+            std::printf("[demo] flood rc=%d at %d\n", rc, i);
+            throw DemoFail("flood: unexpected return code");
+        }
+    }
+    std::printf("[demo] flood accepted=%d refused=%d\n", accepted, refused);
+    if (refused == 0) {
+        throw DemoFail("flood: the full outbound queue never answered -2 "
+                       "(silent frame-drop regression)");
+    }
+}
+
 int main(int argc, char** argv) {
     const char* front = argc > 1 ? argv[1] : "tcp://127.0.0.1:8001";
     const char* broker = argc > 2 ? argv[2] : "8888";
@@ -1151,6 +1221,8 @@ int main(int argc, char** argv) {
     try {
         if (argc > 4 && std::strcmp(argv[4], "auth-check") == 0) {
             run_auth_checks(front, broker, investor);
+        } else if (argc > 4 && std::strcmp(argv[4], "flood") == 0) {
+            run_flood(front);
         } else {
             run(front, broker, investor, argc > 4 && std::strcmp(argv[4], "explicit") == 0);
         }

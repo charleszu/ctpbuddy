@@ -149,35 +149,24 @@ fn apply_env(cfg: &mut Config) {
         ("CTPBUDDY_SELF_TRADE_PREVENTION", "self_trade_prevention"),
     ] {
         if let Ok(v) = std::env::var(env) {
-            let value = if ctpbuddy_server::settings::BOOL_KEYS.contains(&key) {
-                match v.as_str() {
-                    "true" => ctpbuddy_server::json::b(true),
-                    "false" => ctpbuddy_server::json::b(false),
-                    _ => {
-                        eprintln!("invalid {env}: expected true/false");
+            match parse_flag_value(key, &v) {
+                Ok(value) => {
+                    if let Err(e) = apply_setting(cfg, key, value) {
+                        eprintln!("invalid {env}: {e}");
                         std::process::exit(1);
                     }
                 }
-            } else {
-                match v.parse::<u32>() {
-                    Ok(n) => ctpbuddy_server::json::n(n as f64),
-                    Err(_) => {
+                Err(reason) => {
+                    // old wording verbatim: bool flags name the expectation,
+                    // numeric vars just say "invalid ENV"
+                    if ctpbuddy_server::settings::is_boolean(key) {
+                        eprintln!("invalid {env}: {reason}");
+                    } else {
                         eprintln!("invalid {env}");
-                        std::process::exit(1);
                     }
-                }
-            };
-            match ctpbuddy_server::settings::patch(
-                cfg,
-                &ctpbuddy_server::json::Value::Obj(vec![(key.into(), value)]),
-            ) {
-                Ok(next) => *cfg = next,
-                Err(e) => {
-                    eprintln!("invalid {env}: {e}");
                     std::process::exit(1);
                 }
             }
-            cfg.settings_overrides.push(key.into());
         }
     }
     if ctpbuddy_server::state::recover_requested(
@@ -186,6 +175,9 @@ fn apply_env(cfg: &mut Config) {
             .as_deref(),
     ) {
         cfg.recover = true;
+    }
+    if ctpbuddy_server::journal::hard_fail_enabled() {
+        cfg.journal_hard_fail = true;
     }
     if let Ok(v) = std::env::var("CTPBUDDY_SCENARIO") {
         if !v.is_empty() {
@@ -280,22 +272,14 @@ fn parse_cli(mut cfg: Config) -> Result<Config, String> {
                     _ => "self_trade_prevention",
                 };
                 let v = take(&arg)?;
-                let value = if ctpbuddy_server::settings::BOOL_KEYS.contains(&key) {
-                    match v.as_str() {
-                        "true" => ctpbuddy_server::json::b(true),
-                        "false" => ctpbuddy_server::json::b(false),
-                        _ => return Err(format!("{arg} expects true/false")),
+                let value = parse_flag_value(key, &v).map_err(|reason| {
+                    if arg == "--max-user-sessions" && reason == "not a valid number" {
+                        "invalid session limit".to_string()
+                    } else {
+                        format!("{arg} expects true/false")
                     }
-                } else {
-                    ctpbuddy_server::json::n(
-                        v.parse::<u32>().map_err(|_| "invalid session limit")? as f64,
-                    )
-                };
-                cfg = ctpbuddy_server::settings::patch(
-                    &cfg,
-                    &ctpbuddy_server::json::Value::Obj(vec![(key.into(), value)]),
-                )?;
-                cfg.settings_overrides.push(key.into());
+                })?;
+                apply_setting(&mut cfg, key, value)?;
             }
             "--speed" => {
                 let v = take("--speed")?;
@@ -370,4 +354,34 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Parse one settings flag value; the Err reason is a short phrase the
+/// caller wraps in its source-specific message.
+fn parse_flag_value(key: &str, raw: &str) -> Result<ctpbuddy_server::json::Value, &'static str> {
+    if ctpbuddy_server::settings::is_boolean(key) {
+        match raw {
+            "true" => Ok(ctpbuddy_server::json::b(true)),
+            "false" => Ok(ctpbuddy_server::json::b(false)),
+            _ => Err("expected true/false"),
+        }
+    } else {
+        raw.parse::<u32>()
+            .map(|n| ctpbuddy_server::json::n(n as f64))
+            .map_err(|_| "not a valid number")
+    }
+}
+
+/// Apply a validated setting through settings::patch and record the override.
+fn apply_setting(
+    cfg: &mut Config,
+    key: &str,
+    value: ctpbuddy_server::json::Value,
+) -> Result<(), String> {
+    *cfg = ctpbuddy_server::settings::patch(
+        cfg,
+        &ctpbuddy_server::json::Value::Obj(vec![(key.into(), value)]),
+    )?;
+    cfg.settings_overrides.push(key.into());
+    Ok(())
 }

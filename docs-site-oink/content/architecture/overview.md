@@ -45,4 +45,4 @@ TD 是下游 CTP 应用的数据面，ADMIN 是 Python 控制面；两者使用�
 
 完整设计和 ADR 见仓库根 [`DESIGN.md`](https://github.com/charleszu/ctpbuddy/blob/main/DESIGN.md)。
 
-ZeroMQ 可选 native libzmq CURVE/ZAP 公钥白名单，ADMIN 可选 token；自动日结使用 dated 外部结算价文件，实时后台通过 live_status 获取同一次核心快照。配置与验收见仓库 `docs/operations.md`。
+ZeroMQ 传输不加密（ADR 0002，跨机走部署层隧道），ADMIN 可选 token；自动日结使用 dated 外部结算价文件，实时后台通过 live_status 获取同一次核心快照。配置与验收见仓库 `docs/operations.md`。

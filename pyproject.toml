@@ -1,2 +1,7 @@
 [tool.uv.workspace]
 members = ["py"]
+
+# Optional e2e-only deps (PEP 735 groups): the shim hardening suite needs a
+# real ZeroMQ peer, which the stdlib cannot provide. Runtime stays stdlib-only.
+[dependency-groups]
+e2e = ["pyzmq>=25"]

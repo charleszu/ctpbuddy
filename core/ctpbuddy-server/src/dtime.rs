@@ -6,34 +6,20 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// `(YYYYMMDD, HH:MM:SS, ms_since_midnight, ISO8601)` — all UTC.
-pub fn now_wall() -> (String, String, f64, String) {
+/// ISO8601 UTC wall timestamp (`YYYYMMDDTHH:MM:SS.mmm+00:00`).
+pub fn now_wall() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let secs = now.as_secs() as i64;
-    let ms = now.subsec_millis() as f64;
-    let (day, time) = civil_from_unix(secs);
-    let iso = format!("{day}T{time}.{:03}+00:00", now.subsec_millis());
-    let (d, t, m) = civil_parts(secs, ms);
-    (d, t, m, iso)
-}
-
-fn civil_parts(secs: i64, ms: f64) -> (String, String, f64) {
     let days = secs.div_euclid(86_400);
     let sod = secs.rem_euclid(86_400);
     let (y, m, d) = civil_from_days(days);
     let (hh, mm, ss) = (sod / 3600, (sod % 3600) / 60, sod % 60);
-    (
-        format!("{y:04}{m:02}{d:02}"),
-        format!("{hh:02}:{mm:02}:{ss:02}"),
-        sod as f64 * 1000.0 + ms,
+    format!(
+        "{y:04}{m:02}{d:02}T{hh:02}:{mm:02}:{ss:02}.{:03}+00:00",
+        now.subsec_millis()
     )
-}
-
-fn civil_from_unix(secs: i64) -> (String, String) {
-    let (d, t, _) = civil_parts(secs, 0.0);
-    (d, t)
 }
 
 /// Days since 1970-01-01 -> (year, month, day). Howard Hinnant's algorithm.

@@ -4,6 +4,9 @@
 //! ROUTER identity plus one ZMTP message into the existing `WorldMsg` stream,
 //! and translates outbound CB frames back to the same identity. ADMIN remains
 //! on the TCP listener because it is an operator-only control plane.
+//!
+//! Transport encryption is deliberately absent (ADR-0002): both endpoints are
+//! the operator's own programs; protect the wire at the deployment layer.
 
 use std::collections::HashMap;
 use std::io::{self, Cursor};
@@ -36,8 +39,6 @@ pub(crate) fn start(
     endpoint: &str,
     world_tx: Sender<WorldMsg>,
     connect_freq: u32,
-    curve_secret: Option<String>,
-    curve_clients: Vec<[u8; 32]>,
 ) -> io::Result<Option<tokio_mpsc::Sender<Broadcast>>> {
     let endpoint = normalize_endpoint(endpoint)?;
     let pub_endpoint = std::env::var(ZMQ_PUB_ADDR_ENV)
@@ -45,16 +46,6 @@ pub(crate) fn start(
         .filter(|value| !value.trim().is_empty())
         .map(|value| normalize_pub_endpoint(&value))
         .transpose()?;
-    if let Some(secret) = curve_secret {
-        return crate::transport_zmq_native::start(
-            endpoint,
-            pub_endpoint,
-            secret,
-            curve_clients,
-            connect_freq,
-            world_tx,
-        );
-    }
     let (broadcast_tx, broadcast_rx) = tokio_mpsc::channel(ZMQ_PUB_QUEUE_CAPACITY);
     let result_tx = pub_endpoint.as_ref().map(|_| broadcast_tx.clone());
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);

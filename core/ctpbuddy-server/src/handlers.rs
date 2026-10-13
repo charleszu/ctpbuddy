@@ -30,7 +30,7 @@ use ctpbuddy_ledger::{
     ERR_NO_CLOSE_YD_LEDGER,
 };
 use ctpbuddy_matching::{
-    CancelQuery, Catalog, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome,
+    to_fixed, CancelQuery, Catalog, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome,
     TradingParams, ERR_BAD_FIELD, ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID,
     ERR_INSTRUMENT_NOT_FOUND, ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ, HEDGE_FLAG_SPECULATION,
 };
@@ -69,10 +69,7 @@ pub const TD_TOKEN_ENV: &str = "CTPBUDDY_TD_TOKEN";
 pub(crate) fn auth_code_ok(expected: Option<&str>, presented: &str) -> bool {
     match expected {
         None | Some("") => true,
-        Some(e) => {
-            let (a, b) = (e.as_bytes(), presented.as_bytes());
-            a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
-        }
+        Some(e) => crate::constant_time_eq(e, presented),
     }
 }
 
@@ -504,6 +501,27 @@ impl World {
         };
         let broker = cstr(&req.BrokerID);
         let user = cstr(&req.UserID);
+        // The logout must match the connection's authenticated identity (same
+        // family as the login-side check): otherwise a mismatched request
+        // would clear the session binding and journal a `session_logout`
+        // fact attributed to an identity that never held it.
+        let (auth_broker, auth_user) = {
+            let c = self.conns.get(&conn_id);
+            match c {
+                Some(c) if c.authenticated => {
+                    (c.broker_id.clone().unwrap_or_default(), cstr(&c.user_id))
+                }
+                _ => (String::new(), String::new()),
+            }
+        };
+        if broker != auth_broker || user != auth_user {
+            return self.send_error(
+                conn_id,
+                frame.req_id,
+                15,
+                "登出 BrokerID/UserID 与连接认证身份不一致",
+            );
+        }
         if let Some(c) = self.conns.get_mut(&conn_id) {
             c.investor_id = None;
         }
@@ -583,14 +601,13 @@ impl World {
     }
 
     pub(crate) fn on_settle_confirm(&mut self, conn_id: u64, frame: &Frame) {
-        if self.session(conn_id).is_none() {
+        let Some((broker, user, ..)) = self.session(conn_id) else {
             return self.send_error(conn_id, frame.req_id, -3, "用户未登录");
-        }
+        };
         let req: CThostFtdcSettlementInfoConfirmField = match struct_from_bytes(&frame.payload) {
             Some(f) => f,
             None => return self.send_error(conn_id, frame.req_id, -2, "确认字段长度错误"),
         };
-        let (broker, user, _, _, _) = self.session(conn_id).unwrap();
         if cstr(&req.BrokerID) != broker || cstr(&req.InvestorID) != user {
             return self.send_error(conn_id, frame.req_id, 3, "结算确认身份与登录会话不一致");
         }
@@ -632,5 +649,70 @@ mod auth_tests {
         assert_eq!(client_route(msgs::SUB_MD), ClientRoute::Subscribe(true));
         assert_eq!(client_route(msgs::UNSUB_MD), ClientRoute::Subscribe(false));
         assert_eq!(client_route(0xffff), ClientRoute::Unsupported(0xffff));
+    }
+
+    /// Review R2: a logout whose BrokerID/UserID does not match the
+    /// connection's authenticated identity is rejected -- it must not clear
+    /// the session binding or journal a `session_logout` under a foreign
+    /// identity.
+    #[test]
+    fn logout_with_mismatched_identity_is_rejected() {
+        use std::sync::mpsc;
+
+        use ctpbuddy_wire::generated::{
+            set_cstr, CThostFtdcReqUserLoginField, CThostFtdcUserLogoutField,
+        };
+        use ctpbuddy_wire::{struct_from_bytes, struct_to_bytes};
+
+        use crate::{Config, Frame, World};
+        let mut world = World::new(Config::default()).expect("world");
+        let (tx, rx) = mpsc::channel::<Frame>();
+        world.on_conn_opened(1, tx, false);
+
+        let auth = br#"{"broker_id":"8888","user_id":"u1","app_id":"a"}"#.to_vec();
+        world.on_frame(1, Frame::new(msgs::AUTH, 1, auth));
+        let mut login = CThostFtdcReqUserLoginField::zeroed();
+        set_cstr(&mut login.BrokerID, "8888");
+        set_cstr(&mut login.UserID, "u1");
+        world.on_frame(
+            1,
+            Frame::new(msgs::REQ_USER_LOGIN, 2, struct_to_bytes(&login)),
+        );
+        while rx.try_recv().is_ok() {}
+        assert!(
+            world.conns[&1].investor_id.is_some(),
+            "login binds the investor"
+        );
+
+        let mut bad = CThostFtdcUserLogoutField::zeroed();
+        set_cstr(&mut bad.BrokerID, "8888");
+        set_cstr(&mut bad.UserID, "someone_else");
+        world.on_frame(
+            1,
+            Frame::new(msgs::REQ_USER_LOGOUT, 3, struct_to_bytes(&bad)),
+        );
+        let answer = rx.try_recv().expect("mismatched logout is answered");
+        assert_eq!(answer.msg_type, msgs::RSP_ERROR);
+        let rsp: ctpbuddy_wire::generated::CThostFtdcRspInfoField =
+            struct_from_bytes(&answer.payload).expect("rsp info");
+        assert_eq!(rsp.ErrorID, 15);
+        assert!(
+            world.conns[&1].investor_id.is_some(),
+            "a rejected logout must not clear the session binding"
+        );
+
+        let mut good = CThostFtdcUserLogoutField::zeroed();
+        set_cstr(&mut good.BrokerID, "8888");
+        set_cstr(&mut good.UserID, "u1");
+        world.on_frame(
+            1,
+            Frame::new(msgs::REQ_USER_LOGOUT, 4, struct_to_bytes(&good)),
+        );
+        let answer = rx.try_recv().expect("matching logout is answered");
+        assert_eq!(answer.msg_type, msgs::RSP_USER_LOGOUT);
+        assert!(
+            world.conns[&1].investor_id.is_none(),
+            "a matching logout clears the session binding"
+        );
     }
 }

@@ -439,8 +439,6 @@ class CsvDirProvider(RefDataProvider):
         return self._read("cross_margin_rules")
 
 
-def csv_dir(path: str) -> RefDataProvider:
-    return CsvDirProvider(path)
 
 
 def jsonl_dir(path: str) -> RefDataProvider:
@@ -490,26 +488,16 @@ def _instantiate(target: str, opts: Dict[str, Any]) -> RefDataProvider:
         obj = getattr(module, attr)
     except AttributeError:
         raise ValueError("provider 模块 %s 没有 %s" % (module_name, attr)) from None
-    if isinstance(obj, type):
-        return _call_flexible(obj, opts)
-    if callable(obj):
-        return _call_flexible(obj, opts)
     if isinstance(obj, RefDataProvider):
         return obj
+    if callable(obj):
+        # Every option is passed as a keyword; a provider that wants fewer
+        # just declares fewer parameters. A mismatch raises TypeError naming
+        # it -- deliberately not swallowed, because retrying without
+        # arguments would yield an empty-but-valid dataset, the worst
+        # possible failure mode for reference data.
+        return obj(**opts)
     raise ValueError("provider %s 既不是类也不是可调用对象" % target)
-
-
-def _call_flexible(target: Any, opts: Dict[str, Any]) -> RefDataProvider:
-    """Instantiate a provider class / call a provider factory with `opts`.
-
-    Every option is passed as a keyword. A provider that wants fewer just
-    declares fewer parameters; one that wants anything declares ``**kwargs``.
-    A provider whose parameter names do not match the option keys raises
-    ``TypeError`` naming the mismatch — deliberately not swallowed, because
-    retrying without arguments would yield an empty-but-valid dataset, the
-    worst possible failure mode for reference data.
-    """
-    return target(**opts)
 
 
 # --- validation --------------------------------------------------------------

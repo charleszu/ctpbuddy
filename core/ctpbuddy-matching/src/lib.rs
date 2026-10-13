@@ -14,9 +14,8 @@ pub use catalog::Catalog;
 pub use engine::{
     CancelQuery, ClockCtx, EngineEvent, MatchingEngine, OrderRecord, SubmitOutcome, ERR_BAD_FIELD,
     ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID, ERR_INSTRUMENT_NOT_FOUND,
-    ERR_INSTRUMENT_NOT_TRADING, ERR_INSUFFICIENT_MONEY, ERR_NO_CLOSE_TODAY, ERR_NO_COUNTERPARTY,
-    ERR_NO_POSITION, ERR_ORDER_FREQ, ERR_ORDER_NOT_FOUND, ERR_ORDER_STATUS_UNSUITABLE,
-    ERR_PRICE_LIMIT, ERR_PRICE_TICK, ERR_VOLUME_RANGE,
+    ERR_INSTRUMENT_NOT_TRADING, ERR_NO_CLOSE_TODAY, ERR_ORDER_FREQ, ERR_ORDER_NOT_FOUND,
+    ERR_ORDER_STATUS_UNSUITABLE, ERR_PRICE_LIMIT, ERR_PRICE_TICK, ERR_VOLUME_RANGE,
 };
 pub use exchange_rules::{rules_for, ExchangeRules};
 pub use refdata::{
@@ -56,20 +55,6 @@ impl Direction {
             _ => None,
         }
     }
-
-    pub fn opposite(self) -> Direction {
-        match self {
-            Direction::Buy => Direction::Sell,
-            Direction::Sell => Direction::Buy,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Direction::Buy => "买",
-            Direction::Sell => "卖",
-        }
-    }
 }
 
 /// CTP `THOST_FTDC_OFEN_*` open/close flags.
@@ -103,15 +88,6 @@ impl OffsetFlag {
 
     pub fn is_close(self) -> bool {
         !matches!(self, OffsetFlag::Open)
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            OffsetFlag::Open => "开",
-            OffsetFlag::Close => "平",
-            OffsetFlag::CloseToday => "平今",
-            OffsetFlag::CloseYesterday => "平昨",
-        }
     }
 }
 

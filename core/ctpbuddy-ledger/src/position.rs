@@ -20,6 +20,14 @@ impl PositionSide {
         }
     }
 
+    /// Inverse of [`PositionSide::of`]: the direction that opens this side.
+    pub fn direction(self) -> Direction {
+        match self {
+            PositionSide::Long => Direction::Buy,
+            PositionSide::Short => Direction::Sell,
+        }
+    }
+
     /// The side a close order reduces: a sell closes a long, a buy closes a short.
     pub fn opposite(self) -> Self {
         match self {
@@ -127,15 +135,6 @@ impl PositionDetail {
         }
     }
 
-    /// 浮动盈亏 of this detail at `price`, per notes/04 E1.
-    pub fn profit(&self, side: PositionSide, price: f64, multiple: i32) -> f64 {
-        let sign = match side {
-            PositionSide::Long => 1.0,
-            PositionSide::Short => -1.0,
-        };
-        (price - self.open_price) * sign * self.volume as f64 * multiple as f64
-    }
-
     /// `CThostFtdcInvestorPositionDetailField` mirror.
     #[allow(clippy::too_many_arguments)]
     pub fn to_field(
@@ -176,11 +175,7 @@ impl PositionDetail {
             .to_f64();
         f.LastSettlementPrice = self.last_settlement_price;
         f.SettlementPrice = settlement_price;
-        let basis = if self.open_date == trading_day {
-            self.open_price
-        } else {
-            self.last_settlement_price
-        };
+        let basis = self.mark_basis(trading_day);
         f.PositionProfitByDate =
             Position::detail_pnl(side, basis, last_price, self.volume, multiple).to_f64();
         f.PositionProfitByTrade =
@@ -363,7 +358,7 @@ impl Position {
         self.today_position + self.yd_position
     }
 
-    pub fn avg_cost(&self, volume_multiple: i32) -> f64 {
+    fn avg_cost(&self, volume_multiple: i32) -> f64 {
         let denom = self.open_volume as f64 * volume_multiple as f64;
         if denom > 0.0 {
             self.open_amount.to_f64() / denom

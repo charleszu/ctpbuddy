@@ -1,32 +1,18 @@
 # 本轮四项补缺与验收
 
-本轮沿用 canonical journal contract，完成用户指定的 CURVE/ADMIN 认证、墙钟日结、实时后台和三层新增流控。默认 TCP 与未启用功能的既有行为兼容。
+本轮沿用 canonical journal contract，完成用户指定的 ADMIN 认证、墙钟日结、实时后台和三层新增流控。默认 TCP 与未启用功能的既有行为兼容。
 
 共享契约当前为 v3：v2 登记 `system_announcement`，v3 登记流控输入与回调 trace。新增事件属于 operational noise，不改变业务 core hash。v1/v2 的既有事件继续可读；v3 trace 不能标成 v1/v2。跨语言 golden vectors 验证兼容、字段类型与 canonical 形式。
 
 Core 与 Python 控制面需要使用同一契约版本。已有投影执行 `ctpbuddy journal upgrade JOURNAL --db DB`：先校验原始录制来源，备份旧库，原子重建至当前契约；重复执行相同来源不重复备份。没有数据库时直接构建。原始 v1/v2 journal 不需改写；来源元数据不完整的旧库需显式 `journal rebuild`。详见[投影升级与流控重放](journal-upgrade-and-flow-replay.md)。
 
-## 加密传输与管理认证
+## 传输安全与管理认证
 
-TD 使用 `--td zmq://tcp://127.0.0.1:5560` 时，可在**服务端进程**设置：
-
-```text
-CTPBUDDY_ZMQ_LIBRARY=<支持 CURVE 的 libzmq 4.x 动态库路径>
-CTPBUDDY_ZMQ_CURVE_SECRET_KEY=<服务端 40 字符 Z85 私钥>
-CTPBUDDY_ZMQ_CURVE_CLIENT_KEYS=<允许客户端的 Z85 公钥，多个用逗号隔开>
-CTPBUDDY_ZMQ_PUB_ADDR=tcp://127.0.0.1:5562
-CTPBUDDY_ADMIN_TOKEN=<独立管理令牌>
-```
-
-CURVE 通过真实 native libzmq 实现，ROUTER 与 PUB 均启用 ZAP 公钥白名单。无可用库、不支持 CURVE、非法或缺少密钥时启动失败。动态库自身依赖也须可由系统加载；Windows 可把库及依赖所在目录加入 PATH。普通 TCP / 未加密 ZeroMQ 无此依赖。服务端密钥与客户端密钥须分别设置在各自进程，不能把客户端私钥当作服务端私钥。
-
-**Shim 客户端进程**设置同一个 `CTPBUDDY_ZMQ_LIBRARY`，以及 `CTPBUDDY_ZMQ_CURVE_SERVER_KEY`（服务端公钥）、`CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY`、`CTPBUDDY_ZMQ_CURVE_SECRET_KEY`（客户端密钥对）。DEALER/SUB 的密钥选项都在 connect 前应用；配置失败不回落为明文。
-
-PUB 面向可信观测客户端；白名单按客户端公钥授权整个广播端点，**没有按账户细分订阅权限**，因此该名单不能用于互不信任的租户。广播仍为 best-effort，不补发断线历史；CTP 私有流重传仍走 DEALER 会话。
+**CURVE/ZAP 传输加密已移除（ADR 0002）**：本系统两侧都是运营者自己的程序，仿真报文不敏感；跨机部署的传输保护由部署层提供（wireguard / SSH 隧道 / 隔离内网），而不是柜台协议自身。Shim 的 libzmq 以静态库链接进两个 `thost*_se` 二进制（单 DLL/so 形态保持，无运行时 libzmq 依赖、无 CURVE 能力面）；核心的 ZMQ 路径由纯 Rust `zeromq` crate 统一承载。构建脚本从锁定版本（当前 4.3.5，SHA256 固定）源码用同一工具链编译；`CTPBUDDY_LIBZMQ_DIR` 可复用预构建前缀。仍禁止把 TD/ADMIN 端口暴露公网。
 
 Shim 的行情与私有 SPI 回调统一使用会话 DEALER 推送。可选 SUB 连接不把共享 `md/td` 广播重复注入 SPI，既保留 CTP 合法的前态/新态回报，也遵守当前会话订阅与账户范围；需要观察共享 PUB 的客户端直接使用 ZeroMQ SUB。
 
-配置 ADMIN token 后，每个 TCP 管理连接先发送 `{"cmd":"auth","token":"..."}`，成功后才能执行查询或写命令；`Admin(..., token=...)` SDK 自动完成认证，未显式传入时读取环境变量。Web 后端使用 SDK 连接，浏览器不获得令牌。远程 ADMIN 同时要求 `CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 与非空 token。ADMIN 仍为 TCP 明文，跨机连接通过受信任的隧道；CURVE 不加密 ADMIN。
+配置 ADMIN token 后，每个 TCP 管理连接先发送 `{"cmd":"auth","token":"..."}`，成功后才能执行查询或写命令；`Admin(..., token=...)` SDK 自动完成认证，未显式传入时读取环境变量。Web 后端使用 SDK 连接，浏览器不获得令牌。远程 ADMIN 同时要求 `CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 与非空 token。ADMIN 为 TCP 明文，跨机连接必须走受信任的隧道。
 
 ## 自动日结与到期强平
 
@@ -57,19 +43,20 @@ ADMIN 新增 `live_status`，Web 提供 `GET /api/live`；筛选 `broker` / `inv
 | 配置（对应环境变量） | 作用与行为 |
 |---|---|
 | `--ftd-max-comm-flux` (`CTPBUDDY_FTD_MAX_COMM_FLUX`) | 每 TD 连接每秒总报文预算，超限按到达顺序缓存，PULSE 到新窗口发送；ADMIN 独立。待处理队列最多 1024，队列耗尽返回官方 90；已接受的排队请求不丢弃。 |
-| `--connect-freq` (`CTPBUDDY_CONNECT_FREQ`) | TD 每秒新连接预算，TCP 超限关闭；普通 ZMQ 首帧准入超限断开 peer，CURVE 在 ZAP 握手时拒绝。ADMIN 不受此预算限制。 |
+| `--connect-freq` (`CTPBUDDY_CONNECT_FREQ`) | TD 每秒新连接预算，TCP 超限关闭；ZMQ 首帧准入超限断开 peer。ADMIN 不受此预算限制。 |
 | `--exchange-freq` (`CTPBUDDY_EXCHANGE_FREQ`) | 每 broker/investor/exchange 的报单、撤单独立秒级额度。 |
 | `--exchange-limits '{"SHFE":20,"DCE":30}'` (`CTPBUDDY_EXCHANGE_LIMITS`) | 六所逐所覆盖统一额度；取消订单省略 ExchangeID 时仍由合约参考数据解析，不绕过限制。超限返回官方 41「CTP:交易所每秒发送请求数超过许可数」；报单先完成前置响应，再发送错单回报与终态拒单，撤单保留双面拒绝回调，均写 journal。 |
 
 以上默认 0，表示关闭新增限流。原有 QryFreq 与 order_freq 保持原有默认和语义。新增参数为启动配置，status 的 `flow_control` 可查看实际值；设置 Web 不提供这些参数的热更新。所有墙钟调度与限流不把墙钟写成 journal 虚拟时间。
 
-启用任一新增流控时，journal 自动记录启动额度、TD 生命周期、脱敏请求、排队放行与回调报文。`journal replay` 自动恢复额度，并以录制单调钟驱动离线预算，无需人工复刻 pacing；同时核对业务 core hash、逐连接回调报文和流控 trace。TCP、普通 ZMQ 与 CURVE ConnectFreq 均覆盖。v1/v2 旧录制缺少这些信息，无法追溯补出完整时序；需重新录制。重放在 Core/CB 边界验证额度行为，不重演操作系统 TCP 握手、ZAP 密钥认证或物理网络延迟。
+启用任一新增流控时，journal 自动记录启动额度、TD 生命周期、脱敏请求、排队放行与回调报文。`journal replay` 自动恢复额度，并以录制单调钟驱动离线预算，无需人工复刻 pacing；同时核对业务 core hash、逐连接回调报文和流控 trace。TCP 与 ZMQ ConnectFreq 均覆盖。v1/v2 旧录制缺少这些信息，无法追溯补出完整时序；需重新录制。重放在 Core/CB 边界验证额度行为，不重演操作系统 TCP 握手、ZAP 密钥认证或物理网络延迟。
 
 ## 自动验收
 
 - `tests/e2e/operations.py`：真实核心与 HTTP/CB 边界验证令牌、排队时序、连接窗口恢复、交易所/报撤/身份隔离、实时筛选分页、离线状态，以及日期校验、自动强平、单次结算与恢复。
-- `tests/e2e/curve.py`：真实 CURVE DEALER/PUB，明文/错误服务端公钥/非白名单客户端拒绝，断线计数与重连；`CTPBUDDY_TEST_CURVE_SHIM=1` 额外运行真实 C++ demo。
-- CI 工作流已包含 Windows operations、Windows Shim/真实下游、Linux native libzmq/pyzmq CURVE 与真实 Shim；缺依赖或验收失败不会静默跳过。本地验收与远端 CI 结果分开记录，本轮不把未核验的远端 CI 称为已成功。
+- Shim 心跳与队列：空闲 `CTPBUDDY_SHIM_PING_IDLE_SEC` 秒（默认 5）发 PING、`CTPBUDDY_SHIM_PONG_DEADLINE_SEC` 秒（默认 15）无帧判死并 `OnFrontDisconnected`；ZeroMQ 发送队列满（默认 1024，`CTPBUDDY_SHIM_ZMQ_SEND_QUEUE`）时新请求返回 -2 而不丢帧；journal 写失败可经 ADMIN status 的 `journal` 字段观测，`CTPBUDDY_JOURNAL_HARD_FAIL=1` 时写失败即停机。
+- `tests/e2e/shim_hardening.py`：真实 demo + 静态链接 shim 的失败路径验收——静默前端心跳断链、错误尺寸载荷的显式错误回调、auth 显式拒绝、ZMQ 发送队列满拒新（-2）不丢帧；pyzmq 缺失时按约定 SKIP（退出码 3）。
+- CI 工作流已包含 Windows operations、Windows Shim/真实下游、Linux ZMQ/pyzmq 与真实 Shim；缺依赖或验收失败不会静默跳过。本地验收与远端 CI 结果分开记录，本轮不把未核验的远端 CI 称为已成功。
 
 2026-10-12 本地验证：152 项 Rust 测试、clippy/rustfmt、Python 完整单测与 13 项查询断言测试通过；operations、CURVE（含真实 MSVC Shim 与精确回调次数）、m2_flow、m2_journal、m3_settlement、m3_6_projection、settings、m1_shim_e2e、review_regressions 通过。错误码全集生成检查、JavaScript 语法检查通过。Windows CURVE 验收使用实际编译的 libzmq 4.3.5 + libsodium 与 pyzmq；这些临时验证依赖不入库。
 

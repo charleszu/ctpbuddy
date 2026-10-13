@@ -251,7 +251,7 @@ fn rb_tick(bid: f64, bid_v: i32, ask: f64, ask_v: i32) -> Tick {
     t.instrument_id = "rb2601".into();
     t.exchange_id = "SHFE".into();
     t.trading_day = "20260915".into();
-    t.update_time = "09:30:00".into();
+    t.set_update_time("09:30:00", 0);
     t.last_price = (bid + ask) / 2.0;
     t.bid_prices[0] = bid;
     t.bid_volumes[0] = bid_v;

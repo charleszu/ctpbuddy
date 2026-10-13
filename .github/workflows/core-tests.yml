@@ -40,9 +40,7 @@ jobs:
       - name: Rust 单元测试
         run: cargo test --locked --workspace --manifest-path core/Cargo.toml
       - name: Canonical journal contract 向量与 fail-closed 校验
-        run: |
-          cargo test --locked -p ctpbuddy-server journal_contract --manifest-path core/Cargo.toml
-          python tests/test_journal_contract.py
+        run: python tests/test_journal_contract.py
       - name: Rust 核心构建（确保 server exe 存在）
         run: cargo build --locked --bin ctpbuddy-server --manifest-path core/Cargo.toml
       - name: Python 单元测试
@@ -53,6 +51,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/test_projection_upgrade.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/e2e/m4_install_shim.py
 
   e2e:
     runs-on: windows-latest
@@ -88,7 +87,7 @@ jobs:
   # 应用（demo_td.exe）经 Shim 打到 Rust 核心的端到端。
   # 依赖：MSVC（windows-latest 自带 VS 2022，shim/build_msvc.py 自动探测
   # vcvars64.bat）与 CTP 6.7.13 头文件。官方 SDK 目录 ctpsdk/ 不入库，但
-  # docs/api-doc-html/files/ 下已有同一版本头文件（与 SDK 仅换行符不同），
+  # docs/notes/assets/compiled_html/ 下已有同一版本头文件（CHM 反编译原件），
   # 通过 --sdk 指向它；Shim 只需头文件，不链接厂商 .lib。
   # 任何一步失败即作业失败，不做静默跳过。
   shim:
@@ -106,9 +105,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: 安装 Python 包（e2e harness 依赖 ctpbuddy.sdk）
         run: python -m pip install ./py
-      - name: 构建 Shim DLL + demo_td.exe（MSVC，头文件取自 docs/api-doc-html/files）
+      - name: 构建 Shim DLL + demo_td.exe（MSVC，头文件取自 docs/notes/assets/compiled_html）
         run: |
-          python shim/build_msvc.py --demo --sdk docs/api-doc-html/files
+          python shim/build_msvc.py --demo --sdk docs/notes/assets/compiled_html
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 生成源码必须与模板一致（gen_shim.py 回写后 git 无差异）
         run: |
@@ -129,7 +128,7 @@ jobs:
           CTPBUDDY_TEST_REAL_RELEASE: "1"
         run: python tests/e2e/release_package.py
 
-  # Linux：核心单测 + Shim .so 构建 + 经 Shim 的端到端（头文件取自 docs/api-doc-html/files）。
+  # Linux：核心单测 + Shim .so 构建 + 经 Shim 的端到端（头文件取自 docs/notes/assets/compiled_html）。
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -149,23 +148,19 @@ jobs:
       - name: 构建核心
         run: cargo build --locked --bin ctpbuddy-server --manifest-path core/Cargo.toml
       - name: 构建 Shim .so + demo_td
-        run: python shim/build_linux.py --demo --sdk docs/api-doc-html/files
-      - name: 安装 CURVE 验收依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libzmq5
-          python -m pip install pyzmq
-      - name: CURVE DEALER/PUB 与真实 Shim 验收（失败不跳过）
+        run: python shim/build_linux.py --demo --sdk docs/notes/assets/compiled_html
+      - name: 安装 ZMQ 验收依赖
+        run: python -m pip install pyzmq
+      - name: Shim 失败路径验收（失败不跳过）
         env:
           CTPBUDDY_CORE: ${{ github.workspace }}/core/target/debug/ctpbuddy-server
-          CTPBUDDY_TEST_CURVE_SHIM: "1"
-        run: python tests/e2e/curve.py
+        run: python tests/e2e/shim_hardening.py
       - name: 核心 e2e 与 Shim e2e
         env:
           CTPBUDDY_CORE: ${{ github.workspace }}/core/target/debug/ctpbuddy-server
         run: |
           python tests/test_projection_upgrade.py
-          for s in m1_smoke m2_book m2_flow m2_ioc m2_surface m2_scenario m2_journal m3_detail m3_margin m3_refdata m3_fee_cffex m3_bootstrap m3_5_settlement_info m3_6_projection m3_settlement m3_order_sysid review_regressions operations flow_replay; do
+          for s in m1_smoke m2_book m2_flow m2_ioc m2_surface m2_scenario m2_journal m3_detail m3_margin m3_refdata m3_fee_cffex m3_bootstrap m3_5_settlement_info m3_6_projection m3_settlement m3_order_sysid settings review_regressions operations flow_replay; do
             python tests/e2e/$s.py
           done
           python tests/e2e/m1_shim_e2e.py

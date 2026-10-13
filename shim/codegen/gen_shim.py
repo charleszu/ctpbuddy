@@ -266,9 +266,16 @@ def parse_api_methods(body, what="API class"):
     return out
 
 
-def cstr(buf, size):
-    """std::string from a fixed-size NUL-padded char array field."""
-    return 'cstr_of(%s, %d)' % (buf, size)
+def write_if_changed(path, text):
+    """Write only when content differs (CR-normalized: git rewrites EOL anyway)."""
+    try:
+        with open(path, encoding="utf-8", newline="") as f:
+            if f.read().replace("\r\n", "\n") == text:
+                return
+    except OSError:
+        pass
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
 
 
 def gen_class(api, cls_name, base_api, requests, core, handwritten, methods):
@@ -450,53 +457,25 @@ def gen_dispatch(api, rows, spi_type):
             out.append("}")
             out.append("")
         elif kind == "errrtn":
-            if opt.get("payload_input"):
-                # Payload = the client's own input struct ++ RspInfoField: the
-                # success response has already consumed the pending entry, so the
-                # input must ride along (DESIGN §8.12, #42).
-                out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
-                out.append("    %s in{};" % struct)
-                out.append("    CThostFtdcRspInfoField rsp{};")
-                out.append("    const size_t n = sizeof(in);")
-                out.append("    if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);")
-                out.append("    if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));")
-                out.extend(spi_guard)
-                if opt.get("synth_action"):
-                    out.append("    CThostFtdcOrderActionField act{};")
-                    out.append("    synth_order_action(act, in);")
-                    out.append("    spi->%s(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));" % fn)
-                else:
-                    out.append("    spi->%s(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));" % fn)
-                out.append("}")
-                out.append("")
-            elif opt.get("synth_action"):
-                out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
-                out.append("    CThostFtdcRspInfoField rsp{};")
-                out.append("    payload_as(f, rsp);")
-                out.append("    Pending pd;")
-                out.append("    {")
-                out.append("        std::lock_guard<std::mutex> g(c.mu());")
-                out.append("        pd = c.take_pending(f.req_id);")
-                out.append("    }")
-                out.append("    if (pd.req_msg == 0) return;")
-                out.extend(spi_guard)
+            # Payload = the client's own input struct ++ RspInfoField: the
+            # success response has already consumed the pending entry, so the
+            # input must ride along (DESIGN §8.12, #42).
+            if not opt.get("payload_input"):
+                raise SystemExit("errrtn row %s lacks payload_input (input struct must ride along)" % var)
+            out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
+            out.append("    %s in{};" % struct)
+            out.append("    CThostFtdcRspInfoField rsp{};")
+            out.append("    const size_t n = sizeof(in);")
+            out.append("    if (f.payload.size() >= n) memcpy(&in, f.payload.data(), n);")
+            out.append("    if (f.payload.size() >= n + sizeof(rsp)) memcpy(&rsp, f.payload.data() + n, sizeof(rsp));")
+            out.extend(spi_guard)
+            if opt.get("synth_action"):
                 out.append("    CThostFtdcOrderActionField act{};")
-                out.append("    synth_order_action(act, pd.input_action);")
+                out.append("    synth_order_action(act, in);")
                 out.append("    spi->%s(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));" % fn)
-                out.append("}")
             else:
-                out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
-                out.append("    CThostFtdcRspInfoField rsp{};")
-                out.append("    payload_as(f, rsp);")
-                out.append("    Pending pd;")
-                out.append("    {")
-                out.append("        std::lock_guard<std::mutex> g(c.mu());")
-                out.append("        pd = c.take_pending(f.req_id);")
-                out.append("    }")
-                out.append("    if (pd.req_msg == 0) return;")
-                out.extend(spi_guard)
-                out.append("    spi->%s(&pd.%s, &rsp);" % (fn, opt["cache"]))
-                out.append("}")
+                out.append("    spi->%s(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));" % fn)
+            out.append("}")
             out.append("")
         elif kind == "sub":
             out.append("static void %s(ApiCore& c, const Frame& f) {" % var)
@@ -561,17 +540,20 @@ def gen_dispatch(api, rows, spi_type):
         var = "row_%s" % fn
         req = REQ_OF_RSP.get(msg)
         req_init = "msgs::%s" % req if req else "0"
+        # errrtn rows carry composite payloads (input ++ RspInfo) or
+        # synthesize their struct: no single expected size, skip the gate.
+        size_init = "0" if kind == "errrtn" else "sizeof(%s)" % struct
         if kind == "qry":
             # err!=nullptr: RSP_ERROR (e.g. NEED_RETRY throttle) completes
             # the query through its own OnRspQry* with bIsLast=true.
-            out.append("    {msgs::%s, &%s, &%s_last, &%s_err, %s}," % (msg, var, var, var, req_init))
+            out.append("    {msgs::%s, &%s, &%s_last, &%s_err, %s, %s}," % (msg, var, var, var, req_init, size_init))
         elif kind == "rsp":
-            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s}," % (msg, var, var, req_init))
+            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s, %s}," % (msg, var, var, req_init, size_init))
         elif kind == "cached" and opt.get("err_rsp"):
-            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s}," % (msg, var, var, req_init))
+            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s, %s}," % (msg, var, var, req_init, size_init))
         else:
-            out.append("    {msgs::%s, &%s, nullptr, nullptr, %s}," % (msg, var, req_init))
-    out.append("    {0, nullptr, nullptr, nullptr, 0},")
+            out.append("    {msgs::%s, &%s, nullptr, nullptr, %s, %s}," % (msg, var, req_init, size_init))
+    out.append("    {0, nullptr, nullptr, nullptr, 0, 0},")
     out.append("};")
     out.append("")
     out.append("const DispatchRow* %s::rows() const { return %s; }" % (
@@ -687,19 +669,17 @@ def main():
 
     # --- headers ---
     td_cls = gen_class("td", "TraderApi", "CThostFtdcTraderApi", TD_REQUESTS, TD_CORE, [], td_methods)
-    with open(os.path.join(gen, "api_td.hpp"), "w", encoding="utf-8") as f:
-        f.write(HEADER_TMPL % {
-            "base_api": "CThostFtdcTraderApi",
-            "include": "TraderApi.h",
-            "class_src": td_cls,
-        })
+    write_if_changed(os.path.join(gen, "api_td.hpp"), HEADER_TMPL % {
+        "base_api": "CThostFtdcTraderApi",
+        "include": "TraderApi.h",
+        "class_src": td_cls,
+    })
     md_cls = gen_class("md", "MdApi", "CThostFtdcMdApi", MD_REQUESTS, MD_CORE, MD_HANDWRITTEN, md_methods)
-    with open(os.path.join(gen, "api_md.hpp"), "w", encoding="utf-8") as f:
-        f.write(HEADER_TMPL % {
-            "base_api": "CThostFtdcMdApi",
-            "include": "MdApi.h",
-            "class_src": md_cls,
-        })
+    write_if_changed(os.path.join(gen, "api_md.hpp"), HEADER_TMPL % {
+        "base_api": "CThostFtdcMdApi",
+        "include": "MdApi.h",
+        "class_src": md_cls,
+    })
 
     # --- request trampolines ---
     REQS_TMPL = """// @generated by shim/codegen/gen_shim.py. DO NOT EDIT.
@@ -712,17 +692,13 @@ namespace ctpbuddy {
 }  // namespace ctpbuddy
 """
     td_src, td_mapped = gen_reqs("td", "TraderApi", td_methods, TD_REQUESTS, [])
-    with open(os.path.join(gen, "api_td_reqs.cpp"), "w", encoding="utf-8") as f:
-        f.write(REQS_TMPL % {"api": "td", "src": td_src})
+    write_if_changed(os.path.join(gen, "api_td_reqs.cpp"), REQS_TMPL % {"api": "td", "src": td_src})
     md_src, md_mapped = gen_reqs("md", "MdApi", md_methods, MD_REQUESTS, MD_HANDWRITTEN)
-    with open(os.path.join(gen, "api_md_reqs.cpp"), "w", encoding="utf-8") as f:
-        f.write(REQS_TMPL % {"api": "md", "src": md_src})
+    write_if_changed(os.path.join(gen, "api_md_reqs.cpp"), REQS_TMPL % {"api": "md", "src": md_src})
 
     # --- dispatch tables ---
-    with open(os.path.join(gen, "dispatch_td.cpp"), "w", encoding="utf-8") as f:
-        f.write(gen_dispatch("td", TD_DISPATCH, "CThostFtdcTraderSpi"))
-    with open(os.path.join(gen, "dispatch_md.cpp"), "w", encoding="utf-8") as f:
-        f.write(gen_dispatch("md", MD_DISPATCH, "CThostFtdcMdSpi"))
+    write_if_changed(os.path.join(gen, "dispatch_td.cpp"), gen_dispatch("td", TD_DISPATCH, "CThostFtdcTraderSpi"))
+    write_if_changed(os.path.join(gen, "dispatch_md.cpp"), gen_dispatch("md", MD_DISPATCH, "CThostFtdcMdSpi"))
 
     print("td api methods : %d (mapped: %s)" % (len(td_methods), ", ".join(td_mapped)))
     print("md api methods : %d (mapped: %s)" % (len(md_methods), ", ".join(md_mapped)))

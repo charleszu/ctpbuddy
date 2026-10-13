@@ -6,6 +6,7 @@
 真实订单字段重发，并验收四个查询的核心字段。
 """
 from __future__ import annotations
+from harness import free_port
 
 import csv
 import glob

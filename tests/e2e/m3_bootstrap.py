@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """任务41：真实 core 启动初仓、查询、平昨与流水边界。fixture 为虚构数据。"""
 from __future__ import annotations
+from harness import find_core, free_port
 
 import json
 import os
@@ -45,14 +46,6 @@ FIXTURE = {
         }],
     }],
 }
-
-
-def port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
 
 
 def wait_admin(addr: str) -> None:
@@ -159,9 +152,9 @@ accounts:
         margin: 1234.5
 """)
         compile_scenario(scenario)
-        td, ap = port(), port()
+        td, ap = free_port(), free_port()
         data = os.path.join(root, "data")
-        core = os.environ.get("CTPBUDDY_CORE", os.path.join(REPO, "target", "task41", "debug", "ctpbuddy-server.exe"))
+        core = os.environ.get("CTPBUDDY_CORE") or find_core()
         proc = subprocess.Popen([
             core, "--td", f"127.0.0.1:{td}", "--admin", f"127.0.0.1:{ap}",
             "--broker-id", BROKER, "--speed", "0", "--initial-funds", "2000000",

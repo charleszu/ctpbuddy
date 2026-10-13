@@ -34,8 +34,6 @@ SCHEMA_VERSION = 2
 APPLICATION_ID = 0x43545042
 TABLES = ("journal_event", "account", "order_record", "trade_record",
           "position_change", "position_snapshot", "account_snapshot", "audit_log", "settlement_report")
-WEB_TABLES = ("account", "position_snapshot", "account_snapshot", "order_record",
-              "trade_record", "audit_log", "settlement_report")
 READ_MODEL_METADATA_FIELDS = (
     "source_kind", "journal_seq", "virtual_time", "core_hash", "projection_hash",
     "journal_hash", "calendar_version", "calendar_sha256", "schema_version",
@@ -250,8 +248,9 @@ def _project(conn, events):
         b, i = e.get("broker", ""), e.get("investor", "")
         d = e["data"] or {}
         raw = _json(d)
+        raw_data = raw if e["data"] is not None else "null"
         conn.execute("INSERT INTO journal_event VALUES (?,?,?,?,?,?,?,?)",
-                     (s, day, e["vt_ms"], e["ts_wall"], t, b, i, _json(e["data"])))
+                     (s, day, e["vt_ms"], e["ts_wall"], t, b, i, raw_data))
         if b and i:
             conn.execute("INSERT INTO account VALUES (?,?,?,?) ON CONFLICT(broker_id,investor_id) DO UPDATE SET last_seq=excluded.last_seq", (b, i, s, s))
         if t == "order_insert":

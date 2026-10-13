@@ -60,13 +60,12 @@ impl World {
             }
             let value = json::parse(&text).map_err(|_| "自动日结结算价文件 JSON 无效")?;
             let fields = value.as_obj().ok_or("自动日结结算价文件必须是对象")?;
-            let mut seen = std::collections::HashSet::new();
-            if fields.iter().any(|(key, _)| {
-                !matches!(
-                    key.as_str(),
-                    "trading_day" | "next_trading_day" | "settlement_prices"
-                ) || !seen.insert(key)
-            }) {
+            if json::unknown_or_duplicate(
+                fields,
+                &["trading_day", "next_trading_day", "settlement_prices"],
+            )
+            .is_some()
+            {
                 return Err("自动日结结算价文件含未知或重复字段".to_string());
             }
             if value.get_str("trading_day").as_deref() != Some(current.as_str()) {

@@ -23,7 +23,6 @@ pub mod settings;
 mod settlement;
 pub mod state;
 mod transport_zmq;
-mod transport_zmq_native;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{TcpListener, TcpStream};
@@ -176,6 +175,10 @@ pub struct Config {
     pub exchange_limits: HashMap<String, u32>,
     /// Explicit offline replay mode; live TD inputs are refused.
     pub flow_replay: bool,
+    /// Stop the world loop after a journal write failure: the ledger applies
+    /// events before they are journaled, so running on would silently diverge
+    /// from the authoritative stream. `CTPBUDDY_JOURNAL_HARD_FAIL=1`.
+    pub journal_hard_fail: bool,
 }
 
 impl Default for Config {
@@ -205,6 +208,7 @@ impl Default for Config {
             exchange_freq: 0,
             exchange_limits: HashMap::new(),
             flow_replay: false,
+            journal_hard_fail: false,
         }
     }
 }
@@ -243,13 +247,7 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
     let (tx, rx) = mpsc::channel::<WorldMsg>();
 
     if cfg.td_endpoint.starts_with("zmq://") {
-        let pub_tx = transport_zmq::start(
-            &cfg.td_endpoint,
-            tx.clone(),
-            cfg.connect_freq,
-            world.security.curve_secret.clone(),
-            world.security.curve_clients.clone(),
-        )?;
+        let pub_tx = transport_zmq::start(&cfg.td_endpoint, tx.clone(), cfg.connect_freq)?;
         world.broadcast_tx = pub_tx;
     } else {
         let td = TcpListener::bind(&cfg.td_endpoint)?;
@@ -282,9 +280,6 @@ pub const ZMQ_PUB_ADDR_ENV: &str = "CTPBUDDY_ZMQ_PUB_ADDR";
 /// Bounded queue between the world thread and the ZeroMQ PUB writer.
 pub const ZMQ_PUB_QUEUE_CAPACITY: usize = 1024;
 pub const ADMIN_TOKEN_ENV: &str = "CTPBUDDY_ADMIN_TOKEN";
-pub const ZMQ_CURVE_SERVER_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_SERVER_KEY";
-pub const ZMQ_CURVE_PUBLIC_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY";
-pub const ZMQ_CURVE_SECRET_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_SECRET_KEY";
 pub const AUTO_SETTLE_AT_ENV: &str = "CTPBUDDY_AUTO_SETTLE_AT";
 pub const AUTO_SETTLE_PRICES_ENV: &str = "CTPBUDDY_AUTO_SETTLE_PRICES";
 pub const FTD_MAX_COMM_FLUX_ENV: &str = "CTPBUDDY_FTD_MAX_COMM_FLUX";
@@ -322,14 +317,16 @@ pub fn ensure_admin_loopback(endpoint: &str) -> std::io::Result<()> {
 pub const MAKER_AT_LIMIT_ENV: &str = "CTPBUDDY_MAKER_AT_LIMIT";
 
 fn maker_at_limit_enabled() -> bool {
-    matches!(
-        std::env::var(MAKER_AT_LIMIT_ENV)
-            .ok()
-            .as_deref()
-            .map(str::trim),
-        Some("1") | Some("true")
-    )
+    env_flag(std::env::var(MAKER_AT_LIMIT_ENV).ok().as_deref())
 }
+
+/// Per-connection FTD private-flow queue cap before backpressure rejects.
+const FTD_PENDING_CAP: usize = 1024;
+/// Frames drained per connection per pulse.
+const FTD_DRAIN_BATCH: usize = 1024;
+/// Backpressure rejection shared by the FTD queue and the query gate.
+pub(crate) const QRY_NOT_READY_CODE: i32 = 90;
+pub(crate) const QRY_NOT_READY_MSG: &str = "CTP：查询未就绪，请稍后重试";
 
 /// Env var overriding the concurrent-connection cap.
 pub const MAX_CONNS_ENV: &str = "CTPBUDDY_MAX_CONNS";
@@ -353,6 +350,11 @@ pub(crate) fn shared_connection_counter() -> Arc<std::sync::atomic::AtomicUsize>
     SHARED_CONN_COUNT
         .get_or_init(|| Arc::new(std::sync::atomic::AtomicUsize::new(0)))
         .clone()
+}
+
+/// Truthy env values are "1" and "true" (trimmed); everything else is false.
+pub(crate) fn env_flag(value: Option<&str>) -> bool {
+    matches!(value.map(str::trim), Some("1") | Some("true"))
 }
 
 pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
@@ -757,7 +759,7 @@ struct PrivateNotification {
 
 impl World {
     pub fn new(mut cfg: Config) -> std::io::Result<Self> {
-        let security = security::Security::load(&cfg.td_endpoint)?;
+        let security = security::Security::load()?;
         if cfg.exchange_limits.keys().any(|key| {
             !matches!(
                 key.as_str(),
@@ -1042,11 +1044,7 @@ impl World {
                 } else {
                     ctpbuddy_ledger::PositionSide::Short
                 };
-                let direction = if side == ctpbuddy_ledger::PositionSide::Long {
-                    ctpbuddy_matching::Direction::Buy
-                } else {
-                    ctpbuddy_matching::Direction::Sell
-                };
+                let direction = side.direction();
                 let margin = p.margin.unwrap_or_else(|| {
                     catalog.margin_for(
                         broker,
@@ -1217,14 +1215,7 @@ impl World {
                     ("metric".into(), json::s(&a.metric)),
                     ("op".into(), json::s(a.op.symbol())),
                     ("value".into(), json::n(a.value)),
-                    (
-                        "actual".into(),
-                        if a.actual.is_finite() {
-                            json::n(a.actual)
-                        } else {
-                            Value::Null
-                        },
-                    ),
+                    ("actual".into(), json::num_or_null(a.actual)),
                     ("pass".into(), json::b(a.pass)),
                     ("evaluated".into(), json::b(a.evaluated)),
                     // same reason vocabulary as the journal `assertion` row
@@ -1309,14 +1300,7 @@ impl World {
             ("metric".into(), json::s(metric)),
             ("op".into(), json::s(op_sym)),
             ("value".into(), json::n(value)),
-            (
-                "actual".into(),
-                if actual.is_finite() {
-                    json::n(actual)
-                } else {
-                    Value::Null
-                },
-            ),
+            ("actual".into(), json::num_or_null(actual)),
             ("pass".into(), json::b(pass)),
             ("ok".into(), json::b(status == ASSERTION_OK)),
             ("status".into(), json::s(status)),
@@ -1702,9 +1686,24 @@ impl World {
         }
         // scenario assertions fire at deterministic virtual times (§7.4)
         self.eval_assertions();
-        self.mark_to_market();
+        self.mark_to_market_now();
         if let Some(j) = self.journal.as_mut() {
             j.flush_if_due(now);
+        }
+        // Hard-fail mode (review R1): a journal that cannot write leaves the
+        // ledger ahead of the authoritative stream -- stop instead of running
+        // on when the operator opted into strict consistency.
+        let journal_failures = self
+            .journal
+            .as_ref()
+            .map(|j| j.consecutive_failures())
+            .unwrap_or(0);
+        if self.cfg.journal_hard_fail && journal_failures > 0 {
+            eprintln!(
+                "[ctpbuddy] journal write failed and CTPBUDDY_JOURNAL_HARD_FAIL is set: stopping"
+            );
+            self.shutdown = true;
+            return;
         }
         if now.duration_since(self.last_snapshot_at) >= SNAPSHOT_EVERY {
             self.last_snapshot_at = now;
@@ -1721,8 +1720,8 @@ impl World {
         {
             return Some(frame);
         }
-        if conn.ftd_pending.len() >= 1024 {
-            self.send_error(conn_id, frame.req_id, 90, "CTP：查询未就绪，请稍后重试");
+        if conn.ftd_pending.len() >= FTD_PENDING_CAP {
+            self.send_error(conn_id, frame.req_id, QRY_NOT_READY_CODE, QRY_NOT_READY_MSG);
         } else {
             conn.ftd_pending.push_back(frame);
         }
@@ -1731,11 +1730,14 @@ impl World {
 
     fn drain_ftd(&mut self, now: Instant) {
         self.flow_clock = now;
+        if !self.conns.values().any(|c| !c.ftd_pending.is_empty()) {
+            return;
+        }
         let mut recorded = false;
         let mut ids: Vec<_> = self.conns.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
-            for _ in 0..1024 {
+            for _ in 0..FTD_DRAIN_BATCH {
                 let frame = {
                     let Some(conn) = self.conns.get_mut(&id) else {
                         break;
@@ -1808,25 +1810,15 @@ impl World {
         }
     }
 
-    fn mark_to_market(&mut self) {
-        // mark to market (unrealized PnL drives account queries)
-        let prices = self.engine.last_prices();
-        let pre_settlements = self.engine.pre_settlements();
-        self.ledger.mark_to_market(
-            self.engine.catalog(),
-            &prices,
-            &pre_settlements,
-            &self.vt_trading_day,
-        );
-    }
-
     fn push_market_data(&mut self, tick: &Tick) {
         let field = tick.to_depth_md();
         let frame = Frame::new(msgs::RTN_DEPTH_MD, 0, struct_to_bytes(&field));
-        self.publish(Broadcast {
-            topic: format!("md/{}/{}", tick.exchange_id, tick.instrument_id),
-            frame: frame.clone(),
-        });
+        if self.broadcast_tx.is_some() {
+            self.publish(Broadcast {
+                topic: format!("md/{}/{}", tick.exchange_id, tick.instrument_id),
+                frame: frame.clone(),
+            });
+        }
         let subs: Vec<u64> = self
             .conns
             .iter()
@@ -1864,14 +1856,12 @@ impl World {
             self.ledger.unfreeze_order(&key, self.engine.catalog());
         }
         self.private_seq.push((false, self.orders_today.len()));
-        self.orders_today.push(field);
-        let field = self.orders_today.last().expect("order just appended");
-        let field = *field;
         let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
         let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         self.journal_record_order_update(&day, now, &field);
+        self.orders_today.push(field);
         PrivateNotification {
             broker: b,
             investor: i,
@@ -1895,14 +1885,12 @@ impl World {
             &self.vt_trading_day,
         );
         self.private_seq.push((true, self.trades_today.len()));
-        self.trades_today.push(field);
-        let field = self.trades_today.last().expect("trade just appended");
-        let field = *field;
         let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
         let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         self.journal_record_fill(&day, now, &fill, pre_settle);
+        self.trades_today.push(field);
         PrivateNotification {
             broker: b,
             investor: i,
@@ -1911,10 +1899,12 @@ impl World {
     }
 
     fn emit_private_notification(&mut self, notification: PrivateNotification) {
-        self.publish(Broadcast {
-            topic: format!("td/{}/{}", notification.broker, notification.investor),
-            frame: notification.frame.clone(),
-        });
+        if self.broadcast_tx.is_some() {
+            self.publish(Broadcast {
+                topic: format!("td/{}/{}", notification.broker, notification.investor),
+                frame: notification.frame.clone(),
+            });
+        }
         let targets = self.investor_conns(&notification.broker, &notification.investor);
         self.mark_delivered(
             &notification.broker,
@@ -2016,6 +2006,9 @@ impl World {
         investor_id: &str,
         data: Value,
     ) {
+        if self.journal.is_none() {
+            return;
+        }
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         if let Some(j) = self.journal.as_mut() {
@@ -2031,6 +2024,9 @@ impl World {
     }
 
     fn journal_record_order_update(&mut self, day: &str, ms: f64, field: &CThostFtdcOrderField) {
+        if self.journal.is_none() {
+            return;
+        }
         let data = json::obj_sorted(vec![
             ("order_ref".into(), json::s(&cstr(&field.OrderRef))),
             ("order_sys_id".into(), json::s(&cstr(&field.OrderSysID))),
@@ -2069,6 +2065,9 @@ impl World {
         fill: &ctpbuddy_matching::Fill,
         pre_settlement: f64,
     ) {
+        if self.journal.is_none() {
+            return;
+        }
         let data = json::obj_sorted(vec![
             ("trade_id".into(), json::s(&cstr(&fill.trade_id))),
             ("order_sys_id".into(), json::s(&cstr(&fill.order_sys_id))),
@@ -2270,6 +2269,39 @@ mod tests {
         assert!(cfg.supports_broker("B2"));
         assert!(!cfg.supports_broker("B3"));
         assert_eq!(cfg.broker_ids(), vec!["8888", "B2"]);
+    }
+
+    /// Review R1: in hard-fail mode a journal that cannot write stops the
+    /// world loop instead of running on with a ledger ahead of the
+    /// authoritative event stream. (The failed-write state itself is injected
+    /// via the journal's test helper; detecting a real I/O failure is covered
+    /// by the journal's own tests.)
+    #[test]
+    fn journal_hard_fail_stops_the_world_loop() {
+        let mut cfg = Config::default();
+        // separate data dirs: a journal lock admits one writer per directory
+        let dir_a = std::env::temp_dir().join(format!("ctpbuddy-jhard-a-{}", std::process::id()));
+        let dir_b = std::env::temp_dir().join(format!("ctpbuddy-jhard-b-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
+        cfg.data_dir = dir_a.to_str().unwrap().to_string();
+        let mut world = World::new(cfg.clone()).expect("world");
+        world.journal.as_mut().unwrap().simulate_write_failure();
+        world.pulse();
+        assert!(
+            !world.shutdown,
+            "default mode keeps running (failure visible in status only)"
+        );
+        drop(world);
+
+        cfg.journal_hard_fail = true;
+        cfg.data_dir = dir_b.to_str().unwrap().to_string();
+        let mut world = World::new(cfg).expect("world");
+        world.journal.as_mut().unwrap().simulate_write_failure();
+        world.pulse();
+        assert!(world.shutdown, "hard-fail mode must stop the world loop");
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
     }
 
     #[test]

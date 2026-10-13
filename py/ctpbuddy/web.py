@@ -17,6 +17,11 @@ from .sdk import Admin
 from .store import ReadModelMetadata
 from .journal import JournalError
 
+#: Default JSON body cap for POST routes. The settlement-report route is the
+#: one exception and derives its own cap from the report limits below (the
+#: core accepts up to 512 KiB of GBK content per report), so the declared
+#: per-report limit is actually reachable instead of being capped by this
+#: generic bound first.
 MAX_BODY = 8192
 MAX_SCENARIO_NAME = 160
 PLAYBACK_COMMANDS = {"pause", "resume", "step", "set_speed", "loop"}
@@ -225,8 +230,22 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
                 return self.reply(415, {"error": "仅支持 application/json"})
             try:
                 n = int(self.headers["Content-Length"])
-                if not 0 < n <= MAX_BODY:
-                    return self.reply(413, {"error": "请求体超过限制"})
+                limit = MAX_BODY
+                if route == "/api/admin/settlement_report":
+                    # up to MAX_SETTLEMENT_REPORTS reports, each carrying up to
+                    # MAX_SETTLEMENT_CONTENT of GBK content, plus JSON envelope
+                    limit = MAX_SETTLEMENT_REPORTS * (MAX_SETTLEMENT_CONTENT + 4096)
+                if not 0 < n <= limit:
+                    # drain a bounded prefix so a well-behaved client that is
+                    # mid-upload still receives the 413 instead of a reset
+                    remaining = min(n, 64 * 1024 * 1024)
+                    self.connection.settimeout(3)
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(remaining, 65536))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                    return self.reply(413, {"error": "请求体超过限制 %d 字节" % limit})
                 self.connection.settimeout(3)
                 body = self.rfile.read(n)
                 if len(body) != n:

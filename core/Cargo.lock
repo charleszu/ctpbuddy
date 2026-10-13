@@ -111,7 +111,6 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 name = "ctpbuddy-ledger"
 version = "0.1.0"
 dependencies = [
- "ctpbuddy-market",
  "ctpbuddy-matching",
  "ctpbuddy-wire",
  "serde_json",
@@ -143,7 +142,6 @@ dependencies = [
  "ctpbuddy-matching",
  "ctpbuddy-wire",
  "futures",
- "libloading",
  "serde",
  "serde_json",
  "tokio",
@@ -313,16 +311,6 @@ name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
-
-[[package]]
-name = "libloading"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
-dependencies = [
- "cfg-if",
- "windows-link",
-]
 
 [[package]]
 name = "linux-raw-sys"

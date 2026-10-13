@@ -27,7 +27,7 @@ impl Frame {
         }
     }
 
-    pub fn encoded_len(&self) -> usize {
+    fn encoded_len(&self) -> usize {
         HEADER_LEN + self.payload.len()
     }
 

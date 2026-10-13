@@ -8,7 +8,7 @@
 //! the *shape* and reads whatever the user supplies (see [`crate::refdata`]
 //! and the Python provider protocol `py/ctpbuddy/refdata`).
 //!
-//! [`Catalog::bundled`] exists so a bare `ctpbuddy up` with no data at all
+//! [`RefData::bundled`] exists so a bare `ctpbuddy up` with no data at all
 //! still has something tradable: real contracts, no invented fees (see its
 //! doc comment). A scenario that cares supplies `instruments.jsonl` + rate
 //! tables, and those take precedence.
@@ -21,6 +21,10 @@
 //! [`RefData`], and [`crate::refdata::RefData::margin`] prefers the company
 //! rate, falling back to the exchange one only so an unpriced desk still
 //! behaves sanely.
+//!
+//! `Catalog` is the vocabulary the rest of the core (and `DESIGN.md` §6.4)
+//! uses for [`RefData`]; the catalog-named accessors below are added directly
+//! to it instead of routing through a forwarding wrapper struct.
 
 use std::collections::HashMap;
 
@@ -30,201 +34,41 @@ pub use crate::refdata::{
     MPT_OPEN_PRICE, MPT_PRE_SETTLEMENT, MPT_SETTLEMENT,
 };
 
-use crate::Direction;
+/// The contract directory, under the name the core uses for it.
+pub use crate::refdata::RefData as Catalog;
 
-/// Contract directory + rate tables.
-///
-/// A thin name over [`RefData`] kept because "catalog" is the word the rest of
-/// the core (and `DESIGN.md` §6.4) already uses for the contract directory.
-#[derive(Clone, Debug, Default)]
-pub struct Catalog {
-    inner: RefData,
-}
-
-impl Catalog {
-    pub fn new() -> Self {
-        Catalog {
-            inner: RefData::new(),
-        }
-    }
-
-    /// Build from a provider-supplied dataset.
-    pub fn from_refdata(rd: RefData) -> Self {
-        Catalog { inner: rd }
-    }
-
+impl RefData {
     /// Load a canonical JSONL directory written by a ref-data provider
     /// (`ctpbuddy refdata export`, or any provider writing the same five
     /// files). See [`RefData::load_jsonl_dir`].
     pub fn load_refdata_dir(dir: &str) -> Result<Self, String> {
-        RefData::load_jsonl_dir(dir).map(Catalog::from_refdata)
+        Self::load_jsonl_dir(dir)
     }
-
-    pub fn refdata(&self) -> &RefData {
-        &self.inner
-    }
-
-    pub fn refdata_mut(&mut self) -> &mut RefData {
-        &mut self.inner
-    }
-
-    // ---- accessors used across the core ----
 
     pub fn get(&self, instrument_id: &str) -> Option<&Instrument> {
-        self.inner.instrument(instrument_id)
+        self.instrument(instrument_id)
     }
 
     pub fn insert(&mut self, info: Instrument) {
-        self.inner.insert_instrument(info);
-    }
-
-    pub fn len(&self) -> usize {
-        self.inner.instrument_count()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.inner.instrument_count() == 0
+        self.insert_instrument(info)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Instrument> {
-        self.inner.instruments()
-    }
-
-    /// 公司保证金率 — the row `ReqQryInstrumentMarginRate` returns.
-    pub fn margin_rate(&self, instrument_id: &str) -> Option<&MarginRate> {
-        self.inner.margin_rate(instrument_id)
-    }
-
-    pub fn margin_rate_for(&self, broker_id: &str, instrument_id: &str) -> Option<&MarginRate> {
-        self.inner.margin_rate_for(broker_id, instrument_id)
-    }
-
-    /// 手续费率 — the row `ReqQryInstrumentCommissionRate` returns.
-    pub fn commission_rate(&self, instrument_id: &str) -> Option<&CommissionRate> {
-        self.inner.commission_rate(instrument_id)
-    }
-
-    pub fn commission_rate_for(
-        &self,
-        broker_id: &str,
-        instrument_id: &str,
-    ) -> Option<&CommissionRate> {
-        self.inner.commission_rate_for(broker_id, instrument_id)
-    }
-
-    /// 报单/撤单费 — `ReqQryInstrumentOrderCommRate` (申报费).
-    pub fn order_comm_rate(&self, instrument_id: &str) -> Option<&OrderCommRate> {
-        self.inner.order_comm_rate(instrument_id)
-    }
-
-    pub fn order_comm_rate_for(
-        &self,
-        broker_id: &str,
-        instrument_id: &str,
-    ) -> Option<&OrderCommRate> {
-        self.inner.order_comm_rate_for(broker_id, instrument_id)
-    }
-
-    // ---- rate-table writers (fixtures, tests, admin-driven refits) ----
-
-    pub fn insert_margin_rate(&mut self, r: MarginRate) {
-        self.inner.insert_margin_rate(r);
-    }
-
-    pub fn insert_commission_rate(&mut self, r: CommissionRate) {
-        self.inner.insert_commission_rate(r);
-    }
-
-    pub fn insert_order_comm_rate(&mut self, r: OrderCommRate) {
-        self.inner.insert_order_comm_rate(r);
-    }
-
-    pub fn insert_cross_margin_rule(&mut self, rule: CrossMarginRule) -> Result<(), String> {
-        self.inner.insert_cross_margin_rule(rule)
-    }
-
-    pub fn cross_margin_rules_for(&self, broker_id: &str) -> Vec<&CrossMarginRule> {
-        self.inner.cross_margin_rules_for(broker_id)
+        self.instruments()
     }
 
     pub fn set_trading_params(&mut self, p: TradingParams) {
-        self.inner.set_params(p);
+        self.set_params(p)
     }
 
-    // ---- formulas (delegate; the logic lives in `refdata`) ----
-
-    /// 保证金 for `volume` lots, honouring 公司费率 then 交易所费率.
-    pub fn margin(
-        &self,
-        instrument_id: &str,
-        direction: Direction,
-        price: MarginPrice,
-        volume: i32,
-    ) -> f64 {
-        self.inner.margin(instrument_id, direction, price, volume)
-    }
-
-    pub fn margin_for(
-        &self,
-        broker_id: &str,
-        instrument_id: &str,
-        direction: Direction,
-        price: MarginPrice,
-        volume: i32,
-    ) -> f64 {
-        self.inner
-            .margin_for(broker_id, instrument_id, direction, price, volume)
-    }
-
-    /// 手续费 for one fill leg (开仓 / 平昨 / 平今 priced separately).
-    pub fn commission(
-        &self,
-        instrument_id: &str,
-        kind: CommissionKind,
-        price: f64,
-        volume: i32,
-    ) -> f64 {
-        self.inner.commission(instrument_id, kind, price, volume)
-    }
-
-    pub fn commission_for(
-        &self,
-        broker_id: &str,
-        instrument_id: &str,
-        kind: CommissionKind,
-        price: f64,
-        volume: i32,
-    ) -> f64 {
-        self.inner
-            .commission_for(broker_id, instrument_id, kind, price, volume)
-    }
-
-    /// Which price a fill's margin is computed against, per
-    /// `MarginPriceType` (昨仓恒用昨结算价 — notes/04 C2).
-    pub fn margin_price_for(
-        &self,
-        is_today: bool,
-        pre_settlement: f64,
-        fill_price: f64,
-    ) -> MarginPrice {
-        self.inner
-            .margin_price_for(is_today, pre_settlement, fill_price)
+    pub fn trading_params(&self) -> &TradingParams {
+        self.params()
     }
 
     /// Legacy single-rate estimate used when freezing funds at insert time,
     /// before the fill tells us which kind of leg it will be. Prices the whole
     /// order as if it were the more expensive of opening / closing today, so
     /// the freeze is never short and the release path stays symmetric.
-    pub fn estimated_commission(&self, instrument_id: &str, price: f64, volume: i32) -> f64 {
-        let open = self
-            .inner
-            .commission(instrument_id, CommissionKind::Open, price, volume);
-        let close_today =
-            self.inner
-                .commission(instrument_id, CommissionKind::CloseToday, price, volume);
-        open.max(close_today)
-    }
-
     pub fn estimated_commission_for(
         &self,
         broker_id: &str,
@@ -232,14 +76,14 @@ impl Catalog {
         price: f64,
         volume: i32,
     ) -> f64 {
-        let open = self.inner.commission_for(
+        let open = self.commission_for(
             broker_id,
             instrument_id,
             CommissionKind::Open,
             price,
             volume,
         );
-        let close_today = self.inner.commission_for(
+        let close_today = self.commission_for(
             broker_id,
             instrument_id,
             CommissionKind::CloseToday,
@@ -248,12 +92,6 @@ impl Catalog {
         );
         open.max(close_today)
     }
-
-    pub fn trading_params(&self) -> &TradingParams {
-        self.inner.params()
-    }
-
-    // ---- fixtures ----
 
     /// Contracts + margin rates shipped with CTPBuddy, used when the operator
     /// supplies no `--refdata`.
@@ -274,9 +112,9 @@ impl Catalog {
     /// are now real codes in this file (`m2_ioc.py` lists them), which is why
     /// the three exchange groups remain provable.
     pub fn bundled() -> Self {
-        Catalog::load_refdata_dir(bundled_refdata_dir()).unwrap_or_else(|e| {
+        Self::load_refdata_dir(bundled_refdata_dir()).unwrap_or_else(|e| {
             eprintln!("[ctpbuddy] bundled ref data unusable ({e}); starting with no contracts");
-            Catalog::new()
+            Self::new()
         })
     }
 }

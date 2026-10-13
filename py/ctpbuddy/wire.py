@@ -134,9 +134,3 @@ def _read_exact(sock: socket.socket, n: int) -> Optional[bytes]:
     return bytes(buf)
 
 
-def iter_frames(sock: socket.socket) -> Iterator[Frame]:
-    while True:
-        f = Frame.decode_from(sock)
-        if f is None:
-            return
-        yield f

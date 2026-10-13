@@ -23,11 +23,13 @@
 #include <fstream>
 #include <string_view>
 
+// after api_core.hpp, which orders winsock2 before windows.h on Win32
+#include <zmq.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
 #ifndef _WIN32
-#include <dlfcn.h>
 #include <iconv.h>
 #endif
 
@@ -35,113 +37,13 @@ namespace ctpbuddy {
 
 namespace {
 
-// libzmq is intentionally loaded at runtime. The shim remains drop-in
-// deployable on hosts that only use TCP, while a host opting into zmq:// only
-// needs libzmq at runtime. All socket calls stay on the reader thread.
-constexpr int ZMQ_SUB = 2;
-constexpr int ZMQ_DEALER = 5;
-constexpr int ZMQ_DONTWAIT = 1;
-constexpr int ZMQ_SNDHWM = 23;
-constexpr int ZMQ_RCVHWM = 24;
-constexpr int ZMQ_LINGER = 17;
-constexpr int ZMQ_SUBSCRIBE = 6;
-constexpr int ZMQ_CURVE_SERVERKEY = 50;
-constexpr int ZMQ_CURVE_PUBLICKEY = 48;
-constexpr int ZMQ_CURVE_SECRETKEY = 49;
-constexpr int ZMQ_RCVMORE = 13;
-constexpr short ZMQ_POLLIN = 1;
-
-struct ZmqPollItem {
-    void* socket;
-#ifdef _WIN32
-    SOCKET fd;
-#else
-    int fd;
-#endif
-    short events;
-    short revents;
-};
-
-struct ZmqLibrary {
-    using CtxNew = void* (*)();
-    using CtxTerm = int (*)(void*);
-    using Socket = void* (*)(void*, int);
-    using Close = int (*)(void*);
-    using Connect = int (*)(void*, const char*);
-    using Send = int (*)(void*, const void*, size_t, int);
-    using Recv = int (*)(void*, void*, size_t, int);
-    using SetSockOpt = int (*)(void*, int, const void*, size_t);
-    using GetSockOpt = int (*)(void*, int, void*, size_t*);
-    using Poll = int (*)(ZmqPollItem*, int, long);
-
-    void* handle = nullptr;
-    CtxNew ctx_new = nullptr;
-    CtxTerm ctx_term = nullptr;
-    Socket socket = nullptr;
-    Close close = nullptr;
-    Connect connect = nullptr;
-    Send send = nullptr;
-    Recv recv = nullptr;
-    SetSockOpt setsockopt = nullptr;
-    GetSockOpt getsockopt = nullptr;
-    Poll poll = nullptr;
-
-    bool load() {
-        if (handle) return true;
-#ifdef _WIN32
-        const char* configured = std::getenv("CTPBUDDY_ZMQ_LIBRARY");
-        const char* names[] = {configured && *configured ? configured : "libzmq.dll", "zmq.dll", nullptr};
-        for (const char** p = names; *p && !handle; ++p) {
-            handle = static_cast<void*>(LoadLibraryA(*p));
-        }
-        auto symbol = [this](const char* name) -> void* {
-            return handle ? reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name)) : nullptr;
-        };
-#else
-        const char* configured = std::getenv("CTPBUDDY_ZMQ_LIBRARY");
-        const char* names[] = {configured && *configured ? configured : "libzmq.so.5", "libzmq.so", nullptr};
-        for (const char** p = names; *p && !handle; ++p) handle = dlopen(*p, RTLD_NOW | RTLD_LOCAL);
-        auto symbol = [this](const char* name) -> void* { return handle ? dlsym(handle, name) : nullptr; };
-#endif
-        if (!handle) return false;
-#define ZMQ_LOAD(name) name = reinterpret_cast<decltype(name)>(symbol("zmq_" #name))
-        ZMQ_LOAD(ctx_new);
-        ZMQ_LOAD(ctx_term);
-        ZMQ_LOAD(socket);
-        ZMQ_LOAD(close);
-        ZMQ_LOAD(connect);
-        ZMQ_LOAD(send);
-        ZMQ_LOAD(recv);
-        ZMQ_LOAD(setsockopt);
-        ZMQ_LOAD(getsockopt);
-        ZMQ_LOAD(poll);
-#undef ZMQ_LOAD
-        return ctx_new && ctx_term && socket && close && connect && send && recv && setsockopt && getsockopt && poll;
-    }
-};
-
-ZmqLibrary& zmq_library() {
-    static ZmqLibrary library;
-    return library;
-}
+// libzmq is compiled from a pinned source into a STATIC library with the same
+// toolchain and CURVE disabled (ADR-0002), so each shim DLL keeps the vendor
+// shape: one self-contained thost*_se.dll, no runtime libzmq dependency, no
+// curve surface. All socket calls stay on the reader thread.
 
 bool starts_with(const std::string& value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix.data(), prefix.size()) == 0;
-}
-
-bool apply_curve_options(ZmqLibrary& z, void* socket) {
-    const char* server = std::getenv("CTPBUDDY_ZMQ_CURVE_SERVER_KEY");
-    const char* pub = std::getenv("CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY");
-    const char* secret = std::getenv("CTPBUDDY_ZMQ_CURVE_SECRET_KEY");
-    const bool any = (server && *server) || (pub && *pub) || (secret && *secret);
-    if (!any) return true;
-    if (!server || !pub || !secret || std::strlen(server) != 40 || std::strlen(pub) != 40 ||
-        std::strlen(secret) != 40) {
-        return false;
-    }
-    return z.setsockopt(socket, ZMQ_CURVE_SERVERKEY, server, 40) == 0 &&
-           z.setsockopt(socket, ZMQ_CURVE_PUBLICKEY, pub, 40) == 0 &&
-           z.setsockopt(socket, ZMQ_CURVE_SECRETKEY, secret, 40) == 0;
 }
 
 std::string trim_ascii(std::string value) {
@@ -242,6 +144,43 @@ int ftd_freq_env() {
     return v && *v ? (std::max)(0, std::atoi(v)) : 0;
 }
 const int kFtdPkgFreq = ftd_freq_env();
+
+// ZeroMQ outbound queue capacity for DATA frames. A full queue refuses new
+// requests locally (-2, vendor "too many pending") instead of dropping the
+// oldest frame -- a dropped request's pending entry would never complete and
+// a dropped query would wedge qry_in_flight_ forever.
+int zmq_send_queue_cap_env() {
+    const char* v = std::getenv("CTPBUDDY_SHIM_ZMQ_SEND_QUEUE");
+    if (v && *v) {
+        int n = std::atoi(v);
+        if (n > 0) return n;
+        std::fprintf(stderr, "[ctpbuddy] invalid CTPBUDDY_SHIM_ZMQ_SEND_QUEUE=%s, using 1024\n", v);
+    }
+    return 1024;
+}
+const int kZmqSendQueueCap = zmq_send_queue_cap_env();
+
+// Heartbeat (DESIGN §5.5 "never silent"): send PING after `idle` seconds
+// without any frame, declare the link dead after `deadline` seconds. 0 in
+// either disables the heartbeat (legacy block-forever behavior).
+int ping_idle_env() {
+    const char* v = std::getenv("CTPBUDDY_SHIM_PING_IDLE_SEC");
+    if (v && *v) {
+        int n = std::atoi(v);
+        if (n >= 0) return n;
+    }
+    return 5;
+}
+const int kPingIdleSec = ping_idle_env();
+int pong_deadline_env() {
+    const char* v = std::getenv("CTPBUDDY_SHIM_PONG_DEADLINE_SEC");
+    if (v && *v) {
+        int n = std::atoi(v);
+        if (n >= 0) return n;
+    }
+    return 15;
+}
+const int kPongDeadlineSec = pong_deadline_env();
 
 }  // namespace
 
@@ -454,28 +393,22 @@ bool ApiCore::connect_front() {
         if (*over) parse_address(over, kind, host, port, endpoint);
     }
     if (kind == TransportKind::Zmq) {
-        auto& z = zmq_library();
-        if (!z.load() || endpoint.empty()) return false;
-        void* ctx = z.ctx_new();
+        if (endpoint.empty()) return false;
+        void* ctx = zmq_ctx_new();
         if (!ctx) return false;
-        void* dealer = z.socket(ctx, ZMQ_DEALER);
+        void* dealer = zmq_socket(ctx, ZMQ_DEALER);
         if (!dealer) {
-            z.ctx_term(ctx);
+            zmq_ctx_term(ctx);
             return false;
         }
         const int zero = 0;
         const int hwm = 1000;
-        if (!apply_curve_options(z, dealer)) {
-            z.close(dealer);
-            z.ctx_term(ctx);
-            return false;
-        }
-        z.setsockopt(dealer, ZMQ_LINGER, &zero, sizeof(zero));
-        z.setsockopt(dealer, ZMQ_SNDHWM, &hwm, sizeof(hwm));
-        z.setsockopt(dealer, ZMQ_RCVHWM, &hwm, sizeof(hwm));
-        if (z.connect(dealer, endpoint.c_str()) != 0) {
-            z.close(dealer);
-            z.ctx_term(ctx);
+        zmq_setsockopt(dealer, ZMQ_LINGER, &zero, sizeof(zero));
+        zmq_setsockopt(dealer, ZMQ_SNDHWM, &hwm, sizeof(hwm));
+        zmq_setsockopt(dealer, ZMQ_RCVHWM, &hwm, sizeof(hwm));
+        if (zmq_connect(dealer, endpoint.c_str()) != 0) {
+            zmq_close(dealer);
+            zmq_ctx_term(ctx);
             return false;
         }
 
@@ -487,26 +420,18 @@ bool ApiCore::connect_front() {
                 if (!starts_with(pub_endpoint, "tcp://") && !starts_with(pub_endpoint, "ipc://")) {
                     pub_endpoint = "tcp://" + pub_endpoint;
                 }
-                sub = z.socket(ctx, ZMQ_SUB);
+                sub = zmq_socket(ctx, ZMQ_SUB);
                 if (sub) {
-                    if (!apply_curve_options(z, sub)) {
-                        z.close(sub);
-                        z.close(dealer);
-                        z.ctx_term(ctx);
-                        return false;
-                    }
-                }
-                if (sub) {
-                    z.setsockopt(sub, ZMQ_LINGER, &zero, sizeof(zero));
-                    z.setsockopt(sub, ZMQ_RCVHWM, &hwm, sizeof(hwm));
+                    zmq_setsockopt(sub, ZMQ_LINGER, &zero, sizeof(zero));
+                    zmq_setsockopt(sub, ZMQ_RCVHWM, &hwm, sizeof(hwm));
                     const char md[] = "md/";
                     const char td[] = "td/";
                     const char sys[] = "sys/";
-                    z.setsockopt(sub, ZMQ_SUBSCRIBE, md, sizeof(md) - 1);
-                    z.setsockopt(sub, ZMQ_SUBSCRIBE, td, sizeof(td) - 1);
-                    z.setsockopt(sub, ZMQ_SUBSCRIBE, sys, sizeof(sys) - 1);
-                    if (z.connect(sub, pub_endpoint.c_str()) != 0) {
-                        z.close(sub);
+                    zmq_setsockopt(sub, ZMQ_SUBSCRIBE, md, sizeof(md) - 1);
+                    zmq_setsockopt(sub, ZMQ_SUBSCRIBE, td, sizeof(td) - 1);
+                    zmq_setsockopt(sub, ZMQ_SUBSCRIBE, sys, sizeof(sys) - 1);
+                    if (zmq_connect(sub, pub_endpoint.c_str()) != 0) {
+                        zmq_close(sub);
                         sub = nullptr;
                     }
                 }
@@ -568,7 +493,6 @@ bool ApiCore::connected_locked() const {
 }
 
 void ApiCore::flush_zmq_outbound() {
-    auto& z = zmq_library();
     std::deque<std::vector<uint8_t>> pending;
     void* dealer = nullptr;
     {
@@ -580,7 +504,7 @@ void ApiCore::flush_zmq_outbound() {
     while (!pending.empty()) {
         std::vector<uint8_t> bytes = std::move(pending.front());
         pending.pop_front();
-        int rc = z.send(dealer, bytes.data(), bytes.size(), ZMQ_DONTWAIT);
+        int rc = zmq_send(dealer, bytes.data(), bytes.size(), ZMQ_DONTWAIT);
         if (rc < 0) {
             // EAGAIN means the peer's HWM is full. Preserve ordering and try
             // again on the next poll tick; a hard error ends the connection.
@@ -599,27 +523,38 @@ void ApiCore::flush_zmq_outbound() {
 
 namespace {
 
+// Decode the 13-byte CB frame header (magic/version/length validated) into
+// `out`'s header fields; the payload is left to the caller. `payload_len`
+// doubles as the length field's value.
+bool decode_frame_header(const uint8_t* h, Frame& out, uint32_t& payload_len) {
+    if (h[0] != 0x43 || h[1] != 0x42 || h[2] != WIRE_VERSION) return false;
+    out.msg_type = static_cast<uint16_t>(h[3] | (h[4] << 8));
+    out.req_id = static_cast<uint32_t>(h[5]) | (static_cast<uint32_t>(h[6]) << 8) |
+                 (static_cast<uint32_t>(h[7]) << 16) | (static_cast<uint32_t>(h[8]) << 24);
+    payload_len = static_cast<uint32_t>(h[9]) | (static_cast<uint32_t>(h[10]) << 8) |
+                  (static_cast<uint32_t>(h[11]) << 16) | (static_cast<uint32_t>(h[12]) << 24);
+    return payload_len <= WIRE_MAX_PAYLOAD;
+}
+
 bool decode_frame_bytes(const uint8_t* bytes, size_t len, Frame& out) {
-    if (len < WIRE_HEADER_LEN || bytes[0] != 0x43 || bytes[1] != 0x42 || bytes[2] != WIRE_VERSION) return false;
-    uint32_t payload_len = static_cast<uint32_t>(bytes[9]) | (static_cast<uint32_t>(bytes[10]) << 8) |
-                           (static_cast<uint32_t>(bytes[11]) << 16) | (static_cast<uint32_t>(bytes[12]) << 24);
-    if (payload_len > WIRE_MAX_PAYLOAD || payload_len + WIRE_HEADER_LEN != len) return false;
-    out.msg_type = static_cast<uint16_t>(bytes[3] | (bytes[4] << 8));
-    out.req_id = static_cast<uint32_t>(bytes[5]) | (static_cast<uint32_t>(bytes[6]) << 8) |
-                 (static_cast<uint32_t>(bytes[7]) << 16) | (static_cast<uint32_t>(bytes[8]) << 24);
+    uint32_t payload_len = 0;
+    if (len < WIRE_HEADER_LEN || !decode_frame_header(bytes, out, payload_len) ||
+        payload_len + WIRE_HEADER_LEN != len) {
+        return false;
+    }
     out.payload.assign(bytes + WIRE_HEADER_LEN, bytes + len);
     return true;
 }
 
-bool zmq_more(ZmqLibrary& z, void* socket) {
+bool zmq_more(void* socket) {
     int more = 0;
     size_t size = sizeof(more);
-    return z.getsockopt(socket, ZMQ_RCVMORE, &more, &size) == 0 && more != 0;
+    return zmq_getsockopt(socket, ZMQ_RCVMORE, &more, &size) == 0 && more != 0;
 }
 
-bool zmq_recv_part(ZmqLibrary& z, void* socket, std::vector<uint8_t>& out) {
+bool zmq_recv_part(void* socket, std::vector<uint8_t>& out) {
     out.resize(WIRE_MAX_PAYLOAD + WIRE_HEADER_LEN + 256);
-    int rc = z.recv(socket, out.data(), out.size(), 0);
+    int rc = zmq_recv(socket, out.data(), out.size(), 0);
     if (rc < 0) return false;
     out.resize(static_cast<size_t>(rc));
     return true;
@@ -628,7 +563,9 @@ bool zmq_recv_part(ZmqLibrary& z, void* socket, std::vector<uint8_t>& out) {
 }  // namespace
 
 bool ApiCore::read_zmq_frame(Frame& out) {
-    auto& z = zmq_library();
+    // Reader-thread-private receive buffers, reused across iterations: a
+    // fresh ~1MB allocation per part (idle heartbeats included) was pure churn.
+    std::vector<uint8_t> first, frame, ignored;
     while (!stopped_.load()) {
         flush_zmq_outbound();
         drain_auth_errors();
@@ -641,7 +578,7 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             dealer = zmq_dealer_;
             sub = zmq_sub_;
         }
-        ZmqPollItem items[2]{};
+        zmq_pollitem_t items[2]{};
         items[0].socket = dealer;
         items[0].events = ZMQ_POLLIN;
         int count = 1;
@@ -650,9 +587,12 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             items[1].events = ZMQ_POLLIN;
             count = 2;
         }
-        int ready = z.poll(items, count, 100);
+        int ready = zmq_poll(items, count, 100);
         if (ready < 0) return false;
-        if (ready == 0) continue;
+        if (ready == 0) {
+            if (!heartbeat_tick()) return false;
+            continue;
+        }
         void* selected = nullptr;
         bool is_sub = false;
         if ((items[0].revents & ZMQ_POLLIN) != 0) selected = dealer;
@@ -661,15 +601,12 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             is_sub = true;
         }
         if (!selected) continue;
-        std::vector<uint8_t> first;
-        if (!zmq_recv_part(z, selected, first)) return false;
+        if (!zmq_recv_part(selected, first)) return false;
         if (is_sub) {
-            if (!zmq_more(z, selected)) continue;
-            std::vector<uint8_t> frame;
-            if (!zmq_recv_part(z, selected, frame)) return false;
-            while (zmq_more(z, selected)) {
-                std::vector<uint8_t> ignored;
-                if (!zmq_recv_part(z, selected, ignored)) return false;
+            if (!zmq_more(selected)) continue;
+            if (!zmq_recv_part(selected, frame)) return false;
+            while (zmq_more(selected)) {
+                if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(frame.data(), frame.size(), out)) {
                 // The core already delivers subscribed MD and private CTP
@@ -681,9 +618,8 @@ bool ApiCore::read_zmq_frame(Frame& out) {
                 return true;
             }
         } else {
-            while (zmq_more(z, selected)) {
-                std::vector<uint8_t> ignored;
-                if (!zmq_recv_part(z, selected, ignored)) return false;
+            while (zmq_more(selected)) {
+                if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(first.data(), first.size(), out)) return true;
         }
@@ -702,7 +638,10 @@ bool ApiCore::read_exact(uint8_t* buf, size_t n) {
         if (s == INVALID_SOCKET) return false;
         drain_auth_errors();
         int ready = wait_readable(s, 100);
-        if (ready == 0) continue;
+        if (ready == 0) {
+            if (!heartbeat_tick()) return false;
+            continue;
+        }
         if (ready < 0) return false;
         int r = static_cast<int>(recv(s, reinterpret_cast<char*>(buf + got), static_cast<int>(n - got), 0));
         if (r > 0) {
@@ -719,7 +658,6 @@ bool ApiCore::read_exact(uint8_t* buf, size_t n) {
 void ApiCore::close_socket_locked() {
     // caller holds mu_ OR we are single-threaded (dtor path)
     if (transport_kind_ == TransportKind::Zmq) {
-        auto& z = zmq_library();
         // libzmq sockets are thread-affine. Release() may call this method on
         // the app thread; the reader observes stopped_ and performs the close
         // on its own thread before it joins.
@@ -727,9 +665,9 @@ void ApiCore::close_socket_locked() {
             transport_connected_ = false;
             return;
         }
-        if (zmq_sub_) z.close(zmq_sub_);
-        if (zmq_dealer_) z.close(zmq_dealer_);
-        if (zmq_context_) z.ctx_term(zmq_context_);
+        if (zmq_sub_) zmq_close(zmq_sub_);
+        if (zmq_dealer_) zmq_close(zmq_dealer_);
+        if (zmq_context_) zmq_ctx_term(zmq_context_);
         zmq_sub_ = nullptr;
         zmq_dealer_ = nullptr;
         zmq_context_ = nullptr;
@@ -743,17 +681,17 @@ void ApiCore::close_socket_locked() {
     }
 }
 
-void ApiCore::write_frame_locked(const Frame& f) {
+bool ApiCore::write_frame_locked(const Frame& f, bool control) {
     // caller holds mu_; the ZMQ socket is owned by the reader thread, so app
     // threads enqueue bytes and the reader flushes them before polling.
     if (transport_kind_ == TransportKind::Zmq) {
-        if (!transport_connected_ || !zmq_dealer_) return;
-        if (zmq_outbound_.size() >= 1024) zmq_outbound_.pop_front();
+        if (!transport_connected_ || !zmq_dealer_) return true;
+        if (!control && zmq_outbound_.size() >= static_cast<size_t>(kZmqSendQueueCap)) return false;
         zmq_outbound_.push_back(f.encode());
-        return;
+        return true;
     }
     // caller holds mu_; sock_ may be invalid while connecting -- drop.
-    if (sock_ == INVALID_SOCKET) return;
+    if (sock_ == INVALID_SOCKET) return true;
     std::vector<uint8_t> bytes = f.encode();
     size_t sent = 0;
     while (sent < bytes.size()) {
@@ -773,11 +711,16 @@ void ApiCore::write_frame_locked(const Frame& f) {
         if (error_is_interrupt(last_socket_error())) continue;
         break;  // reader thread will notice the dead socket
     }
+    return true;
 }
 
 namespace {
 
 std::string json_string(const char* value, size_t size) {
+    // Escapes everything outside printable ASCII so the hand-built AUTH
+    // payload is always valid JSON: a raw GBK byte in AuthCode/AppID would
+    // make the core's parser drop the frame and the auth would never be
+    // answered (a hang, not a failure).
     std::string out;
     out.push_back('"');
     for (size_t i = 0; i < size && value[i] != 0; ++i) {
@@ -785,7 +728,7 @@ std::string json_string(const char* value, size_t size) {
         if (ch == '\\' || ch == '"') {
             out.push_back('\\');
             out.push_back(static_cast<char>(ch));
-        } else if (ch < 0x20) {
+        } else if (ch < 0x20 || ch > 0x7F) {
             const char hex[] = "0123456789abcdef";
             out += "\\u00";
             out.push_back(hex[ch >> 4]);
@@ -805,20 +748,30 @@ std::string ApiCore::private_resume_json() const {
     return ",\"private_resume\":" + std::to_string(private_resume_);
 }
 
-void ApiCore::send_auth_locked(const char* broker, const char* user) {
-    // caller holds mu_; this is the legacy automatic handshake.
+// caller holds mu_; both auth entry points funnel their shared state here.
+void ApiCore::begin_auth_locked(uint16_t req_id, const std::string& broker, const std::string& user) {
     auth_in_flight_ = true;
-    bound_auth_broker_ = cstr_of(broker, 11);
-    bound_auth_user_ = cstr_of(user, 16);
+    auth_wire_req_id_ = req_id;
+    bound_auth_broker_ = broker;
+    bound_auth_user_ = user;
+}
+
+// Common leading fields of the AUTH JSON body.
+static std::string auth_json_head(const std::string& broker, const std::string& user) {
+    return "{\"broker_id\":" + json_string(broker.c_str(), broker.size()) +
+           ",\"user_id\":" + json_string(user.c_str(), user.size());
+}
+
+void ApiCore::send_auth_locked(const std::string& broker, const std::string& user) {
+    // caller holds mu_; this is the legacy automatic handshake.
     Frame f;
     f.msg_type = msgs::AUTH;
     f.req_id = next_req_id_++;
-    auth_wire_req_id_ = f.req_id;
-    std::string body = "{\"broker_id\":" + json_string(broker, 11) +
-                       ",\"user_id\":" + json_string(user, 16) +
+    begin_auth_locked(f.req_id, broker, user);
+    std::string body = auth_json_head(broker, user) +
                        ",\"app_id\":\"ctpbuddy-shim\"" + private_resume_json() + "}";
     f.payload.assign(body.begin(), body.end());
-    write_frame_locked(f);
+    write_frame_locked(f, /*control=*/true);
 }
 
 int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_request_id) {
@@ -849,8 +802,8 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
                 Frame f;
                 f.msg_type = msgs::AUTH;
                 f.req_id = next_req_id_++;
-                std::string body = "{\"broker_id\":" + json_string(req->BrokerID, sizeof(req->BrokerID)) +
-                                   ",\"user_id\":" + json_string(req->UserID, sizeof(req->UserID)) +
+                begin_auth_locked(f.req_id, broker, user);
+                std::string body = auth_json_head(broker, user) +
                                    ",\"auth_code\":" + json_string(req->AuthCode, sizeof(req->AuthCode)) +
                                    ",\"app_id\":" + json_string(req->AppID, sizeof(req->AppID)) +
                                    private_resume_json() + "}";
@@ -866,11 +819,9 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
                          cstr_of(req->UserProductInfo, sizeof(req->UserProductInfo)));
                 // AppType 未建模：没有配置，不编造官方枚举值，保留零初始化。
                 pending_[f.req_id] = pd;
-                auth_in_flight_ = true;
-                auth_wire_req_id_ = f.req_id;
-                bound_auth_broker_ = broker;
-                bound_auth_user_ = user;
-                write_frame_locked(f);
+                // AUTH is a control frame: a full data queue must not wedge
+                // the handshake itself (review follow-up to the queue cap).
+                write_frame_locked(f, /*control=*/true);
             }
         }
     }
@@ -922,9 +873,10 @@ void ApiCore::reader_main() {
         {
             std::lock_guard<std::mutex> g(mu_);
             authed_ = false;
-            if (!auth_user_.empty()) send_auth_locked(auth_broker_.c_str(), auth_user_.c_str());
+            if (!auth_user_.empty()) send_auth_locked(auth_broker_, auth_user_);
         }
         fire_front_connected();
+        touch_rx();  // the link is fresh: start the heartbeat clock now
 
         bool alive = true;
         while (!stopped_.load()) {
@@ -941,17 +893,8 @@ void ApiCore::reader_main() {
                 }
             } else {
                 uint8_t header[WIRE_HEADER_LEN];
-                if (!read_exact(header, WIRE_HEADER_LEN) || header[0] != 0x43 || header[1] != 0x42 ||
-                    header[2] != WIRE_VERSION) {
-                    alive = false;
-                    break;
-                }
-                f.msg_type = static_cast<uint16_t>(header[3] | (header[4] << 8));
-                f.req_id = static_cast<uint32_t>(header[5]) | (static_cast<uint32_t>(header[6]) << 8) |
-                           (static_cast<uint32_t>(header[7]) << 16) | (static_cast<uint32_t>(header[8]) << 24);
-                uint32_t len = static_cast<uint32_t>(header[9]) | (static_cast<uint32_t>(header[10]) << 8) |
-                               (static_cast<uint32_t>(header[11]) << 16) | (static_cast<uint32_t>(header[12]) << 24);
-                if (len > WIRE_MAX_PAYLOAD) {
+                uint32_t len = 0;
+                if (!read_exact(header, WIRE_HEADER_LEN) || !decode_frame_header(header, f, len)) {
                     alive = false;
                     break;
                 }
@@ -961,10 +904,12 @@ void ApiCore::reader_main() {
                     break;
                 }
             }
+            touch_rx();  // any complete frame (PONG included) proves liveness
             on_frame(f);
         }
         Pending auth_pd;
         Pending login_pd;
+        std::vector<Pending> orphaned;
         {
             std::lock_guard<std::mutex> g(mu_);
             close_socket_locked();
@@ -976,6 +921,12 @@ void ApiCore::reader_main() {
             has_stashed_login_ = false;
             // an in-flight query can no longer complete on this socket
             qry_in_flight_ = false;
+            // Every other pending request is completed with an error too: a
+            // request whose answer was in flight when the link died must not
+            // leave the app waiting forever (the review's silent-hang class).
+            orphaned.reserve(pending_.size());
+            for (auto& entry : pending_) orphaned.push_back(std::move(entry.second));
+            pending_.clear();
         }
         if (!stopped_.load()) {
             drain_auth_errors();
@@ -986,6 +937,14 @@ void ApiCore::reader_main() {
             if (auth_pd.req_msg == msgs::AUTH) on_authenticate_rsp(nullptr, rsp, auth_pd.n_request_id);
             if (login_pd.req_msg != 0) on_auth_failed(login_pd.n_request_id, rsp);
             fire_front_disconnected(0x1001);
+            for (const Pending& pd : orphaned) {
+                CThostFtdcRspInfoField net_rsp{};
+                net_rsp.ErrorID = -1;
+                set_text(net_rsp.ErrorMsg, sizeof(net_rsp.ErrorMsg), "CTPBuddy: connection lost");
+                const DispatchRow* row = pd.req_msg != 0 ? find_row_by_req(pd.req_msg) : nullptr;
+                if (row && row->err) row->err(*this, net_rsp, pd.n_request_id, pd);
+                else on_rsp_error_fallback(net_rsp, pd.n_request_id);
+            }
         }
         sleep_chunks(1.0);  // reconnect backoff
     }
@@ -1024,8 +983,68 @@ void ApiCore::on_frame(const Frame& f) {
             break;
     }
     const DispatchRow* row = find_row(f.msg_type);
-    if (row && row->fn) row->fn(*this, f);
+    if (row && row->fn) {
+        // A non-empty payload that does not match the row's struct is a
+        // protocol shape error (version skew, corrupt frame): complete the
+        // request with an explicit error instead of a fake "success + NULL"
+        // the app would dereference. Empty payloads stay legal (the
+        // "no data" success surface, e.g. empty ack frames).
+        if (row->payload_size != 0 && f.payload.size() != 0 &&
+            f.payload.size() != row->payload_size) {
+            on_payload_mismatch(f, row);
+            return;
+        }
+        row->fn(*this, f);
+    }
     // otherwise: protocol noise from a future core version -- ignore.
+}
+
+void ApiCore::on_payload_mismatch(const Frame& f, const DispatchRow* row) {
+    char text[96];
+    std::snprintf(text, sizeof(text),
+                  "CTPBuddy: payload size mismatch on 0x%04x (got %llu, expected %llu)",
+                  static_cast<unsigned>(f.msg_type),
+                  static_cast<unsigned long long>(f.payload.size()),
+                  static_cast<unsigned long long>(row->payload_size));
+    CThostFtdcRspInfoField rsp{};
+    rsp.ErrorID = -1;
+    set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), text);
+    Pending pd;
+    const DispatchRow* req_row = nullptr;
+    {
+        std::lock_guard<std::mutex> g(mu_);
+        pd = take_pending(f.req_id);
+        if (pd.req_msg != 0) req_row = find_row_by_req(pd.req_msg);
+        if (pd.req_msg != 0 && is_query_msg(pd.req_msg)) qry_in_flight_ = false;
+    }
+    if (pd.req_msg != 0) {
+        if (req_row && req_row->err) req_row->err(*this, rsp, pd.n_request_id, pd);
+        else on_rsp_error_fallback(rsp, pd.n_request_id);
+    } else {
+        on_rsp_error_fallback(rsp, -1);
+    }
+}
+
+void ApiCore::touch_rx() {
+    // reader thread only
+    last_rx_ = std::chrono::steady_clock::now();
+    ping_sent_ = false;
+}
+
+bool ApiCore::heartbeat_tick() {
+    // reader thread only; called from the transport wait loops (~100ms).
+    if (kPingIdleSec <= 0 || kPongDeadlineSec <= 0) return true;
+    const auto since_rx = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now() - last_rx_).count();
+    if (since_rx >= static_cast<long long>(kPongDeadlineSec) * 1000) return false;
+    if (!ping_sent_ && since_rx >= static_cast<long long>(kPingIdleSec) * 1000) {
+        Frame ping;
+        ping.msg_type = msgs::PING;
+        std::lock_guard<std::mutex> g(mu_);
+        write_frame_locked(ping, /*control=*/true);
+        ping_sent_ = true;
+    }
+    return true;
 }
 
 const DispatchRow* ApiCore::find_row(uint16_t msg) const {
@@ -1046,30 +1065,24 @@ const DispatchRow* ApiCore::find_row_by_req(uint16_t req_msg) const {
     return nullptr;
 }
 
-bool ApiCore::is_query_msg(uint16_t msg) {
-    switch (msg) {
-        case msgs::REQ_QRY_INSTRUMENT:
-        case msgs::REQ_QRY_SETTLEMENT_INFO:
-        case msgs::REQ_QRY_TRADING_ACCOUNT:
-        case msgs::REQ_QRY_INVESTOR_POSITION:
-        case msgs::REQ_QRY_INVESTOR_POSITION_DETAIL:
-        case msgs::REQ_QRY_ORDER:
-        case msgs::REQ_QRY_TRADE:
-        case msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE:
-        case msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE:
-        case msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE:
-        case msgs::REQ_QRY_BROKER_TRADING_PARAMS:
-        case msgs::REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN:
-            return true;
-        default:
-            return false;
-    }
+bool ApiCore::is_query_msg(uint16_t msg) const {
+    // A request is a query exactly when its dispatch row emits QRY_LAST;
+    // keeping this derived from the table stops the two copies drifting.
+    const DispatchRow* row = find_row_by_req(msg);
+    return row != nullptr && row->qry_last != nullptr;
 }
 
 void ApiCore::on_auth_rsp(const Frame& f) {
     std::string body(reinterpret_cast<const char*>(f.payload.data()), f.payload.size());
     bool ok = body.find("\"ok\":true") != std::string::npos ||
               body.find("\"ok\": true") != std::string::npos;
+    const bool failed = body.find("\"ok\":false") != std::string::npos ||
+                        body.find("\"ok\": false") != std::string::npos;
+    // An explicit failure completes the handshake immediately. A shape we do
+    // not recognize at all leaves the auth pending in place: the heartbeat
+    // deadline is the timeout fallback, so a broken core cannot wedge the
+    // client with garbage -- the link dies loudly instead.
+    if (!ok && !failed) return;
 
     Frame stashed;
     int nrid = -1;
@@ -1101,16 +1114,27 @@ void ApiCore::on_auth_rsp(const Frame& f) {
     }
     CThostFtdcRspInfoField rsp{};
     rsp.ErrorID = 0;
-    if (ok) {
-        if (auth_pd.req_msg == msgs::AUTH) {
-            on_authenticate_rsp(&auth_pd.rsp_authenticate, rsp, auth_pd.n_request_id);
+        if (ok) {
+            if (auth_pd.req_msg == msgs::AUTH) {
+                on_authenticate_rsp(&auth_pd.rsp_authenticate, rsp, auth_pd.n_request_id);
+            }
+            if (have_stash) {
+                std::lock_guard<std::mutex> g(mu_);
+                if (!write_frame_locked(stashed)) {
+                    // outbound queue full: the stashed login can never be
+                    // sent, so complete it locally instead of leaving its
+                    // pending entry hanging (same surface as a duplicate
+                    // login: an error OnRspUserLogin on the reader thread).
+                    const int refused_nrid = take_pending(stashed.req_id).n_request_id;
+                    CThostFtdcRspInfoField refused{};
+                    refused.ErrorID = -2;
+                    set_text(refused.ErrorMsg, sizeof(refused.ErrorMsg),
+                             "发送队列已满，登录请求被拒绝");
+                    login_errors_.emplace_back(refused_nrid, refused);
+                }
+            }
+            return;
         }
-        if (have_stash) {
-            std::lock_guard<std::mutex> g(mu_);
-            write_frame_locked(stashed);
-        }
-        return;
-    }
 
     rsp.ErrorID = 63;  // 兼容策略：CTP:客户端认证失败
     set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
@@ -1228,10 +1252,18 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
                 has_stashed_login_ = true;
                 if (!auth_in_flight_) {
                     auth_in_flight_ = true;
-                    send_auth_locked(auth_broker_.c_str(), auth_user_.c_str());
+                    send_auth_locked(auth_broker_, auth_user_);
                 }
             } else {
-                write_frame_locked(f);
+                if (!write_frame_locked(f)) {
+                    // Outbound queue full: refuse the request instead of
+                    // enqueuing-and-dropping it later. Roll the pending state
+                    // back so the client's retry starts clean (vendor code -2,
+                    // 未处理请求超过许可数).
+                    pending_.erase(f.req_id);
+                    if (is_query_msg(msg)) qry_in_flight_ = false;
+                    return -2;
+                }
             }
         }
     }
