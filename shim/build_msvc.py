@@ -10,7 +10,7 @@ SDK headers (CTP 6.7.13): --sdk / CTPBUDDY_SDK, default ctpsdk/6.7.13_20260225
     <sdk>/td/win64/*.h + <sdk>/md/win64/*.h      the vendor zip layout
     <sdk>/*.h                                      a flat directory, e.g. the
                                                    checked-in copies under
-                                                   docs/api-doc-html/files/
+                                                   docs/notes/assets/compiled_html/
                                                    (same bytes, CRLF) -- what CI
                                                    uses, since ctpsdk/ is not
                                                    committed.

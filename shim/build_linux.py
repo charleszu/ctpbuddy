@@ -9,7 +9,7 @@ Mirror of build_msvc.py. SDK headers (CTP 6.7.13): --sdk / CTPBUDDY_SDK,
 default ctpsdk/6.7.13_20260225. Accepted layouts:
     <sdk>/td/linux64/*.h + <sdk>/md/linux64/*.h   the vendor zip layout
     <sdk>/td/win64/*.h  + <sdk>/md/win64/*.h      (same API surface)
-    <sdk>/*.h                                      flat, e.g. docs/api-doc-html/files
+    <sdk>/*.h                                      flat, e.g. docs/notes/assets/compiled_html
 Only headers are needed: the shim never links the vendor .so.
 
 ZeroMQ is compiled from a pinned source into a STATIC library with the same

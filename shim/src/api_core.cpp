@@ -523,14 +523,25 @@ void ApiCore::flush_zmq_outbound() {
 
 namespace {
 
+// Decode the 13-byte CB frame header (magic/version/length validated) into
+// `out`'s header fields; the payload is left to the caller. `payload_len`
+// doubles as the length field's value.
+bool decode_frame_header(const uint8_t* h, Frame& out, uint32_t& payload_len) {
+    if (h[0] != 0x43 || h[1] != 0x42 || h[2] != WIRE_VERSION) return false;
+    out.msg_type = static_cast<uint16_t>(h[3] | (h[4] << 8));
+    out.req_id = static_cast<uint32_t>(h[5]) | (static_cast<uint32_t>(h[6]) << 8) |
+                 (static_cast<uint32_t>(h[7]) << 16) | (static_cast<uint32_t>(h[8]) << 24);
+    payload_len = static_cast<uint32_t>(h[9]) | (static_cast<uint32_t>(h[10]) << 8) |
+                  (static_cast<uint32_t>(h[11]) << 16) | (static_cast<uint32_t>(h[12]) << 24);
+    return payload_len <= WIRE_MAX_PAYLOAD;
+}
+
 bool decode_frame_bytes(const uint8_t* bytes, size_t len, Frame& out) {
-    if (len < WIRE_HEADER_LEN || bytes[0] != 0x43 || bytes[1] != 0x42 || bytes[2] != WIRE_VERSION) return false;
-    uint32_t payload_len = static_cast<uint32_t>(bytes[9]) | (static_cast<uint32_t>(bytes[10]) << 8) |
-                           (static_cast<uint32_t>(bytes[11]) << 16) | (static_cast<uint32_t>(bytes[12]) << 24);
-    if (payload_len > WIRE_MAX_PAYLOAD || payload_len + WIRE_HEADER_LEN != len) return false;
-    out.msg_type = static_cast<uint16_t>(bytes[3] | (bytes[4] << 8));
-    out.req_id = static_cast<uint32_t>(bytes[5]) | (static_cast<uint32_t>(bytes[6]) << 8) |
-                 (static_cast<uint32_t>(bytes[7]) << 16) | (static_cast<uint32_t>(bytes[8]) << 24);
+    uint32_t payload_len = 0;
+    if (len < WIRE_HEADER_LEN || !decode_frame_header(bytes, out, payload_len) ||
+        payload_len + WIRE_HEADER_LEN != len) {
+        return false;
+    }
     out.payload.assign(bytes + WIRE_HEADER_LEN, bytes + len);
     return true;
 }
@@ -552,6 +563,9 @@ bool zmq_recv_part(void* socket, std::vector<uint8_t>& out) {
 }  // namespace
 
 bool ApiCore::read_zmq_frame(Frame& out) {
+    // Reader-thread-private receive buffers, reused across iterations: a
+    // fresh ~1MB allocation per part (idle heartbeats included) was pure churn.
+    std::vector<uint8_t> first, frame, ignored;
     while (!stopped_.load()) {
         flush_zmq_outbound();
         drain_auth_errors();
@@ -587,14 +601,11 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             is_sub = true;
         }
         if (!selected) continue;
-        std::vector<uint8_t> first;
         if (!zmq_recv_part(selected, first)) return false;
         if (is_sub) {
             if (!zmq_more(selected)) continue;
-            std::vector<uint8_t> frame;
             if (!zmq_recv_part(selected, frame)) return false;
             while (zmq_more(selected)) {
-                std::vector<uint8_t> ignored;
                 if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(frame.data(), frame.size(), out)) {
@@ -608,7 +619,6 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             }
         } else {
             while (zmq_more(selected)) {
-                std::vector<uint8_t> ignored;
                 if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(first.data(), first.size(), out)) return true;
@@ -738,17 +748,27 @@ std::string ApiCore::private_resume_json() const {
     return ",\"private_resume\":" + std::to_string(private_resume_);
 }
 
-void ApiCore::send_auth_locked(const char* broker, const char* user) {
-    // caller holds mu_; this is the legacy automatic handshake.
+// caller holds mu_; both auth entry points funnel their shared state here.
+void ApiCore::begin_auth_locked(uint16_t req_id, const std::string& broker, const std::string& user) {
     auth_in_flight_ = true;
-    bound_auth_broker_ = cstr_of(broker, 11);
-    bound_auth_user_ = cstr_of(user, 16);
+    auth_wire_req_id_ = req_id;
+    bound_auth_broker_ = broker;
+    bound_auth_user_ = user;
+}
+
+// Common leading fields of the AUTH JSON body.
+static std::string auth_json_head(const std::string& broker, const std::string& user) {
+    return "{\"broker_id\":" + json_string(broker.c_str(), broker.size()) +
+           ",\"user_id\":" + json_string(user.c_str(), user.size());
+}
+
+void ApiCore::send_auth_locked(const std::string& broker, const std::string& user) {
+    // caller holds mu_; this is the legacy automatic handshake.
     Frame f;
     f.msg_type = msgs::AUTH;
     f.req_id = next_req_id_++;
-    auth_wire_req_id_ = f.req_id;
-    std::string body = "{\"broker_id\":" + json_string(broker, 11) +
-                       ",\"user_id\":" + json_string(user, 16) +
+    begin_auth_locked(f.req_id, broker, user);
+    std::string body = auth_json_head(broker, user) +
                        ",\"app_id\":\"ctpbuddy-shim\"" + private_resume_json() + "}";
     f.payload.assign(body.begin(), body.end());
     write_frame_locked(f, /*control=*/true);
@@ -782,8 +802,8 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
                 Frame f;
                 f.msg_type = msgs::AUTH;
                 f.req_id = next_req_id_++;
-                std::string body = "{\"broker_id\":" + json_string(req->BrokerID, sizeof(req->BrokerID)) +
-                                   ",\"user_id\":" + json_string(req->UserID, sizeof(req->UserID)) +
+                begin_auth_locked(f.req_id, broker, user);
+                std::string body = auth_json_head(broker, user) +
                                    ",\"auth_code\":" + json_string(req->AuthCode, sizeof(req->AuthCode)) +
                                    ",\"app_id\":" + json_string(req->AppID, sizeof(req->AppID)) +
                                    private_resume_json() + "}";
@@ -799,10 +819,6 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
                          cstr_of(req->UserProductInfo, sizeof(req->UserProductInfo)));
                 // AppType 未建模：没有配置，不编造官方枚举值，保留零初始化。
                 pending_[f.req_id] = pd;
-                auth_in_flight_ = true;
-                auth_wire_req_id_ = f.req_id;
-                bound_auth_broker_ = broker;
-                bound_auth_user_ = user;
                 // AUTH is a control frame: a full data queue must not wedge
                 // the handshake itself (review follow-up to the queue cap).
                 write_frame_locked(f, /*control=*/true);
@@ -857,7 +873,7 @@ void ApiCore::reader_main() {
         {
             std::lock_guard<std::mutex> g(mu_);
             authed_ = false;
-            if (!auth_user_.empty()) send_auth_locked(auth_broker_.c_str(), auth_user_.c_str());
+            if (!auth_user_.empty()) send_auth_locked(auth_broker_, auth_user_);
         }
         fire_front_connected();
         touch_rx();  // the link is fresh: start the heartbeat clock now
@@ -877,17 +893,8 @@ void ApiCore::reader_main() {
                 }
             } else {
                 uint8_t header[WIRE_HEADER_LEN];
-                if (!read_exact(header, WIRE_HEADER_LEN) || header[0] != 0x43 || header[1] != 0x42 ||
-                    header[2] != WIRE_VERSION) {
-                    alive = false;
-                    break;
-                }
-                f.msg_type = static_cast<uint16_t>(header[3] | (header[4] << 8));
-                f.req_id = static_cast<uint32_t>(header[5]) | (static_cast<uint32_t>(header[6]) << 8) |
-                           (static_cast<uint32_t>(header[7]) << 16) | (static_cast<uint32_t>(header[8]) << 24);
-                uint32_t len = static_cast<uint32_t>(header[9]) | (static_cast<uint32_t>(header[10]) << 8) |
-                               (static_cast<uint32_t>(header[11]) << 16) | (static_cast<uint32_t>(header[12]) << 24);
-                if (len > WIRE_MAX_PAYLOAD) {
+                uint32_t len = 0;
+                if (!read_exact(header, WIRE_HEADER_LEN) || !decode_frame_header(header, f, len)) {
                     alive = false;
                     break;
                 }
@@ -1058,24 +1065,11 @@ const DispatchRow* ApiCore::find_row_by_req(uint16_t req_msg) const {
     return nullptr;
 }
 
-bool ApiCore::is_query_msg(uint16_t msg) {
-    switch (msg) {
-        case msgs::REQ_QRY_INSTRUMENT:
-        case msgs::REQ_QRY_SETTLEMENT_INFO:
-        case msgs::REQ_QRY_TRADING_ACCOUNT:
-        case msgs::REQ_QRY_INVESTOR_POSITION:
-        case msgs::REQ_QRY_INVESTOR_POSITION_DETAIL:
-        case msgs::REQ_QRY_ORDER:
-        case msgs::REQ_QRY_TRADE:
-        case msgs::REQ_QRY_INSTRUMENT_MARGIN_RATE:
-        case msgs::REQ_QRY_INSTRUMENT_COMMISSION_RATE:
-        case msgs::REQ_QRY_INSTRUMENT_ORDER_COMM_RATE:
-        case msgs::REQ_QRY_BROKER_TRADING_PARAMS:
-        case msgs::REQ_QRY_INVESTOR_PRODUCT_GROUP_MARGIN:
-            return true;
-        default:
-            return false;
-    }
+bool ApiCore::is_query_msg(uint16_t msg) const {
+    // A request is a query exactly when its dispatch row emits QRY_LAST;
+    // keeping this derived from the table stops the two copies drifting.
+    const DispatchRow* row = find_row_by_req(msg);
+    return row != nullptr && row->qry_last != nullptr;
 }
 
 void ApiCore::on_auth_rsp(const Frame& f) {
@@ -1258,7 +1252,7 @@ int ApiCore::send_request(uint16_t msg, const void* payload, size_t len, int n_r
                 has_stashed_login_ = true;
                 if (!auth_in_flight_) {
                     auth_in_flight_ = true;
-                    send_auth_locked(auth_broker_.c_str(), auth_user_.c_str());
+                    send_auth_locked(auth_broker_, auth_user_);
                 }
             } else {
                 if (!write_frame_locked(f)) {

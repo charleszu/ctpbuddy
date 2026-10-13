@@ -539,6 +539,11 @@ code { font-family: ui-monospace, Consolas, monospace; background: #f6f8fa;
 """
 
 
+def _rstrip_lines(text: str) -> str:
+    """The committed pages carry no trailing whitespace; keep reruns stable."""
+    return "\n".join(line.rstrip() for line in text.split("\n"))
+
+
 def _page_doc(title: str, body: str, prev: Optional[str], nxt: Optional[str],
               first: str = "../index.html") -> str:
     def link(href: Optional[str], label: str) -> str:
@@ -618,7 +623,15 @@ def main() -> int:
                 counter += 1
                 fname = to_fname(counter, p)
             else:
-                fname = "../files/%s" % posixpath.basename(p)
+                if p.lower().endswith(".h"):
+                    # SDK headers already live (byte-identical) in the CHM
+                    # corpus: link there instead of copying a second copy in.
+                    fname = os.path.relpath(
+                        os.path.abspath(os.path.join(src, p)),
+                        os.path.abspath(os.path.join(out, "pages")),
+                    ).replace("\\", "/")
+                else:
+                    fname = "../files/%s" % posixpath.basename(p)
                 assets[p.upper()] = fname
             link_map[p.upper()] = fname
             plan.append([None, p, fname, not is_page(p)])
@@ -663,9 +676,11 @@ def main() -> int:
         if fname is None:
             continue
         if is_asset:
-            # fname is a href relative to pages/ ("../files/x.pdf")
-            shutil.copyfile(os.path.join(src, local),
-                            os.path.join(out, "files", posixpath.basename(str(fname))))
+            # fname is a href relative to pages/; copied assets live under
+            # "../files/...", .h headers link straight into the CHM corpus
+            if str(fname).startswith("../files/"):
+                shutil.copyfile(os.path.join(src, local),
+                                os.path.join(out, "files", posixpath.basename(str(fname))))
             continue
         page_no += 1
         body, _miss, fhtitle, emitted, _lf = convert_page(
@@ -681,8 +696,8 @@ def main() -> int:
             body = '<h1 class="pagetitle">%s</h1>\n%s' % (html_mod.escape(fhtitle), body)
         prev = order[page_no - 1] if page_no > 0 else None
         nxt = order[page_no + 1] if page_no + 1 < len(order) else None
-        with open(os.path.join(out, "pages", str(fname)), "w", encoding="utf-8") as f:
-            f.write(_page_doc(page_title, body, prev, nxt))
+        with open(os.path.join(out, "pages", str(fname)), "w", encoding="utf-8", newline="\n") as f:
+            f.write(_rstrip_lines(_page_doc(page_title, body, prev, nxt)))
         wrote += 1
 
     # ---- index -----------------------------------------------------------
@@ -702,9 +717,13 @@ def main() -> int:
             items.append("<li class='muted'>%s — <strong>缺失</strong> (<code>%s</code>)</li>"
                          % (html_mod.escape(str(title or local)), html_mod.escape(local)))
         elif is_asset:
-            # pages/ hrefs carry "../files/..."; the index sits one level up
-            items.append("<li><a href=\"files/%s\"><code>%s</code></a> <span class='muted'>（原样附带的官方文件）</span></li>"
-                         % (posixpath.basename(str(fname)), html_mod.escape(posixpath.basename(local))))
+            # pages/ hrefs carry "../files/..." or a corpus-relative path;
+            # the index sits one level up from pages/, so drop one "../"
+            href = str(fname)
+            if href.startswith("../"):
+                href = href[3:]
+            items.append("<li><a href=\"%s\"><code>%s</code></a> <span class='muted'>（原样附带的官方文件）</span></li>"
+                         % (href, html_mod.escape(posixpath.basename(local))))
         else:
             label = title
             if label is None:
@@ -744,8 +763,8 @@ def main() -> int:
             blocks.append("<li><a href=\"pages/%s\">%s</a> — <code>#%s</code></li>"
                           % (fname, html_mod.escape(fname), html_mod.escape(frag)))
         blocks.append("</ul>")
-    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
-        f.write(_index_doc(blocks))
+    with open(os.path.join(out, "index.html"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(_rstrip_lines(_index_doc(blocks)))
     print("converted %d pages (%d appendix, %d files, %d dangling frags) -> %s"
           % (wrote, len(appendix), len(assets), len(dangling_frags), out))
 

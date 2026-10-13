@@ -59,12 +59,8 @@ impl Ledger {
             if position.volume() <= 0 {
                 continue;
             }
-            let price = prices
-                .get(instrument)
-                .copied()
-                .ok_or_else(|| format!("缺少持仓合约 {instrument} 的结算价"))?;
-            if !price.is_finite() || price <= 0.0 {
-                return Err(format!("合约 {instrument} 的结算价必须为正有限数"));
+            if !prices.contains_key(instrument) {
+                return Err(format!("缺少持仓合约 {instrument} 的结算价"));
             }
         }
         let mut staged = self.clone();
@@ -107,10 +103,7 @@ impl Ledger {
             position.details.retain(|d| d.volume > 0);
             // 日结后保证金按结算价重估（昨仓恒用昨结算价，notes/04 C2）：
             // 每个明细按剩余手数重算，持仓保证金为明细之和。
-            let direction = match position.side {
-                PositionSide::Long => ctpbuddy_matching::Direction::Buy,
-                PositionSide::Short => ctpbuddy_matching::Direction::Sell,
-            };
+            let direction = position.side.direction();
             for detail in &mut position.details {
                 detail.margin = Money::from_f64(catalog.margin_for(
                     &account_key.broker_id,
@@ -121,16 +114,6 @@ impl Ledger {
                 ));
                 detail.margin_price = price;
                 detail.open_volume = detail.volume;
-            }
-            position.margin = position.details.iter().map(|d| d.margin).sum();
-            position.open_volume = position.details.iter().map(|d| d.volume).sum();
-            position.open_amount = position
-                .details
-                .iter()
-                .map(|d| Money::from_f64(d.open_price * d.volume as f64 * mult))
-                .sum();
-            position.open_cost = position.open_amount;
-            for detail in &mut position.details {
                 if detail.volume > 0 {
                     detail.last_settlement_price = price;
                 }
@@ -140,6 +123,14 @@ impl Ledger {
                 detail.close_volume = 0;
                 detail.close_amount = Money::ZERO;
             }
+            position.margin = position.details.iter().map(|d| d.margin).sum();
+            position.open_volume = position.details.iter().map(|d| d.volume).sum();
+            position.open_amount = position
+                .details
+                .iter()
+                .map(|d| Money::from_f64(d.open_price * d.volume as f64 * mult))
+                .sum();
+            position.open_cost = position.open_amount;
         }
         for account in staged.accounts.values_mut() {
             let final_equity = *final_equity
@@ -158,7 +149,7 @@ impl Ledger {
         staged.frozen.clear();
         staged.frozen_pos.clear();
         staged.group_activity.clear();
-        staged.refresh_margin(catalog);
+        staged.refresh(catalog);
         if staged
             .accounts
             .values()
@@ -215,7 +206,7 @@ impl Ledger {
             }
         }
         if margin_changed {
-            self.refresh_margin(catalog);
+            self.refresh(catalog);
         }
         let mut sums: HashMap<AccountKey, Money> = HashMap::new();
         for ((key, _, _), pos) in &self.positions {
@@ -244,10 +235,7 @@ fn reprice_today_margin(
     {
         return false;
     }
-    let direction = match pos.side {
-        PositionSide::Long => ctpbuddy_matching::Direction::Buy,
-        PositionSide::Short => ctpbuddy_matching::Direction::Sell,
-    };
+    let direction = pos.side.direction();
     let mut delta = Money::ZERO;
     for d in pos
         .details

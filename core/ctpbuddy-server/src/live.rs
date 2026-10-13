@@ -16,15 +16,10 @@ pub(crate) struct LiveQuery {
 impl LiveQuery {
     pub fn parse(value: &Value) -> Result<Self, String> {
         let fields = value.as_obj().ok_or("live_status 请求必须为对象")?;
-        let mut seen = std::collections::HashSet::new();
-        for (key, _) in fields {
-            if !matches!(
-                key.as_str(),
-                "cmd" | "broker" | "investor" | "limit" | "offset"
-            ) || !seen.insert(key)
-            {
-                return Err("live_status 含未知或重复字段".into());
-            }
+        if json::unknown_or_duplicate(fields, &["cmd", "broker", "investor", "limit", "offset"])
+            .is_some()
+        {
+            return Err("live_status 含未知或重复字段".into());
         }
         let identity = |key: &str| -> Result<Option<String>, String> {
             match value.get(key) {

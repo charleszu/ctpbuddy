@@ -27,9 +27,13 @@ impl JsonRow {
         self.0.iter().map(|(key, _)| key.as_str())
     }
 
+    fn get(&self, key: &str) -> Option<&Scalar> {
+        self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
     /// Contract versions are JSON numbers, never coerced booleans or strings.
     pub(super) fn literal_number(&self, key: &str) -> Option<f64> {
-        self.0.iter().find(|(k, _)| k == key).and_then(|(_, v)| {
+        self.get(key).and_then(|v| {
             if let Scalar::Num(n) = v {
                 Some(*n)
             } else {
@@ -39,10 +43,8 @@ impl JsonRow {
     }
 
     pub(super) fn number(&self, key: &str) -> Result<Option<f64>, ()> {
-        self.0
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| match v {
+        self.get(key)
+            .map(|v| match v {
                 Scalar::Num(n) if n.is_finite() => Ok(*n),
                 Scalar::Str(s) => s
                     .trim()
@@ -76,10 +78,8 @@ impl JsonRow {
     /// A non-empty string value; a numeric value is stringified so a provider
     /// that writes `delivery_year: 2026` still yields `"2026"`.
     pub(super) fn str(&self, key: &str) -> Option<String> {
-        self.0
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| match v {
+        self.get(key)
+            .map(|v| match v {
                 Scalar::Str(s) => s.clone(),
                 Scalar::Num(n) => format!("{}", *n as i64),
                 Scalar::Bool(b) => {

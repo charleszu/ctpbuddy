@@ -83,7 +83,7 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | 文档 / 下载站 | ctpbuddy.opentrade.one |
 | Shim DLL | `thosttraderapi.dll` / `thostmduserapi.dll`（**原名替换**，不加后缀） |
 
-**合规声明**（README 与官网固定文案）：CTPBuddy 是兼容 CTP 接口的开源测试工具，与上海期货信息技术有限公司（上期技术）无任何隶属关系；仓库不包含 `ctpsdk/*/` 下的官方二进制 SDK（`.dll`/`.lib`，由使用者自备），但 `docs/api-doc-html/files/` 附带由官方 CHM 文档转换得到的头文件、`error.xml` 与 PDF 供文档交叉引用（详见 §15）。
+**合规声明**（README 与官网固定文案）：CTPBuddy 是兼容 CTP 接口的开源测试工具，与上海期货信息技术有限公司（上期技术）无任何隶属关系；仓库不包含 `ctpsdk/*/` 下的官方二进制 SDK（`.dll`/`.lib`，由使用者自备），但 `docs/notes/assets/compiled_html/` 附带官方 CHM 反编译原件（含头文件，Shim 构建与 CI 的 `--sdk` 亦取自这里），`docs/api-doc-html/files/` 另附由其转换得到的 `error.xml` 可读化附件与 PDF 供文档交叉引用（详见 §15）。
 
 ---
 
@@ -1094,7 +1094,7 @@ CREATE TABLE audit_log (
 
 - README / 官网固定 not-affiliated 声明（见 §2）；
 - **不分发**上期技术的二进制 SDK（`ctpsdk/*/` 下的 `.dll`/`.lib`，`.gitignore` 禁止入库；Docker 镜像与发布包不复制）；构建 Shim 所需头文件由用户自备，构建脚本提供放置指引；
-- **如实说明随仓附带的官方文档派生件**：`docs/api-doc-html/files/` 中的头文件、`error.xml` 与 PDF 是由官方 CHM《6.7.13_API接口说明》转换得到的附件，随 HTML 可读版一并保留以供文档交叉引用（`docs/错误码全集.md` 的生成脚本在本地无 `ctpsdk/` 时回退读它）；它们属上期技术所有、不在本项目 MIT 范围内，README「许可」段对此与交易日历快照（再分发许可未确认）一并声明；
+- **如实说明随仓附带的官方文档派生件**：官方 CHM《6.7.13_API接口说明》的反编译原件（含全部头文件）唯一一份在 `docs/notes/assets/compiled_html/`（Shim 构建与 CI 的 `--sdk` 头文件来源）；`docs/api-doc-html/files/` 保留由其转换得到的 `error.xml` 与 PDF 附件以供文档交叉引用（`docs/错误码全集.md` 的生成脚本在本地无 `ctpsdk/` 时回退读它）；它们属上期技术所有、不在本项目 MIT 范围内，README「许可」段对此与交易日历快照（再分发许可未确认）一并声明；
 - libzmq（MPL-2.0，ZeroMQ 项目）：锁定版本源码 tarball 随仓库分发（`shim/third_party/src/`，SHA256 与构建脚本互锁），以 `ZMQ_CURVE=OFF` 静态链接进两个 shim 二进制（ADR 0002）；发布物需保留其来源与版本声明。
 - DLL 名字与真 CTP 相同是"兼容"的标准做法（LocalCTP/openctp 先例），但还原命令（`restore-shim`）必须显著可用，避免用户困惑；
 - Linux 端中文合约名走 GB18030（CTP 惯例），发布与镜像内置 locale。

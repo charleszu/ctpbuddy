@@ -24,22 +24,7 @@ pub fn state_path(data_dir: &str) -> PathBuf {
 }
 
 pub fn recover_requested(env: Option<&str>) -> bool {
-    matches!(env.map(str::trim), Some("1") | Some("true"))
-}
-
-/// Atomically replace the snapshot file.
-pub fn write(data_dir: &str, trading_day: &str, snapshot: &Value) -> std::io::Result<()> {
-    write_with_flow(data_dir, trading_day, snapshot, &Value::Null)
-}
-
-/// Atomically replace the snapshot file, including private-flow recovery data.
-pub fn write_with_flow(
-    data_dir: &str,
-    trading_day: &str,
-    snapshot: &Value,
-    private_flow: &Value,
-) -> std::io::Result<()> {
-    write_with_flow_meta(data_dir, trading_day, snapshot, private_flow, None)
+    crate::env_flag(env)
 }
 
 /// Atomically replace the recovery snapshot and record the journal prefix it
@@ -79,17 +64,8 @@ pub fn write_with_flow_meta(
 }
 
 /// `Ok(None)` when no snapshot exists; `Err` when one exists but is unusable
-/// (recovery must not silently fall back to an empty book).
-pub fn read(data_dir: &str) -> Result<Option<(String, Ledger)>, String> {
-    Ok(read_with_flow(data_dir)?.map(|(day, ledger, _)| (day, ledger)))
-}
-
-/// Read a snapshot and its optional private-flow recovery data. Older files
-/// are accepted with an empty flow payload.
-pub fn read_with_flow(data_dir: &str) -> Result<Option<(String, Ledger, Value)>, String> {
-    Ok(read_with_flow_meta(data_dir)?.map(|(day, ledger, flow, _)| (day, ledger, flow)))
-}
-
+/// (recovery must not silently fall back to an empty book). Older files are
+/// accepted with an empty private-flow payload.
 pub fn read_with_flow_meta(data_dir: &str) -> Result<Option<RecoverySnapshot>, String> {
     let path = state_path(data_dir);
     let text = match fs::read_to_string(&path) {
@@ -131,15 +107,15 @@ mod tests {
     #[test]
     fn write_read_roundtrip_and_missing_file() {
         let dir = tmpdir("rt");
-        assert!(read(&dir).unwrap().is_none());
+        assert!(read_with_flow_meta(&dir).unwrap().is_none());
         let mut l = Ledger::new(1234.5);
         l.ensure_account("8888", "alice");
-        write(&dir, "20261005", &l.to_snapshot()).unwrap();
-        let (day, back) = read(&dir).unwrap().unwrap();
+        write_with_flow_meta(&dir, "20261005", &l.to_snapshot(), &Value::Null, None).unwrap();
+        let (day, back, _, _) = read_with_flow_meta(&dir).unwrap().unwrap();
         assert_eq!(day, "20261005");
         assert_eq!(back.to_snapshot(), l.to_snapshot());
         // overwrite is atomic: no temp file left behind
-        write(&dir, "20261006", &l.to_snapshot()).unwrap();
+        write_with_flow_meta(&dir, "20261006", &l.to_snapshot(), &Value::Null, None).unwrap();
         assert!(!state_path(&dir).with_file_name("ledger.json.tmp").exists());
         write_with_flow_meta(&dir, "20261007", &l.to_snapshot(), &Value::Null, Some(42)).unwrap();
         let (_, _, _, seq) = read_with_flow_meta(&dir).unwrap().unwrap();
@@ -174,8 +150,8 @@ mod tests {
         for position in legacy["positions"].as_array_mut().unwrap() {
             position.as_object_mut().unwrap().remove("fee_open_pool");
         }
-        write(&dir, "20261005", &legacy).unwrap();
-        let (day, back) = read(&dir).unwrap().unwrap();
+        write_with_flow_meta(&dir, "20261005", &legacy, &Value::Null, None).unwrap();
+        let (day, back, _, _) = read_with_flow_meta(&dir).unwrap().unwrap();
         assert_eq!(day, "20261005");
         assert_eq!(
             back.position("8888", "alice", "TEST", ctpbuddy_ledger::PositionSide::Long)
@@ -191,7 +167,7 @@ mod tests {
         let dir = tmpdir("bad");
         fs::create_dir_all(state_path(&dir).parent().unwrap()).unwrap();
         fs::write(state_path(&dir), b"{ not json").unwrap();
-        assert!(read(&dir).is_err());
+        assert!(read_with_flow_meta(&dir).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 

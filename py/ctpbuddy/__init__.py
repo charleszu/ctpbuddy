@@ -9,6 +9,6 @@ Layout:
 """
 __version__ = "0.1.0"
 
-from .calendar import CalendarDay, CalendarError, TradingCalendar, load_calendar
+from .calendar import CalendarDay, CalendarError, TradingCalendar
 
-__all__ = ["CalendarDay", "CalendarError", "TradingCalendar", "load_calendar"]
+__all__ = ["CalendarDay", "CalendarError", "TradingCalendar"]

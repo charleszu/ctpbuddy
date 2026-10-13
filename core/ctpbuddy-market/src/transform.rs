@@ -143,7 +143,7 @@ mod tests {
     fn tick_at(t: &str, last: f64, bid1v: i32, ask1v: i32) -> Tick {
         let mut tk = Tick::default();
         tk.instrument_id = "rb2610".into();
-        tk.update_time = t.into();
+        tk.set_update_time(t, 0);
         tk.last_price = last;
         tk.bid_prices[0] = last - 2.0;
         tk.ask_prices[0] = last + 2.0;

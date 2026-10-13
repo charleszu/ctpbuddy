@@ -15,6 +15,14 @@ pub fn document() -> &'static Value {
     })
 }
 
+/// The contract's closed set of data types (see data_types / nested.types).
+fn known_type(kind: Option<&str>) -> bool {
+    matches!(
+        kind,
+        Some("string" | "number" | "number_or_null" | "boolean" | "object" | "array")
+    )
+}
+
 fn validate_document(value: &Value) -> Result<(), String> {
     let version = value
         .get("contract_version")
@@ -46,9 +54,8 @@ fn validate_document(value: &Value) -> Result<(), String> {
     let strings =
         |object: &serde_json::Map<String, Value>, key: &str| -> Result<Vec<String>, String> {
             let values = object
-                .iter()
-                .find(|(name, _)| name.as_str() == key)
-                .and_then(|(_, v)| v.as_array())
+                .get(key)
+                .and_then(Value::as_array)
                 .ok_or_else(|| format!("{} must be an array", key))?;
             values
                 .iter()
@@ -64,20 +71,12 @@ fn validate_document(value: &Value) -> Result<(), String> {
     if required.iter().any(|key| optional.contains(key)) {
         return Err("envelope required/optional fields overlap".into());
     }
-    if let Some(data_type) = envelope
-        .iter()
-        .find(|(key, _)| key.as_str() == "data_type")
-        .map(|(_, v)| v)
-    {
+    if let Some(data_type) = envelope.get("data_type") {
         if data_type.as_str() != Some("object_or_null") {
             return Err("unsupported envelope data_type".into());
         }
     }
-    if let Some(canonical_omit) = envelope
-        .iter()
-        .find(|(key, _)| key.as_str() == "canonical_omit")
-        .map(|(_, value)| value)
-    {
+    if let Some(canonical_omit) = envelope.get("canonical_omit") {
         let canonical_omit = canonical_omit
             .as_array()
             .ok_or_else(|| "canonical_omit must be an array".to_string())?;
@@ -96,25 +95,12 @@ fn validate_document(value: &Value) -> Result<(), String> {
             return Err("event min_version is invalid".into());
         }
         for key in ["category", "replay", "hash"] {
-            if spec
-                .iter()
-                .find(|(name, _)| name.as_str() == key)
-                .and_then(|(_, v)| v.as_str())
-                .is_none()
-            {
+            if spec.get(key).and_then(Value::as_str).is_none() {
                 return Err(format!("{}.{} must be a string", event_type, key));
             }
         }
-        let replay = spec
-            .iter()
-            .find(|(key, _)| key.as_str() == "replay")
-            .and_then(|(_, v)| v.as_str())
-            .unwrap();
-        let hash = spec
-            .iter()
-            .find(|(key, _)| key.as_str() == "hash")
-            .and_then(|(_, v)| v.as_str())
-            .unwrap();
+        let replay = spec.get("replay").and_then(Value::as_str).unwrap();
+        let hash = spec.get("hash").and_then(Value::as_str).unwrap();
         if !matches!(replay, "none" | "reissue" | "skip") || !matches!(hash, "noise" | "semantic") {
             return Err(format!(
                 "{} has an unsupported replay/hash policy",
@@ -122,18 +108,13 @@ fn validate_document(value: &Value) -> Result<(), String> {
             ));
         }
         let projection = spec
-            .iter()
-            .find(|(key, _)| key.as_str() == "projection")
-            .and_then(|(_, v)| v.as_array())
+            .get("projection")
+            .and_then(Value::as_array)
             .ok_or_else(|| format!("{}.projection must be an array", event_type))?;
         if projection.iter().any(|item| item.as_str().is_none()) {
             return Err(format!("{}.projection must contain strings", event_type));
         }
-        if let Some(policy_value) = spec
-            .iter()
-            .find(|(key, _)| key.as_str() == "data_policy")
-            .map(|(_, value)| value)
-        {
+        if let Some(policy_value) = spec.get("data_policy") {
             let policy = policy_value
                 .as_str()
                 .ok_or_else(|| format!("{}.data_policy must be a string", event_type))?;
@@ -141,15 +122,12 @@ fn validate_document(value: &Value) -> Result<(), String> {
                 return Err(format!("{}.data_policy is unsupported", event_type));
             }
         }
-        let data_required = if spec.iter().any(|(key, _)| key.as_str() == "data_required") {
+        let data_required = if spec.contains_key("data_required") {
             strings(spec, "data_required")?
         } else {
             Vec::new()
         };
-        let data_types_value = spec
-            .iter()
-            .find(|(key, _)| key.as_str() == "data_types")
-            .map(|(_, value)| value);
+        let data_types_value = spec.get("data_types");
         let data_types = match data_types_value {
             Some(value) => Some(
                 value
@@ -160,30 +138,20 @@ fn validate_document(value: &Value) -> Result<(), String> {
         };
         if let Some(types) = data_types {
             for (field, kind) in types {
-                if !data_required.contains(field)
-                    || !matches!(
-                        kind.as_str(),
-                        Some(
-                            "string" | "number" | "number_or_null" | "boolean" | "object" | "array"
-                        )
-                    )
-                {
+                if !data_required.contains(field) || !known_type(kind.as_str()) {
                     return Err(format!("{}.data_types is malformed", event_type));
                 }
             }
         }
-        let nested_value = spec
-            .iter()
-            .find(|(key, _)| key.as_str() == "nested")
-            .map(|(_, value)| value);
+        let nested_value = spec.get("nested");
         if let Some(nested_value) = nested_value {
             let nested = nested_value
                 .as_object()
                 .ok_or_else(|| format!("{}.nested must be an object", event_type))?;
             for (field, nested_spec) in nested {
                 let is_object = data_types
-                    .and_then(|types| types.iter().find(|(key, _)| key.as_str() == field.as_str()))
-                    .and_then(|(_, value)| value.as_str())
+                    .and_then(|types| types.get(field.as_str()))
+                    .and_then(Value::as_str)
                     == Some("object");
                 if !data_required.contains(field) || !is_object {
                     return Err(format!(
@@ -196,9 +164,8 @@ fn validate_document(value: &Value) -> Result<(), String> {
                     .ok_or_else(|| format!("{}.nested.{} must be an object", event_type, field))?;
                 let nested_required = strings(nested_spec, "required")?;
                 let nested_types = nested_spec
-                    .iter()
-                    .find(|(key, _)| key.as_str() == "types")
-                    .and_then(|(_, value)| value.as_object())
+                    .get("types")
+                    .and_then(Value::as_object)
                     .ok_or_else(|| {
                         format!("{}.nested.{}.types must be an object", event_type, field)
                     })?;
@@ -211,31 +178,21 @@ fn validate_document(value: &Value) -> Result<(), String> {
                     }
                 }
                 for (_, kind) in nested_types {
-                    if !matches!(
-                        kind.as_str(),
-                        Some(
-                            "string" | "number" | "number_or_null" | "boolean" | "object" | "array"
-                        )
-                    ) {
+                    if !known_type(kind.as_str()) {
                         return Err(format!(
                             "{}.nested.{} has an unsupported type",
                             event_type, field
                         ));
                     }
                 }
-                if let Some(items) = nested_spec
-                    .iter()
-                    .find(|(key, _)| key.as_str() == "items")
-                    .map(|(_, value)| value)
-                {
+                if let Some(items) = nested_spec.get("items") {
                     let items = items.as_object().ok_or_else(|| {
                         format!("{}.nested.{}.items must be an object", event_type, field)
                     })?;
                     for (item_field, item_spec) in items {
                         let is_array = nested_types
-                            .iter()
-                            .find(|(key, _)| key.as_str() == item_field.as_str())
-                            .and_then(|(_, value)| value.as_str())
+                            .get(item_field.as_str())
+                            .and_then(Value::as_str)
                             == Some("array");
                         if !is_array {
                             return Err(format!(
@@ -249,16 +206,12 @@ fn validate_document(value: &Value) -> Result<(), String> {
                                 event_type, field, item_field
                             )
                         })?;
-                        let item_required =
-                            if item_spec.iter().any(|(key, _)| key.as_str() == "required") {
-                                strings(item_spec, "required")?
-                            } else {
-                                Vec::new()
-                            };
-                        let item_types_value = item_spec
-                            .iter()
-                            .find(|(key, _)| key.as_str() == "types")
-                            .map(|(_, value)| value);
+                        let item_required = if item_spec.contains_key("required") {
+                            strings(item_spec, "required")?
+                        } else {
+                            Vec::new()
+                        };
+                        let item_types_value = item_spec.get("types");
                         let item_types = match item_types_value {
                             Some(value) => Some(value.as_object().ok_or_else(|| {
                                 format!(
@@ -283,17 +236,7 @@ fn validate_document(value: &Value) -> Result<(), String> {
                             }
                         }
                         for (_, kind) in item_types {
-                            if !matches!(
-                                kind.as_str(),
-                                Some(
-                                    "string"
-                                        | "number"
-                                        | "number_or_null"
-                                        | "boolean"
-                                        | "object"
-                                        | "array"
-                                )
-                            ) {
+                            if !known_type(kind.as_str()) {
                                 return Err(format!(
                                     "{}.nested.{}.items.{} has an unsupported type",
                                     event_type, field, item_field
@@ -332,14 +275,8 @@ pub fn validate_event(event: &crate::json::Value) -> bool {
     let Some(envelope) = document().get("envelope").and_then(Value::as_object) else {
         return false;
     };
-    let required = envelope
-        .iter()
-        .find(|(key, _)| key.as_str() == "required")
-        .and_then(|(_, value)| value.as_array());
-    let optional = envelope
-        .iter()
-        .find(|(key, _)| key.as_str() == "optional")
-        .and_then(|(_, value)| value.as_array());
+    let required = envelope.get("required").and_then(Value::as_array);
+    let optional = envelope.get("optional").and_then(Value::as_array);
     let Some(required) = required else {
         return false;
     };
@@ -431,14 +368,14 @@ pub fn validate_event(event: &crate::json::Value) -> bool {
 }
 
 pub fn data_has_required_fields(event_type: &str, data: &crate::json::Value) -> bool {
-    let contract = document();
-    let required = contract
+    let Some(spec) = document()
         .get("events")
         .and_then(Value::as_object)
         .and_then(|events| events.get(event_type))
-        .and_then(|spec| spec.get("data_required"))
-        .and_then(Value::as_array);
-    let Some(required) = required else {
+    else {
+        return true;
+    };
+    let Some(required) = spec.get("data_required").and_then(Value::as_array) else {
         return true;
     };
     let Some(object) = data.as_obj() else {
@@ -451,13 +388,7 @@ pub fn data_has_required_fields(event_type: &str, data: &crate::json::Value) -> 
     }) {
         return false;
     }
-    let Some(types) = contract
-        .get("events")
-        .and_then(Value::as_object)
-        .and_then(|events| events.get(event_type))
-        .and_then(|spec| spec.get("data_types"))
-        .and_then(Value::as_object)
-    else {
+    let Some(types) = spec.get("data_types").and_then(Value::as_object) else {
         return true;
     };
     if !types.iter().all(|(field, kind)| {
@@ -475,12 +406,7 @@ pub fn data_has_required_fields(event_type: &str, data: &crate::json::Value) -> 
     }) {
         return false;
     }
-    let nested = contract
-        .get("events")
-        .and_then(Value::as_object)
-        .and_then(|events| events.iter().find(|(key, _)| key.as_str() == event_type))
-        .and_then(|(_, spec)| spec.get("nested"))
-        .and_then(Value::as_object);
+    let nested = spec.get("nested").and_then(Value::as_object);
     if let Some(nested) = nested {
         for (field, nested_spec) in nested {
             let Some(value) = object
@@ -505,11 +431,7 @@ fn matches_nested(value: &crate::json::Value, spec: &Value) -> bool {
     let Some(spec) = spec.as_object() else {
         return false;
     };
-    if let Some(required) = spec
-        .iter()
-        .find(|(key, _)| key.as_str() == "required")
-        .and_then(|(_, value)| value.as_array())
-    {
+    if let Some(required) = spec.get("required").and_then(Value::as_array) {
         for field in required {
             let Some(field) = field.as_str() else {
                 return false;
@@ -519,11 +441,7 @@ fn matches_nested(value: &crate::json::Value, spec: &Value) -> bool {
             }
         }
     }
-    if let Some(types) = spec
-        .iter()
-        .find(|(key, _)| key.as_str() == "types")
-        .and_then(|(_, value)| value.as_object())
-    {
+    if let Some(types) = spec.get("types").and_then(Value::as_object) {
         for (field, kind) in types {
             let Some(value) = object
                 .iter()
@@ -540,11 +458,7 @@ fn matches_nested(value: &crate::json::Value, spec: &Value) -> bool {
             }
         }
     }
-    if let Some(items) = spec
-        .iter()
-        .find(|(key, _)| key.as_str() == "items")
-        .and_then(|(_, value)| value.as_object())
-    {
+    if let Some(items) = spec.get("items").and_then(Value::as_object) {
         for (field, item_spec) in items {
             let Some(values) =
                 object
@@ -581,6 +495,7 @@ fn matches_data_type(value: &crate::json::Value, kind: &str) -> bool {
 }
 
 /// Canonical JSON used by the shared vector tests (sorted keys, wall clock omitted).
+#[cfg(test)]
 pub fn canonical_event(event: &Value) -> String {
     let mut normalized = event.clone();
     if let Some(object) = normalized.as_object_mut() {

@@ -42,6 +42,9 @@ pub struct Tick {
     pub action_day: String,
     pub update_time: String,
     pub update_millisec: i32,
+    /// Cached [`Tick::virtual_ms`] of (update_time, update_millisec); keep
+    /// them in sync via [`Tick::set_update_time`].
+    pub update_ms: f64,
     pub last_price: f64,
     pub volume: i32,
     /// 0 when the source does not record turnover (derived fields follow).
@@ -73,6 +76,7 @@ impl Default for Tick {
             action_day: String::new(),
             update_time: String::new(),
             update_millisec: 0,
+            update_ms: session_ms(0.0),
             last_price: 0.0,
             volume: 0,
             turnover: 0.0,
@@ -100,7 +104,15 @@ impl Tick {
     /// Virtual timestamp on the trading-day timeline (see [`session_ms`]):
     /// the clock authority. Night-session ticks are negative.
     pub fn virtual_ms(&self) -> f64 {
-        session_ms(parse_time_ms(&self.update_time) + self.update_millisec as f64)
+        self.update_ms
+    }
+
+    /// The single entry point for writing the clock fields (keeps the
+    /// `virtual_ms` cache coherent).
+    pub fn set_update_time(&mut self, time: &str, millisec: i32) {
+        self.update_time = time.to_string();
+        self.update_millisec = millisec;
+        self.update_ms = session_ms(parse_time_ms(time) + millisec as f64);
     }
 
     /// Convert into the wire form of `CThostFtdcDepthMarketDataField`
@@ -297,8 +309,9 @@ impl CsvSource {
                     format!("csv line {}: action_day is later than trading_day", i + 1),
                 ));
             }
-            t.update_time = c[3].trim().into();
-            t.update_millisec = int(4)?;
+            let time = c[3].trim();
+            let millisec = int(4)?;
+            t.set_update_time(time, millisec);
             t.last_price = num(5)?;
             t.volume = int(6)?;
             t.turnover = num(7)?;
@@ -571,8 +584,7 @@ mod tests {
             .map(|i| {
                 let mut t = Tick::default();
                 t.instrument_id = "rb2610".into();
-                t.update_time = "09:30:00".into();
-                t.update_millisec = (i * 500) as i32;
+                t.set_update_time("09:30:00", (i * 500) as i32);
                 t
             })
             .collect()
@@ -639,7 +651,7 @@ mod tests {
     fn night_session_timeline_is_monotonic_across_midnight() {
         let at = |hms: &str| {
             let mut t = Tick::default();
-            t.update_time = hms.into();
+            t.set_update_time(hms, 0);
             t
         };
         let night = ["21:00:00", "23:59:59", "00:00:00", "02:30:00"];
@@ -654,7 +666,7 @@ mod tests {
         assert_eq!(format_hhmmss(at("00:30:00").virtual_ms()), "00:30:00");
         // real-time pacing does not burst at midnight: 23:59:59.500 -> 00:00:00
         let mut a = at("23:59:59");
-        a.update_millisec = 500;
+        a.set_update_time("23:59:59", 500);
         let mut pb = Playback::new(vec![a, at("00:00:00")], 1.0);
         let t0 = Instant::now();
         assert_eq!(released(&mut pb, t0), 1);

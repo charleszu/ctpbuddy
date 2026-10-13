@@ -12,6 +12,7 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
+from harness import close, find_core, free_port, wait_port
 
 import json
 import os
@@ -60,37 +61,6 @@ LAST_TICK_PRICE = 3501.0                        # scenario's final tick last pri
 UNREALIZED_OPEN = (LAST_TICK_PRICE - BUY_PRICE) * 10  # -10.0
 
 
-def find_core() -> str:
-    env = os.environ.get("CTPBUDDY_CORE")
-    if env:
-        return env
-    for prof in ("debug", "release"):
-        for name in ("ctpbuddy-server", "ctpbuddy-server.exe"):
-            cand = os.path.join(REPO, "core", "target", prof, name)
-            if os.path.exists(cand):
-                return cand
-    raise SystemExit("ctpbuddy-server binary not found; run `cargo build` in core/ or set CTPBUDDY_CORE")
-
-
-def free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
-def wait_port(port: int, timeout: float = 10.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
-            return
-        except OSError:
-            time.sleep(0.05)
-    raise SystemExit("server did not open port %d" % port)
-
-
 def make_scenario(dirpath: str) -> None:
     rows = []
     for i, (t, ms) in enumerate((("09:30:00", 0), ("09:30:00", 500), ("09:31:00", 0))):
@@ -123,10 +93,6 @@ def make_scenario(dirpath: str) -> None:
         )
         rows.append(row)
     write_canonical(dirpath, rows)
-
-
-def close(a: float, b: float, tol: float = 1e-6) -> bool:
-    return abs(a - b) <= tol
 
 
 def main() -> int:

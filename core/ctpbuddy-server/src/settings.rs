@@ -5,17 +5,84 @@ use crate::{
 };
 use std::{collections::HashSet, io::Write, path::Path};
 
-pub const KEYS: [&str; 6] = [
-    "qry_freq",
-    "order_freq",
-    "max_user_sessions",
-    "settlement_required",
-    "self_trade_prevention",
-    "initial_funds",
+/// One row per runtime setting; the single source for patch validation and
+/// the schema the Web settings page renders.
+pub struct SettingDef {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub lifecycle: &'static str,
+    /// "boolean" | "integer" | "number"
+    pub kind: &'static str,
+    pub min: f64,
+    pub max: f64,
+}
+
+const SETTING_DEFS: &[SettingDef] = &[
+    SettingDef {
+        key: "qry_freq",
+        label: "每会话查询额度",
+        description: "每秒 ReqQry* 额度，超出返回 90；修改不清空窗口。",
+        lifecycle: "runtime",
+        kind: "integer",
+        min: 1.0,
+        max: 100_000.0,
+    },
+    SettingDef {
+        key: "order_freq",
+        label: "报单 / 撤单额度",
+        description: "每用户每秒额度，报单与撤单各自独立计数，超出返回 116。",
+        lifecycle: "runtime",
+        kind: "integer",
+        min: 1.0,
+        max: 100_000.0,
+    },
+    SettingDef {
+        key: "max_user_sessions",
+        label: "用户在线会话上限",
+        description: "按 BrokerID + UserID 计已登录连接，0 关闭限制（兼容旧行为）；降低不踢已有会话。",
+        lifecycle: "runtime",
+        kind: "integer",
+        min: 0.0,
+        max: 10_000.0,
+    },
+    SettingDef {
+        key: "settlement_required",
+        label: "结算确认门禁",
+        description: "默认开启；未确认当前交易日的报单返回官方 42；不实施日结。",
+        lifecycle: "runtime",
+        kind: "boolean",
+        min: 0.0,
+        max: 0.0,
+    },
+    SettingDef {
+        key: "self_trade_prevention",
+        label: "自成交预防",
+        description: "默认关闭（真实交易所不阻止同一投资者与自己的挂单成交）；开启后撮合跳过同账户挂单，会打破价格时间优先。",
+        lifecycle: "runtime",
+        kind: "boolean",
+        min: 0.0,
+        max: 0.0,
+    },
+    SettingDef {
+        key: "initial_funds",
+        label: "初次开户默认资金",
+        description: "仅影响首次登录自动开户；已有账户与场景显式账户资金不变。",
+        lifecycle: "new-account",
+        kind: "number",
+        min: 0.0,
+        max: 1e12,
+    },
 ];
 
-/// Boolean settings (everything else in `KEYS` is numeric).
-pub const BOOL_KEYS: [&str; 2] = ["settlement_required", "self_trade_prevention"];
+fn setting_def(key: &str) -> Option<&'static SettingDef> {
+    SETTING_DEFS.iter().find(|d| d.key == key)
+}
+
+/// Boolean settings (everything else is numeric).
+pub fn is_boolean(key: &str) -> bool {
+    setting_def(key).is_some_and(|d| d.kind == "boolean")
+}
 
 pub fn values(cfg: &Config) -> Value {
     json::obj_sorted(vec![
@@ -47,10 +114,10 @@ pub fn patch(cfg: &Config, v: &Value) -> Result<Config, String> {
         if !seen.insert(key) {
             return Err(format!("重复参数 {key}"));
         }
-        if !KEYS.contains(&key.as_str()) {
+        let Some(def) = setting_def(key) else {
             return Err(format!("未知参数 {key}"));
-        }
-        if BOOL_KEYS.contains(&key.as_str()) {
+        };
+        if def.kind == "boolean" {
             let Value::Bool(b) = value else {
                 return Err(format!("{key} 必须是布尔值"));
             };
@@ -64,12 +131,8 @@ pub fn patch(cfg: &Config, v: &Value) -> Result<Config, String> {
         let Value::Num(n) = value else {
             return Err(format!("{key} 必须是数字"));
         };
-        let (min, max) = match key.as_str() {
-            "initial_funds" => (0.0, 1_000_000_000_000.0),
-            "max_user_sessions" => (0.0, 10_000.0),
-            _ => (1.0, 100_000.0),
-        };
-        if !n.is_finite() || *n < min || *n > max || (key != "initial_funds" && n.fract() != 0.0) {
+        let (min, max) = (def.min, def.max);
+        if !n.is_finite() || *n < min || *n > max || (def.kind != "number" && n.fract() != 0.0) {
             return Err(format!(
                 "{key} 超出范围 [{min}, {max}] 或不是合法整数/有限数字"
             ));
@@ -154,17 +217,22 @@ fn replace(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 pub fn schema() -> Value {
-    Value::Arr(KEYS.iter().map(|k| {
-        let (label, description, lifecycle, min, max, kind) = match *k {
-            "qry_freq" => ("每会话查询额度", "每秒 ReqQry* 额度，超出返回 90；修改不清空窗口。", "runtime", 1.0, 100000.0, "integer"),
-            "order_freq" => ("报单 / 撤单额度", "每用户每秒额度，报单与撤单各自独立计数，超出返回 116。", "runtime", 1.0, 100000.0, "integer"),
-            "max_user_sessions" => ("用户在线会话上限", "按 BrokerID + UserID 计已登录连接，0 关闭限制（兼容旧行为）；降低不踢已有会话。", "runtime", 0.0, 10000.0, "integer"),
-            "settlement_required" => ("结算确认门禁", "默认开启；未确认当前交易日的报单返回官方 42；不实施日结。", "runtime", 0.0, 0.0, "boolean"),
-            "self_trade_prevention" => ("自成交预防", "默认关闭（真实交易所不阻止同一投资者与自己的挂单成交）；开启后撮合跳过同账户挂单，会打破价格时间优先。", "runtime", 0.0, 0.0, "boolean"),
-            _ => ("初次开户默认资金", "仅影响首次登录自动开户；已有账户与场景显式账户资金不变。", "new-account", 0.0, 1e12, "number"),
-        };
-        json::obj_sorted(vec![("key".into(), json::s(k)), ("label".into(), json::s(label)), ("description".into(), json::s(description)), ("lifecycle".into(), json::s(lifecycle)), ("type".into(), json::s(kind)), ("min".into(), json::n(min)), ("max".into(), json::n(max))])
-    }).collect())
+    Value::Arr(
+        SETTING_DEFS
+            .iter()
+            .map(|d| {
+                json::obj_sorted(vec![
+                    ("key".into(), json::s(d.key)),
+                    ("label".into(), json::s(d.label)),
+                    ("description".into(), json::s(d.description)),
+                    ("lifecycle".into(), json::s(d.lifecycle)),
+                    ("type".into(), json::s(d.kind)),
+                    ("min".into(), json::n(d.min)),
+                    ("max".into(), json::n(d.max)),
+                ])
+            })
+            .collect(),
+    )
 }
 
 impl World {
@@ -175,11 +243,8 @@ impl World {
         let Value::Obj(pairs) = v else {
             return Err("请求必须是对象".into());
         };
-        let mut seen = HashSet::new();
-        for (k, _) in pairs {
-            if !seen.insert(k) || !["cmd", "patch"].contains(&k.as_str()) {
-                return Err(format!("未知或重复请求键 {k}"));
-            }
+        if let Some(k) = json::unknown_or_duplicate(pairs, &["cmd", "patch"]) {
+            return Err(format!("未知或重复请求键 {k}"));
         }
         let next = patch(&self.cfg, v.get("patch").ok_or("缺少 patch")?)?;
         if self.journal.is_none() {

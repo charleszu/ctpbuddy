@@ -23,6 +23,7 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
+from harness import find_core, free_port, st, tr, wait_idx, wait_port
 
 import json
 import os
@@ -50,37 +51,6 @@ DEFAULT_FUNDS = 1_000_000.0
 D1, D2, LEGACY = "dsl001", "dsl002", "legacy001"
 
 
-def find_core() -> str:
-    env = os.environ.get("CTPBUDDY_CORE")
-    if env:
-        return env
-    for prof in ("debug", "release"):
-        for name in ("ctpbuddy-server", "ctpbuddy-server.exe"):
-            cand = os.path.join(REPO, "core", "target", prof, name)
-            if os.path.exists(cand):
-                return cand
-    raise SystemExit("ctpbuddy-server binary not found; run `cargo build` in core/ or set CTPBUDDY_CORE")
-
-
-def free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
-def wait_port(port: int, timeout: float = 10.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
-            return
-        except OSError:
-            time.sleep(0.05)
-    raise SystemExit("server did not open port %d" % port)
-
-
 def drain(cli: Client, quiet: float = 0.2):
     """Collect push events until the queue stays empty for `quiet` seconds."""
     out = []
@@ -92,23 +62,6 @@ def drain(cli: Client, quiet: float = 0.2):
         except queue.Empty:
             break
     return out
-
-
-def st(evts, ref: str):
-    return [chr(f["OrderStatus"]) for k, f in evts if k == RTN_ORDER and f["OrderRef"] == ref]
-
-
-def tr(evts, ref: str):
-    return [(f["Volume"], round(f["Price"], 6)) for k, f in evts if k == RTN_TRADE and f["OrderRef"] == ref]
-
-
-def wait_idx(admin: Admin, n: int, timeout: float = 5.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if admin.status()["playback"]["idx"] >= n:
-            return
-        time.sleep(0.02)
-    raise AssertionError("playback did not reach tick %d" % n)
 
 
 class Feed:

@@ -335,9 +335,6 @@ class TradingCalendar:
         raise CalendarError("不支持的夜盘日期映射: %s" % mode)
 
 
-def load_calendar(path: Union[str, Path], override: Optional[Union[str, Path, Mapping[str, Any]]] = None, expected_sha256: Optional[str] = None) -> TradingCalendar:
-    calendar = TradingCalendar.from_file(path, expected_sha256)
-    return calendar.with_overrides(override) if override is not None else calendar
 
 
 def validate_manifest(
@@ -453,4 +450,4 @@ def validate_manifest(
     return MappingProxyType(dict(raw))
 
 
-__all__ = ["CalendarProvider", "CalendarDay", "CalendarError", "TradingCalendar", "load_calendar", "validate_manifest"]
+__all__ = ["CalendarProvider", "CalendarDay", "CalendarError", "TradingCalendar", "validate_manifest"]

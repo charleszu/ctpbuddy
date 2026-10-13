@@ -39,6 +39,7 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
+from harness import TIME_SCALE, find_core, free_port, st, tr, wait_idx, wait_port
 
 import json
 import os
@@ -68,8 +69,6 @@ FREQ_MSG = "CTP:下单频率限制"
 # must really wait past the window before the budget is back; `drain` stops
 # once the push queue stays quiet for a while. CTPBUDDY_E2E_SLOW=1 doubles
 # both for slow machines / CI runners; the defaults are unchanged.
-E2E_SLOW = os.environ.get("CTPBUDDY_E2E_SLOW", "") not in ("", "0")
-TIME_SCALE = 2.0 if E2E_SLOW else 1.0
 GATE_WINDOW_SLEEP = 1.05 * TIME_SCALE   # let the per-second window roll over
 DRAIN_QUIET = 0.35 * TIME_SCALE         # push queue idle time that ends a drain
 SHUTDOWN_SETTLE = 0.2 * TIME_SCALE      # journal flush after admin.shutdown()
@@ -77,37 +76,6 @@ SHUTDOWN_SETTLE = 0.2 * TIME_SCALE      # journal flush after admin.shutdown()
 # Phase-1 investors (freq gate); Phase-2 investors walk the state machine.
 P1 = ["freq001", "freq002"]
 P2 = ["flow001", "flow002", "flow003", "flow004", "flow005", "flow006", "flow007", "flow008"]
-
-
-def find_core() -> str:
-    env = os.environ.get("CTPBUDDY_CORE")
-    if env:
-        return env
-    for prof in ("debug", "release"):
-        for name in ("ctpbuddy-server", "ctpbuddy-server.exe"):
-            cand = os.path.join(REPO, "core", "target", prof, name)
-            if os.path.exists(cand):
-                return cand
-    raise SystemExit("ctpbuddy-server binary not found; run `cargo build` in core/ or set CTPBUDDY_CORE")
-
-
-def free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
-def wait_port(port: int, timeout: float = 10.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
-            return
-        except OSError:
-            time.sleep(0.05)
-    raise SystemExit("server did not open port %d" % port)
 
 
 def make_scenario(dirpath: str) -> None:
@@ -171,15 +139,6 @@ def drain(cli: Client, quiet: float = DRAIN_QUIET):
     return out
 
 
-def wait_idx(admin: Admin, n: int, timeout: float = 5.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if admin.status()["playback"]["idx"] >= n:
-            return
-        time.sleep(0.02)
-    raise AssertionError("playback did not reach tick %d" % n)
-
-
 def read_journal(data_dir: str):
     journal_dir = os.path.join(data_dir, "journal")
     files = sorted(f for f in os.listdir(journal_dir) if f.endswith(".jsonl"))
@@ -190,16 +149,6 @@ def read_journal(data_dir: str):
             for line in f:
                 events.append(json.loads(line))
     return events
-
-
-def st(evts, ref: str):
-    """OrderStatus chars of every RTN_ORDER for `ref`, in arrival order."""
-    return [chr(f["OrderStatus"]) for k, f in evts if k == RTN_ORDER and f["OrderRef"] == ref]
-
-
-def tr(evts, ref: str):
-    """(Volume, Price) of every RTN_TRADE for `ref`, in arrival order."""
-    return [(f["Volume"], round(f["Price"], 6)) for k, f in evts if k == RTN_TRADE and f["OrderRef"] == ref]
 
 
 class Feed:

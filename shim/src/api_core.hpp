@@ -314,7 +314,8 @@ private:
     // frames (AUTH / PING) bypass the cap: they are tiny, rare, and losing
     // one would wedge the handshake or the heartbeat itself.
     bool write_frame_locked(const Frame& f, bool control = false);
-    void send_auth_locked(const char* broker, const char* user);
+    void send_auth_locked(const std::string& broker, const std::string& user);
+    void begin_auth_locked(uint16_t req_id, const std::string& broker, const std::string& user);
     std::string private_resume_json() const;
     void drain_auth_errors();
     void drain_deferred();
@@ -330,7 +331,7 @@ private:
 
     /// True for the ReqQry* family (CTP "查询流控" applies to these; the
     /// ReqQuery* core-processed family and all non-query requests are exempt).
-    static bool is_query_msg(uint16_t msg);
+    bool is_query_msg(uint16_t msg) const;
 
     std::mutex mu_;
     void* spi_ = nullptr;

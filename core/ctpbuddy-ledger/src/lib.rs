@@ -23,12 +23,10 @@ use ctpbuddy_wire::generated::{cstr, set_cstr, CThostFtdcInvestorProductGroupMar
 
 use ctpbuddy_matching::{Catalog, CommissionKind, Fill, OffsetFlag};
 
-pub const INITIAL_FUNDS: f64 = 2_000_000.0;
-
 // Official CTP error.xml codes (docs/错误码全集.md): ids and prompts verbatim —
 // downstream clients key off these numbers.
 pub const ERR_FUNDS: i32 = 31; //          INSUFFICIENT_MONEY       CTP:资金不足
-pub const ERR_POSITION: i32 = 30; //       OVER_CLOSE_POSITION      CTP:平仓量超过持仓量
+const ERR_POSITION: i32 = 30; //       OVER_CLOSE_POSITION      CTP:平仓量超过持仓量
 pub const ERR_NO_CLOSE_TODAY_LEDGER: i32 = 50; // OVER_CLOSETODAY_POSITION CTP:平今仓位不足
 pub const ERR_NO_CLOSE_YD_LEDGER: i32 = 51; // OVER_CLOSEYESTERDAY_POSITION CTP:平昨仓位不足
 
@@ -47,7 +45,7 @@ pub enum CashTransferError {
 /// 上期所/能源中心区分今昨仓，报入「平仓」(`Close`) 等同平昨，平今必须报
 /// `CloseToday`（知识库 §4.3，notes/02 B10）。其他交易所不区分今昨，`Close`
 /// 按先开先平消耗；它们收到的平今/平昨在柜台侧统一转为平仓。
-pub fn close_buckets(offset: OffsetFlag, exchange_id: &str) -> (bool, bool) {
+fn close_buckets(offset: OffsetFlag, exchange_id: &str) -> (bool, bool) {
     if !ctpbuddy_matching::rules_for(exchange_id).splits_today_yesterday {
         return (false, false);
     }
@@ -63,6 +61,22 @@ mod money;
 mod position;
 mod settlement;
 mod snapshot;
+fn side_index(side: PositionSide) -> usize {
+    if side == PositionSide::Long {
+        0
+    } else {
+        1
+    }
+}
+
+fn margin_bucket(catalog: &Catalog, instrument_id: &str) -> usize {
+    if catalog.product_margin_algorithm(instrument_id) {
+        1
+    } else {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -166,10 +180,7 @@ impl Ledger {
     }
 
     pub fn ensure_account(&mut self, broker_id: &str, investor_id: &str) -> &mut Account {
-        let initial = self.initial_funds;
-        self.accounts
-            .entry(AccountKey::new(broker_id, investor_id))
-            .or_insert_with(|| Account::new(broker_id, investor_id, initial))
+        self.ensure_account_with(broker_id, investor_id, 0.0)
     }
 
     /// Ensure an account exists with scenario-authored initial funds
@@ -201,6 +212,7 @@ impl Ledger {
         self.accounts.get(&AccountKey::new(broker_id, investor_id))
     }
 
+    #[cfg(test)]
     pub fn account_mut(&mut self, broker_id: &str, investor_id: &str) -> Option<&mut Account> {
         self.accounts
             .get_mut(&AccountKey::new(broker_id, investor_id))
@@ -390,12 +402,8 @@ impl Ledger {
             let g = groups
                 .entry((i.exchange_id.clone(), i.product_id.clone()))
                 .or_default();
-            let s = if *side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog.refdata().product_margin_algorithm(id) {
-                1
-            } else {
-                0
-            };
+            let s = side_index(*side);
+            let bucket = margin_bucket(catalog, id);
             g.used[bucket][s] += pos.margin;
             let ratio = if s == 0 {
                 i.long_margin_ratio
@@ -422,15 +430,8 @@ impl Ledger {
             let g = groups
                 .entry((i.exchange_id.clone(), i.product_id.clone()))
                 .or_default();
-            let s = if est.side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog
-                .refdata()
-                .product_margin_algorithm(&est.instrument_id)
-            {
-                1
-            } else {
-                0
-            };
+            let s = side_index(est.side);
+            let bucket = margin_bucket(catalog, &est.instrument_id);
             g.frozen[bucket][s] += est.remaining_margin();
             g.frozen_commission += est.remaining_commission();
         }
@@ -485,11 +486,9 @@ impl Ledger {
             })
             .collect()
     }
+    /// Recompute every account's margin aggregates (staged settlement and
+    /// explicit refreshes; per-account paths use `refresh_account`).
     pub fn refresh(&mut self, catalog: &Catalog) {
-        self.refresh_margin(catalog);
-    }
-
-    fn refresh_margin(&mut self, catalog: &Catalog) {
         let keys: Vec<_> = self.accounts.keys().cloned().collect();
         for key in keys {
             self.refresh_account(&key, catalog);
@@ -663,14 +662,12 @@ impl Ledger {
         trading_day: &str,
     ) {
         let instr = catalog.get(&fill.instrument_id);
-        let before_commission = self
-            .account(&cstr(&fill.broker_id), &cstr(&fill.investor_id))
-            .unwrap()
-            .commission;
-        let before_profit = self
-            .account(&cstr(&fill.broker_id), &cstr(&fill.investor_id))
-            .unwrap()
-            .close_profit;
+        let (before_commission, before_profit) = {
+            let account = self
+                .account(&cstr(&fill.broker_id), &cstr(&fill.investor_id))
+                .unwrap();
+            (account.commission, account.close_profit)
+        };
         let mult = instr.map(|i| i.volume_multiple).unwrap_or(1);
 
         // ---- release pro-rata frozen estimate for this order ----

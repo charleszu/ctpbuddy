@@ -77,7 +77,6 @@ static void row_OnErrRtnOrderInsert(ApiCore& c, const Frame& f) {
     spi->OnErrRtnOrderInsert(&in, const_cast<CThostFtdcRspInfoField*>(&rsp));
 }
 
-
 static void row_OnRspOrderAction(ApiCore& c, const Frame& f) {
     Pending pd;
     {
@@ -102,7 +101,6 @@ static void row_OnErrRtnOrderAction(ApiCore& c, const Frame& f) {
     synth_order_action(act, in);
     spi->OnErrRtnOrderAction(&act, const_cast<CThostFtdcRspInfoField*>(&rsp));
 }
-
 
 static void row_OnRspQrySettlementInfo(ApiCore& c, const Frame& f) {
     CThostFtdcSettlementInfoField fld{};

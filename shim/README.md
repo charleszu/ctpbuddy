@@ -14,8 +14,8 @@ python shim/build_msvc.py [--demo] [--sdk DIR]
   `VCVARS64` 指定）。
 - `--sdk` / `CTPBUDDY_SDK`：CTP 6.7.13 头文件目录，默认 `ctpsdk/6.7.13_20260225`
   （不入库）。接受厂商布局 `<sdk>/td/win64` + `<sdk>/md/win64`，或平铺目录；
-  `docs/api-doc-html/files/` 已含同版本头文件（仅换行符不同），CI 即用它：
-  `python shim/build_msvc.py --demo --sdk docs/api-doc-html/files`。
+  `docs/notes/assets/compiled_html/` 已含同版本头文件（CHM 反编译原件，唯一一份），CI 即用它：
+  `python shim/build_msvc.py --demo --sdk docs/notes/assets/compiled_html`。
   Shim 只需头文件，不链接厂商 `.lib`。
 - 构建前会自动运行 `codegen/gen_shim.py` 重新生成 `src/generated/`；生成产物入库，
   CI 校验回写后 `git diff` 为空。

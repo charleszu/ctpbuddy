@@ -114,7 +114,7 @@ def _strip_comment(s: str) -> str:
     return s.rstrip()
 
 
-def _scalar(s: str, lineno: int) -> Any:
+def _scalar(s: str) -> Any:
     s = s.strip()
     if len(s) >= 2 and s[0] == s[-1] and s[0] in "'\"":
         inner = s[1:-1]
@@ -138,7 +138,7 @@ def _scalar(s: str, lineno: int) -> Any:
     return s
 
 
-def _split_flow(inner: str, lineno: int) -> List[str]:
+def _split_flow(inner: str) -> List[str]:
     parts, buf, depth, in_s, in_d = [], "", 0, False, False
     for ch in inner:
         if ch == "'" and not in_d:
@@ -167,14 +167,14 @@ def _parse_flow_map(s: str, lineno: int) -> Dict[str, Any]:
     inner = s[1:-1].strip()
     if not inner:
         return out
-    for part in _split_flow(inner, lineno):
+    for part in _split_flow(inner):
         key, sep, val = part.partition(":")
         if not sep:
             raise ScenarioError("line %d: flow mapping 缺少 ':' —— %r" % (lineno, part.strip()))
-        k = _scalar(key, lineno)
+        k = _scalar(key)
         if not isinstance(k, str):
             raise ScenarioError("line %d: flow mapping 键必须是字符串" % lineno)
-        out[k] = _scalar(val, lineno)
+        out[k] = _scalar(val)
     return out
 
 
@@ -193,13 +193,13 @@ def _parse_map(lines: List[Tuple[int, str]], pos: int, indent: int) -> Tuple[Dic
         key, sep, rest = s.partition(":")
         if not sep:
             raise ScenarioError("line %d: 期望 'key: value'，得到 %r" % (lineno, s))
-        key = _scalar(key.strip(), lineno)
+        key = _scalar(key.strip())
         if not isinstance(key, str):
             raise ScenarioError("line %d: 映射键必须是字符串" % lineno)
         rest = rest.strip()
         pos += 1
         if rest:
-            out[key] = _parse_flow_map(rest, lineno) if rest.startswith("{") else _scalar(rest, lineno)
+            out[key] = _parse_flow_map(rest, lineno) if rest.startswith("{") else _scalar(rest)
         elif pos < len(lines):
             nxt_indent = _indent_of(lines[pos][1])
             nxt_is_seq = _strip_comment(lines[pos][1].strip()).startswith("-")
@@ -239,7 +239,7 @@ def _parse_seq(lines: List[Tuple[int, str]], pos: int, indent: int) -> Tuple[Lis
             continue
         key_col = indent + 1 + (len(after) - len(content))
         if content.startswith(("'", '"')) or ":" not in _strip_comment(content):
-            out.append(_scalar(content, lineno))
+            out.append(_scalar(content))
             continue
         # "- key: value" mapping item: re-anchor the first line at the key
         # column and parse a mapping from there; following keys of the same

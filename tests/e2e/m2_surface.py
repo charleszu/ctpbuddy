@@ -29,6 +29,7 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
+from harness import TIME_SCALE
 
 import os
 import socket
@@ -73,8 +74,6 @@ ERR_NO_ORDER = 25     # ORDER_NOT_FOUND       CTP:撤单找不到相应报单
 # 1 s window, so each section waits it out; `no_late` waits a short while for
 # a frame that must NOT come. CTPBUDDY_E2E_SLOW=1 doubles both; defaults are
 # unchanged.
-E2E_SLOW = os.environ.get("CTPBUDDY_E2E_SLOW", "") not in ("", "0")
-TIME_SCALE = 2.0 if E2E_SLOW else 1.0
 GATE_WINDOW_SLEEP = 1.05 * TIME_SCALE   # let the per-second window roll over
 LATE_FRAME_WAIT = 0.4 * TIME_SCALE      # how long a forbidden late frame gets to show up
 

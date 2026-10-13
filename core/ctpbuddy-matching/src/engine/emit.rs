@@ -51,15 +51,11 @@ impl MatchingEngine {
                 // 场景 8: cancel row first, and its VolumeTraded already
                 // carries everything that traded.
                 rec.status = b'5';
-                let seq = self.next_notify_seq();
-                rec.notify_seq = seq;
-                events.push(EngineEvent::Order(build_order_field(rec, ctx, seq)));
+                self.push_order_row(rec, ctx, events);
                 for (_, after, price, volume, trade_id) in fills {
                     let mut row = after.clone();
                     row.status = b'5';
-                    let seq = self.next_notify_seq();
-                    row.notify_seq = seq;
-                    events.push(EngineEvent::Order(build_order_field(&row, ctx, seq)));
+                    let seq = self.push_order_row(&mut row, ctx, events);
                     let trade = self.trade_event(&row, *price, *volume, trade_id, seq, ctx);
                     events.push(trade);
                 }
@@ -70,26 +66,20 @@ impl MatchingEngine {
                 for (before, after, price, volume, trade_id) in fills {
                     let trade = if layout == IocLayout::TradeDriven {
                         // 场景 9: one synthesized 部分成交 row, no 前态 repeat
-                        let seq = self.next_notify_seq();
                         let mut row = before.clone();
                         row.status = b'1';
                         row.volume_traded = after.volume_traded;
                         row.volume_total = after.volume_total;
                         row.order_sys_id = after.order_sys_id;
-                        row.notify_seq = seq;
-                        events.push(EngineEvent::Order(build_order_field(&row, ctx, seq)));
+                        let seq = self.push_order_row(&mut row, ctx, events);
                         self.trade_event(&row, *price, *volume, trade_id, seq, ctx)
                     } else {
                         // 场景 10: the general 前态+新态 pair
-                        let seq_prev = self.next_notify_seq();
                         let mut prev = before.clone();
-                        prev.notify_seq = seq_prev;
-                        events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
-                        let seq_new = self.next_notify_seq();
+                        self.push_order_row(&mut prev, ctx, events);
                         let mut row = after.clone();
                         row.status = b'1';
-                        row.notify_seq = seq_new;
-                        events.push(EngineEvent::Order(build_order_field(&row, ctx, seq_new)));
+                        let seq_new = self.push_order_row(&mut row, ctx, events);
                         self.trade_event(&row, *price, *volume, trade_id, seq_new, ctx)
                     };
                     events.push(trade);
@@ -116,15 +106,11 @@ impl MatchingEngine {
     ) {
         for (before, after, price, volume, trade_id) in fills {
             if layout != IocLayout::TradeDriven {
-                let seq_prev = self.next_notify_seq();
                 let mut prev = before.clone();
-                prev.notify_seq = seq_prev;
-                events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+                self.push_order_row(&mut prev, ctx, events);
             }
-            let seq_new = self.next_notify_seq();
             let mut row = after.clone();
-            row.notify_seq = seq_new;
-            events.push(EngineEvent::Order(build_order_field(&row, ctx, seq_new)));
+            let seq_new = self.push_order_row(&mut row, ctx, events);
             let trade = self.trade_event(&row, *price, *volume, trade_id, seq_new, ctx);
             events.push(trade);
         }
@@ -232,20 +218,30 @@ impl MatchingEngine {
         // 前态 (the state this order was last reported in)
         if !dce_self_complete {
             let mut prev = rec.clone();
-            let seq_prev = self.next_notify_seq();
-            prev.notify_seq = seq_prev;
-            events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+            self.push_order_row(&mut prev, ctx, events);
         }
         // 新态
         rec.volume_traded += volume;
         rec.volume_total -= volume;
         rec.status = if rec.volume_total == 0 { b'0' } else { b'1' };
         rec.order_sys_id = rec.internal_sys_id;
-        let seq_new = self.next_notify_seq();
-        rec.notify_seq = seq_new;
-        events.push(EngineEvent::Order(build_order_field(rec, ctx, seq_new)));
+        let seq_new = self.push_order_row(rec, ctx, events);
         let trade = self.trade_event(rec, price, volume, trade_id, seq_new, ctx);
         events.push(trade);
+    }
+
+    /// Stamp the next notify seq on `row` and push its OnRtnOrder event.
+    /// Returns the seq so a paired trade report can carry the same number.
+    pub(super) fn push_order_row(
+        &mut self,
+        row: &mut OrderRecord,
+        ctx: &ClockCtx,
+        events: &mut Vec<EngineEvent>,
+    ) -> i32 {
+        let seq = self.next_notify_seq();
+        row.notify_seq = seq;
+        events.push(EngineEvent::Order(build_order_field(row, ctx, seq)));
+        seq
     }
 
     /// Push a single order notification with a new status (no 前态 duplicate).
@@ -259,9 +255,7 @@ impl MatchingEngine {
         // 单行确认或 transition 的新态才越过接受边界，前态保持原外部状态。
         rec.order_sys_id = rec.internal_sys_id;
         rec.status = status;
-        let seq = self.next_notify_seq();
-        rec.notify_seq = seq;
-        events.push(EngineEvent::Order(build_order_field(rec, ctx, seq)));
+        self.push_order_row(rec, ctx, events);
     }
 
     /// Push a state transition per §8.9: 前态 then 新态.
@@ -273,9 +267,7 @@ impl MatchingEngine {
         ctx: &ClockCtx,
     ) {
         let mut prev = rec.clone();
-        let seq_prev = self.next_notify_seq();
-        prev.notify_seq = seq_prev;
-        events.push(EngineEvent::Order(build_order_field(&prev, ctx, seq_prev)));
+        self.push_order_row(&mut prev, ctx, events);
         self.push_status(rec, status, events, ctx);
     }
 
