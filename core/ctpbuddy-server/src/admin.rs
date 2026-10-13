@@ -1249,3 +1249,30 @@ impl World {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Config;
+
+    /// Review R1: ADMIN status must expose the journal's health object so a
+    /// diverging authoritative stream is visible in real time.
+    #[test]
+    fn journal_status_reports_health_and_disabled_state() {
+        let dir = std::env::temp_dir().join(format!("ctpbuddy-jstatus-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut cfg = Config::default();
+        cfg.data_dir = dir.to_str().unwrap().to_string();
+        let world = World::new(cfg).expect("world");
+        let v = world.journal_status();
+        assert_eq!(v.get_bool("enabled"), Some(true));
+        assert!(v.get_num("seq").is_some_and(|s| s >= 1.0));
+        assert_eq!(v.get_num("consecutive_failures"), Some(0.0));
+        assert!(matches!(v.get("error"), Some(Value::Null)));
+        drop(world);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let bare = World::new(Config::default()).expect("world");
+        assert!(matches!(bare.journal_status(), Value::Null));
+    }
+}

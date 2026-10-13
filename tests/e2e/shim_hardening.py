@@ -188,6 +188,43 @@ def test_payload_size_mismatch() -> None:
         listener.close()
 
 
+def test_auth_explicit_rejection() -> None:
+    """S4: an explicit {"ok":false} auth answer fires the failure callback
+    immediately (compat code 63) instead of waiting for a timeout."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+
+    def rejecting_front() -> None:
+        while True:
+            try:
+                peer, _ = listener.accept()
+            except OSError:
+                return
+            with peer:
+                while True:
+                    try:
+                        f = Frame.decode_from(peer)
+                    except OSError:
+                        break
+                    if f is None:
+                        break
+                    if f.msg_type == AUTH:
+                        peer.sendall(
+                            Frame(AUTH_RSP, f.req_id, b'{"ok":false,"error":"rejected"}').encode()
+                        )
+
+    threading.Thread(target=rejecting_front, daemon=True).start()
+    proc, lines = run_demo("tcp://127.0.0.1:%d" % listener.getsockname()[1])
+    try:
+        seen = wait_for(lines, "认证失败", timeout=30)
+        assert not any("DEMO: PASS" in l for l in seen)
+        print("[ok] auth rejection: explicit ok:false -> immediate failure callback")
+    finally:
+        stop(proc)
+        listener.close()
+
+
 def test_zmq_queue_full() -> None:
     """S2: a ROUTER that never reads; the demo's flood mode issues far more
     requests than the (shrunk) outbound queue + DEALER HWM can hold. Every
@@ -244,6 +281,7 @@ def main() -> int:
     require_demo()
     test_heartbeat()
     test_payload_size_mismatch()
+    test_auth_explicit_rejection()
     try:
         test_zmq_queue_full()
     except SystemExit as exc:

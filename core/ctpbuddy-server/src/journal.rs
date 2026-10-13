@@ -157,7 +157,8 @@ pub struct Journal {
     /// authoritative stream; surfacing the error in ADMIN status is the only
     /// real-time signal of that divergence.
     last_error: Option<String>,
-    /// Records that failed to write since the last success.
+    /// Durability operations (record write / flush / fsync) that failed since
+    /// the last success. Hard-fail mode stops the world once this is nonzero.
     consecutive_failures: u32,
 }
 
@@ -269,9 +270,7 @@ impl Journal {
                 .write_all(line.as_bytes())
                 .and_then(|_| self.writer.as_mut().unwrap().write_all(b"\n"))
         }) {
-            eprintln!("[ctpbuddy] journal write failed: {e}");
-            self.last_error = Some(format!("write: {e}"));
-            self.consecutive_failures += 1;
+            self.note_failure("write", &e);
             // Drop the writer; the next record tries to reopen.
             self.writer = None;
             return;
@@ -282,9 +281,18 @@ impl Journal {
         self.consecutive_failures = 0;
         if self.sync == SyncMode::Always {
             if let Err(e) = self.flush() {
-                eprintln!("[ctpbuddy] journal sync failed: {e}");
+                self.note_failure("sync", &e);
             }
         }
+    }
+
+    /// Record one failed durability operation (write / flush / fsync): the
+    /// ledger has already applied the event, so this divergence must be
+    /// visible -- and in hard-fail mode it stops the world.
+    fn note_failure(&mut self, context: &str, error: &std::io::Error) {
+        eprintln!("[ctpbuddy] journal {context} failed: {error}");
+        self.last_error = Some(format!("{context}: {error}"));
+        self.consecutive_failures += 1;
     }
 
     pub fn seq(&self) -> u64 {
@@ -322,8 +330,7 @@ impl Journal {
         }
         if self.pending >= FLUSH_EVENTS || now.duration_since(self.last_flush) >= FLUSH_EVERY {
             if let Err(error) = self.flush() {
-                eprintln!("[ctpbuddy] journal flush failed: {error}");
-                self.last_error = Some(format!("flush: {error}"));
+                self.note_failure("flush", &error);
             }
         }
     }

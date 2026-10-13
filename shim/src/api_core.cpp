@@ -918,7 +918,9 @@ int ApiCore::send_ctp_auth(const CThostFtdcReqAuthenticateField* req, int n_requ
                 auth_wire_req_id_ = f.req_id;
                 bound_auth_broker_ = broker;
                 bound_auth_user_ = user;
-                write_frame_locked(f);
+                // AUTH is a control frame: a full data queue must not wedge
+                // the handshake itself (review follow-up to the queue cap).
+                write_frame_locked(f, /*control=*/true);
             }
         }
     }
@@ -1195,6 +1197,13 @@ void ApiCore::on_auth_rsp(const Frame& f) {
     std::string body(reinterpret_cast<const char*>(f.payload.data()), f.payload.size());
     bool ok = body.find("\"ok\":true") != std::string::npos ||
               body.find("\"ok\": true") != std::string::npos;
+    const bool failed = body.find("\"ok\":false") != std::string::npos ||
+                        body.find("\"ok\": false") != std::string::npos;
+    // An explicit failure completes the handshake immediately. A shape we do
+    // not recognize at all leaves the auth pending in place: the heartbeat
+    // deadline is the timeout fallback, so a broken core cannot wedge the
+    // client with garbage -- the link dies loudly instead.
+    if (!ok && !failed) return;
 
     Frame stashed;
     int nrid = -1;
@@ -1226,16 +1235,27 @@ void ApiCore::on_auth_rsp(const Frame& f) {
     }
     CThostFtdcRspInfoField rsp{};
     rsp.ErrorID = 0;
-    if (ok) {
-        if (auth_pd.req_msg == msgs::AUTH) {
-            on_authenticate_rsp(&auth_pd.rsp_authenticate, rsp, auth_pd.n_request_id);
+        if (ok) {
+            if (auth_pd.req_msg == msgs::AUTH) {
+                on_authenticate_rsp(&auth_pd.rsp_authenticate, rsp, auth_pd.n_request_id);
+            }
+            if (have_stash) {
+                std::lock_guard<std::mutex> g(mu_);
+                if (!write_frame_locked(stashed)) {
+                    // outbound queue full: the stashed login can never be
+                    // sent, so complete it locally instead of leaving its
+                    // pending entry hanging (same surface as a duplicate
+                    // login: an error OnRspUserLogin on the reader thread).
+                    const int refused_nrid = take_pending(stashed.req_id).n_request_id;
+                    CThostFtdcRspInfoField refused{};
+                    refused.ErrorID = -2;
+                    set_text(refused.ErrorMsg, sizeof(refused.ErrorMsg),
+                             "发送队列已满，登录请求被拒绝");
+                    login_errors_.emplace_back(refused_nrid, refused);
+                }
+            }
+            return;
         }
-        if (have_stash) {
-            std::lock_guard<std::mutex> g(mu_);
-            write_frame_locked(stashed);
-        }
-        return;
-    }
 
     rsp.ErrorID = 63;  // 兼容策略：CTP:客户端认证失败
     set_text(rsp.ErrorMsg, sizeof(rsp.ErrorMsg), "CTP:客户端认证失败");
