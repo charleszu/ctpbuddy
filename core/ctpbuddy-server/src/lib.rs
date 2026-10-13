@@ -317,14 +317,16 @@ pub fn ensure_admin_loopback(endpoint: &str) -> std::io::Result<()> {
 pub const MAKER_AT_LIMIT_ENV: &str = "CTPBUDDY_MAKER_AT_LIMIT";
 
 fn maker_at_limit_enabled() -> bool {
-    matches!(
-        std::env::var(MAKER_AT_LIMIT_ENV)
-            .ok()
-            .as_deref()
-            .map(str::trim),
-        Some("1") | Some("true")
-    )
+    env_flag(std::env::var(MAKER_AT_LIMIT_ENV).ok().as_deref())
 }
+
+/// Per-connection FTD private-flow queue cap before backpressure rejects.
+const FTD_PENDING_CAP: usize = 1024;
+/// Frames drained per connection per pulse.
+const FTD_DRAIN_BATCH: usize = 1024;
+/// Backpressure rejection shared by the FTD queue and the query gate.
+pub(crate) const QRY_NOT_READY_CODE: i32 = 90;
+pub(crate) const QRY_NOT_READY_MSG: &str = "CTP：查询未就绪，请稍后重试";
 
 /// Env var overriding the concurrent-connection cap.
 pub const MAX_CONNS_ENV: &str = "CTPBUDDY_MAX_CONNS";
@@ -348,6 +350,11 @@ pub(crate) fn shared_connection_counter() -> Arc<std::sync::atomic::AtomicUsize>
     SHARED_CONN_COUNT
         .get_or_init(|| Arc::new(std::sync::atomic::AtomicUsize::new(0)))
         .clone()
+}
+
+/// Truthy env values are "1" and "true" (trimmed); everything else is false.
+pub(crate) fn env_flag(value: Option<&str>) -> bool {
+    matches!(value.map(str::trim), Some("1") | Some("true"))
 }
 
 pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
@@ -752,7 +759,7 @@ struct PrivateNotification {
 
 impl World {
     pub fn new(mut cfg: Config) -> std::io::Result<Self> {
-        let security = security::Security::load(&cfg.td_endpoint)?;
+        let security = security::Security::load()?;
         if cfg.exchange_limits.keys().any(|key| {
             !matches!(
                 key.as_str(),
@@ -1212,14 +1219,7 @@ impl World {
                     ("metric".into(), json::s(&a.metric)),
                     ("op".into(), json::s(a.op.symbol())),
                     ("value".into(), json::n(a.value)),
-                    (
-                        "actual".into(),
-                        if a.actual.is_finite() {
-                            json::n(a.actual)
-                        } else {
-                            Value::Null
-                        },
-                    ),
+                    ("actual".into(), json::num_or_null(a.actual)),
                     ("pass".into(), json::b(a.pass)),
                     ("evaluated".into(), json::b(a.evaluated)),
                     // same reason vocabulary as the journal `assertion` row
@@ -1304,14 +1304,7 @@ impl World {
             ("metric".into(), json::s(metric)),
             ("op".into(), json::s(op_sym)),
             ("value".into(), json::n(value)),
-            (
-                "actual".into(),
-                if actual.is_finite() {
-                    json::n(actual)
-                } else {
-                    Value::Null
-                },
-            ),
+            ("actual".into(), json::num_or_null(actual)),
             ("pass".into(), json::b(pass)),
             ("ok".into(), json::b(status == ASSERTION_OK)),
             ("status".into(), json::s(status)),
@@ -1731,8 +1724,8 @@ impl World {
         {
             return Some(frame);
         }
-        if conn.ftd_pending.len() >= 1024 {
-            self.send_error(conn_id, frame.req_id, 90, "CTP：查询未就绪，请稍后重试");
+        if conn.ftd_pending.len() >= FTD_PENDING_CAP {
+            self.send_error(conn_id, frame.req_id, QRY_NOT_READY_CODE, QRY_NOT_READY_MSG);
         } else {
             conn.ftd_pending.push_back(frame);
         }
@@ -1745,7 +1738,7 @@ impl World {
         let mut ids: Vec<_> = self.conns.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
-            for _ in 0..1024 {
+            for _ in 0..FTD_DRAIN_BATCH {
                 let frame = {
                     let Some(conn) = self.conns.get_mut(&id) else {
                         break;

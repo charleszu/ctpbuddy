@@ -69,10 +69,7 @@ pub const TD_TOKEN_ENV: &str = "CTPBUDDY_TD_TOKEN";
 pub(crate) fn auth_code_ok(expected: Option<&str>, presented: &str) -> bool {
     match expected {
         None | Some("") => true,
-        Some(e) => {
-            let (a, b) = (e.as_bytes(), presented.as_bytes());
-            a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
-        }
+        Some(e) => crate::constant_time_eq(e, presented),
     }
 }
 
@@ -604,14 +601,13 @@ impl World {
     }
 
     pub(crate) fn on_settle_confirm(&mut self, conn_id: u64, frame: &Frame) {
-        if self.session(conn_id).is_none() {
+        let Some((broker, user, ..)) = self.session(conn_id) else {
             return self.send_error(conn_id, frame.req_id, -3, "用户未登录");
-        }
+        };
         let req: CThostFtdcSettlementInfoConfirmField = match struct_from_bytes(&frame.payload) {
             Some(f) => f,
             None => return self.send_error(conn_id, frame.req_id, -2, "确认字段长度错误"),
         };
-        let (broker, user, _, _, _) = self.session(conn_id).unwrap();
         if cstr(&req.BrokerID) != broker || cstr(&req.InvestorID) != user {
             return self.send_error(conn_id, frame.req_id, 3, "结算确认身份与登录会话不一致");
         }

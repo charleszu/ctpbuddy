@@ -170,12 +170,7 @@ impl World {
     }
 
     pub(crate) fn minimal_reports(ledger: &Ledger, day: &str) -> Vec<Report> {
-        let mut accounts: Vec<_> = ledger.accounts().collect();
-        accounts.sort_by(|a, b| {
-            a.broker_id
-                .cmp(&b.broker_id)
-                .then(a.investor_id.cmp(&b.investor_id))
-        });
+        let accounts = accounts_sorted_by_broker(ledger);
         accounts.into_iter().map(|a| {
             let content = format!("CTPBuddy simulated ledger minimal settlement report\nSource=modeled_ledger_only; not an official broker statement\nTradingDay={day}\nBrokerID={}\nInvestorID={}\nCurrencyID={}\nSettledEquity={}\nCarriedMargin={}\nUnmodeled fields omitted; amounts from explicit settle_day\n", a.broker_id, a.investor_id, a.currency_id, a.pre_balance.to_f64(), a.used_margin.to_f64()).into_bytes();
             Report { broker: a.broker_id.clone(), investor: a.investor_id.clone(), day: day.into(), settlement_id: 1, account: a.investor_id.clone(), currency: a.currency_id.clone(), content, source: "modeled_ledger_minimal".into() }
@@ -199,6 +194,17 @@ fn valid_day(day: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// Accounts ordered by (broker, investor) — the stable admin/report order.
+pub(crate) fn accounts_sorted_by_broker(ledger: &Ledger) -> Vec<&ctpbuddy_ledger::Account> {
+    let mut accounts: Vec<_> = ledger.accounts().collect();
+    accounts.sort_by(|a, b| {
+        a.broker_id
+            .cmp(&b.broker_id)
+            .then(a.investor_id.cmp(&b.investor_id))
+    });
+    accounts
 }
 
 pub(crate) fn load_reports(dir: &str, brokers: &[&str]) -> Result<Vec<Report>, String> {

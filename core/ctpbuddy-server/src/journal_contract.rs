@@ -581,6 +581,7 @@ fn matches_data_type(value: &crate::json::Value, kind: &str) -> bool {
 }
 
 /// Canonical JSON used by the shared vector tests (sorted keys, wall clock omitted).
+#[cfg(test)]
 pub fn canonical_event(event: &Value) -> String {
     let mut normalized = event.clone();
     if let Some(object) = normalized.as_object_mut() {

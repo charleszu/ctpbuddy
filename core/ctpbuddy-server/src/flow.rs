@@ -14,7 +14,6 @@ pub(crate) fn connect_gate(
     tx: &std::sync::mpsc::Sender<crate::WorldMsg>,
     scope: &'static str,
 ) -> bool {
-    origin();
     let allowed = budget.take(now, limit);
     if limit != 0 {
         let _ = tx.send(crate::WorldMsg::FlowConnect {

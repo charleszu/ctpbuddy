@@ -25,10 +25,7 @@ pub const SYNC_ENV: &str = "CTPBUDDY_JOURNAL_SYNC";
 pub const HARD_FAIL_ENV: &str = "CTPBUDDY_JOURNAL_HARD_FAIL";
 
 pub fn hard_fail_enabled() -> bool {
-    matches!(
-        std::env::var(HARD_FAIL_ENV).ok().as_deref().map(str::trim),
-        Some("1") | Some("true")
-    )
+    crate::env_flag(std::env::var(HARD_FAIL_ENV).ok().as_deref())
 }
 
 /// Read the durable journal tail that belongs to the snapshot sequence.
@@ -242,7 +239,7 @@ impl Journal {
         data: Value,
     ) {
         let next_seq = self.seq + 1;
-        let (_d, _t, _ms, iso) = now_wall();
+        let iso = now_wall();
         let mut pairs: Vec<(String, Value)> = vec![
             ("seq".into(), json::n(next_seq as f64)),
             ("ts_wall".into(), json::s(&iso)),

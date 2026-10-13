@@ -135,6 +135,14 @@ pub fn n(x: f64) -> Value {
 pub fn b(x: bool) -> Value {
     Value::Bool(x)
 }
+/// A finite number, or `null` for NaN/Infinity (assertion "actual" columns).
+pub fn num_or_null(x: f64) -> Value {
+    if x.is_finite() {
+        Value::Num(x)
+    } else {
+        Value::Null
+    }
+}
 
 /// Parse JSON text. Returns a human-readable error string on failure.
 pub fn parse(text: &str) -> Result<Value, String> {

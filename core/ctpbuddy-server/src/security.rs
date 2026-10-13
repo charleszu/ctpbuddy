@@ -22,7 +22,7 @@ pub(crate) fn configured_secret(key: &str) -> io::Result<Option<String>> {
 }
 
 impl Security {
-    pub fn load(_endpoint: &str) -> io::Result<Self> {
+    pub fn load() -> io::Result<Self> {
         Ok(Self {
             admin_token: configured_secret(crate::ADMIN_TOKEN_ENV)?,
         })

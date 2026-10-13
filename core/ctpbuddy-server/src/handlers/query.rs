@@ -497,7 +497,12 @@ impl World {
         if used <= quota {
             return true;
         }
-        self.send_error(conn_id, req_id, 90, "CTP：查询未就绪，请稍后重试");
+        self.send_error(
+            conn_id,
+            req_id,
+            crate::QRY_NOT_READY_CODE,
+            crate::QRY_NOT_READY_MSG,
+        );
         false
     }
 

@@ -783,12 +783,7 @@ impl World {
         if let Some(pb) = staged_playback.as_mut() {
             pb.advance_trading_day(&next_day);
         }
-        let mut accounts: Vec<_> = staged_ledger.accounts().collect();
-        accounts.sort_by(|a, b| {
-            a.broker_id
-                .cmp(&b.broker_id)
-                .then(a.investor_id.cmp(&b.investor_id))
-        });
+        let accounts = crate::settlement::accounts_sorted_by_broker(&staged_ledger);
         let account_results = Value::Arr(
             accounts
                 .iter()
@@ -998,12 +993,8 @@ impl World {
                             position.instrument_id
                         )
                     })?;
-                if !price.is_finite() || price <= 0.0 {
-                    return Err(format!(
-                        "到期合约 {} 的强平价必须为正有限数",
-                        position.instrument_id
-                    ));
-                }
+                // Positive-finiteness is enforced once over the whole price
+                // map before staging starts (see settle_day).
                 let direction = match position.side {
                     ctpbuddy_ledger::PositionSide::Long => Direction::Sell,
                     ctpbuddy_ledger::PositionSide::Short => Direction::Buy,
