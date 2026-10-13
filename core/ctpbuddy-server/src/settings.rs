@@ -175,11 +175,8 @@ impl World {
         let Value::Obj(pairs) = v else {
             return Err("请求必须是对象".into());
         };
-        let mut seen = HashSet::new();
-        for (k, _) in pairs {
-            if !seen.insert(k) || !["cmd", "patch"].contains(&k.as_str()) {
-                return Err(format!("未知或重复请求键 {k}"));
-            }
+        if let Some(k) = json::unknown_or_duplicate(pairs, &["cmd", "patch"]) {
+            return Err(format!("未知或重复请求键 {k}"));
         }
         let next = patch(&self.cfg, v.get("patch").ok_or("缺少 patch")?)?;
         if self.journal.is_none() {

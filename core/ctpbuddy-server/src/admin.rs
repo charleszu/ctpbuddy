@@ -41,10 +41,7 @@ impl World {
                 if cmd != "auth" {
                     return self.admin_error(conn_id, frame.req_id, "ADMIN 未认证：请先发送 auth");
                 }
-                if !matches!(&v, Value::Obj(fields) if fields.len() == 2
-                    && fields.iter().filter(|(key, _)| key == "cmd").count() == 1
-                    && fields.iter().filter(|(key, _)| key == "token").count() == 1)
-                {
+                if !json::exact_keys(&v, &["cmd", "token"]) {
                     return self.admin_error(conn_id, frame.req_id, "auth 仅接受 cmd/token 字段");
                 }
                 let presented = v.get_str("token").unwrap_or_default();
@@ -575,8 +572,7 @@ impl World {
     }
 
     fn admin_set_speed(&mut self, conn_id: u64, req_id: u32, v: &Value) {
-        if !matches!(v, Value::Obj(fields) if fields.len() == 2 && fields.iter().filter(|(key, _)| key == "cmd").count() == 1 && fields.iter().filter(|(key, _)| key == "speed").count() == 1)
-        {
+        if !json::exact_keys(v, &["cmd", "speed"]) {
             return self.admin_error(conn_id, req_id, "set_speed 仅允许 cmd 与 speed");
         }
         let Some(speed) = v.get("speed").and_then(Value::as_num) else {
@@ -646,13 +642,8 @@ impl World {
         let Some(fields) = v.as_obj() else {
             return self.admin_error(conn_id, req_id, &format!("{command} 请求必须为对象"));
         };
-        let mut seen = std::collections::HashSet::new();
-        for (key, _) in fields {
-            if !matches!(key.as_str(), "cmd" | "broker" | "investor" | "amount")
-                || !seen.insert(key)
-            {
-                return self.admin_error(conn_id, req_id, &format!("{command} 含未知或重复字段"));
-            }
+        if json::unknown_or_duplicate(fields, &["cmd", "broker", "investor", "amount"]).is_some() {
+            return self.admin_error(conn_id, req_id, &format!("{command} 含未知或重复字段"));
         }
         let broker = match v.get_str("broker") {
             Some(value) if !value.is_empty() && self.cfg.supports_broker(&value) => value,
@@ -740,15 +731,10 @@ impl World {
         let Some(fields) = v.as_obj() else {
             return Err(("settle_day 请求必须为对象").to_string());
         };
-        let mut seen = std::collections::HashSet::new();
-        for (key, _) in fields {
-            if !matches!(
-                key.as_str(),
-                "cmd" | "settlement_prices" | "next_trading_day"
-            ) || !seen.insert(key)
-            {
-                return Err(("settle_day 含未知或重复字段").to_string());
-            }
+        if json::unknown_or_duplicate(fields, &["cmd", "settlement_prices", "next_trading_day"])
+            .is_some()
+        {
+            return Err(("settle_day 含未知或重复字段").to_string());
         }
         let mut map = std::collections::HashMap::new();
         for (instrument, value) in prices {
@@ -911,11 +897,8 @@ impl World {
             return self.admin_error(conn_id, req_id, "announce 需要 message");
         };
         let severity = v.get_str("severity").unwrap_or_else(|| "info".to_string());
-        let mut seen = std::collections::HashSet::new();
-        for (key, _) in fields {
-            if !matches!(key.as_str(), "cmd" | "message" | "severity") || !seen.insert(key) {
-                return self.admin_error(conn_id, req_id, "announce 含未知或重复字段");
-            }
+        if json::unknown_or_duplicate(fields, &["cmd", "message", "severity"]).is_some() {
+            return self.admin_error(conn_id, req_id, "announce 含未知或重复字段");
         }
         if message.is_empty() || message.len() > 4096 {
             return self.admin_error(conn_id, req_id, "announce message 长度必须为 1..4096");

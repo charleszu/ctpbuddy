@@ -136,6 +136,27 @@ pub fn b(x: bool) -> Value {
     Value::Bool(x)
 }
 
+/// True when the object holds exactly `keys` — each once, nothing else.
+pub fn exact_keys(v: &Value, keys: &[&str]) -> bool {
+    let Some(fields) = v.as_obj() else {
+        return false;
+    };
+    fields.len() == keys.len() && fields.iter().all(|(key, _)| keys.contains(&key.as_str()))
+}
+
+/// First key that is outside `allowed` or appears twice; None when clean.
+pub fn unknown_or_duplicate<'a>(
+    fields: &'a [(String, Value)],
+    allowed: &[&str],
+) -> Option<&'a str> {
+    for (index, (key, _)) in fields.iter().enumerate() {
+        if !allowed.contains(&key.as_str()) || fields[..index].iter().any(|(seen, _)| seen == key) {
+            return Some(key);
+        }
+    }
+    None
+}
+
 /// A finite number, or `null` for NaN/Infinity (assertion "actual" columns).
 pub fn num_or_null(x: f64) -> Value {
     if x.is_finite() {

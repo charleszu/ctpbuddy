@@ -18,22 +18,22 @@ pub(crate) struct Report {
 impl Report {
     pub fn parse(v: &Value, broker: &str) -> Result<Self, String> {
         let fields = v.as_obj().ok_or("报告必须为对象")?;
-        let mut seen = std::collections::HashSet::new();
-        for (k, _) in fields {
-            if !matches!(
-                k.as_str(),
-                "broker"
-                    | "investor"
-                    | "trading_day"
-                    | "settlement_id"
-                    | "account_id"
-                    | "currency_id"
-                    | "content_bytes"
-                    | "source"
-            ) || !seen.insert(k)
-            {
-                return Err("报告含未知或重复字段".into());
-            }
+        if json::unknown_or_duplicate(
+            fields,
+            &[
+                "broker",
+                "investor",
+                "trading_day",
+                "settlement_id",
+                "account_id",
+                "currency_id",
+                "content_bytes",
+                "source",
+            ],
+        )
+        .is_some()
+        {
+            return Err("报告含未知或重复字段".into());
         }
         let b = v.get_str("broker").ok_or("报告缺少 broker")?;
         let investor = v.get_str("investor").ok_or("报告缺少 investor")?;
