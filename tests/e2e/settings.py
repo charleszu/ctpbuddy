@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """柜台设置 ADMIN/TCP/HTTP 回归：真实生效、持久化、严格拒绝与安全来源。"""
 from __future__ import annotations
+from harness import find_core, free_port
 import json, os, socket, subprocess, sys, tempfile, threading, time, urllib.error, urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "py"))
 from ctpbuddy.sdk import Admin, Client, CTPError
@@ -8,11 +9,6 @@ from ctpbuddy.wire import REQ_QRY_INSTRUMENT
 from ctpbuddy.generated import structs
 from ctpbuddy.web import make_server
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CORE = os.environ.get("CTPBUDDY_CORE", os.path.join(ROOT, "core", "target", "debug", "ctpbuddy-server.exe"))
-
-def port():
-    s=socket.socket(); s.bind(("127.0.0.1",0)); p=s.getsockname()[1]; s.close(); return p
 
 def wait_admin(addr):
     end=time.time()+10
@@ -23,8 +19,8 @@ def wait_admin(addr):
     raise AssertionError("ADMIN 未启动")
 
 def main():
-    data=tempfile.mkdtemp(prefix="ctpbuddy-settings-e2e-"); td, ap=port(), port()
-    cmd=[CORE,"--td",f"127.0.0.1:{td}","--admin",f"127.0.0.1:{ap}","--data-dir",data]
+    data=tempfile.mkdtemp(prefix="ctpbuddy-settings-e2e-"); td, ap=free_port(), free_port()
+    cmd=[find_core(),"--td",f"127.0.0.1:{td}","--admin",f"127.0.0.1:{ap}","--data-dir",data]
     proc=subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         addr=f"127.0.0.1:{ap}"; initial=wait_admin(addr)

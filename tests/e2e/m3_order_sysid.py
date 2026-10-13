@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """任务43：OrderSysID 首条为空、accepted 后最终非空且关联稳定。"""
 from __future__ import annotations
+from harness import find_core
 
 import os
 import queue
@@ -88,7 +89,7 @@ def make_scenario(path: str) -> None:
 def main() -> int:
     core = os.environ.get("CTPBUDDY_CORE")
     if not core:
-        core = os.path.join(REPO, "core", "target", "task43", "debug", "ctpbuddy-server.exe")
+        core = find_core()
     tmp = tempfile.mkdtemp(prefix="ctpbuddy-order-sysid-")
     scenario = os.path.join(tmp, "scenario")
     os.makedirs(scenario)

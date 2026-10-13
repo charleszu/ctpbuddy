@@ -1,4 +1,5 @@
 """Record wall-clock budgets then replay them without real-time sleeps."""
+from harness import TIME_SCALE
 from pathlib import Path
 import json
 import socket
@@ -71,14 +72,14 @@ def main():
                     # Burst crosses the FTD window and saturates its bounded queue.
                     cli.sock.sendall(Frame(PING, 98, b"x" * (1 << 20)).encode())
                     cli.sock.sendall(b"".join(Frame(PING, n).encode() for n in range(100, 1160)))
-                    time.sleep(1.15)
+                    time.sleep(1.15 * TIME_SCALE)
                     # Another investor starts in a new connection window.
                     with Client(td) as other:
                         other.auth(BROKER, "other")
                         other.login(BROKER, "other")
                         other.settle_confirm()
                         other.order_insert(RB, direction="0", offset="0", volume=1, limit_price=3400, order_ref="1")
-                    time.sleep(1.1)
+                    time.sleep(1.1 * TIME_SCALE)
                     with Client(td) as broker_peer:
                         broker_peer.auth("9999", "trace")
                         broker_peer.login("9999", "trace")
