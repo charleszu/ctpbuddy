@@ -1730,6 +1730,9 @@ impl World {
 
     fn drain_ftd(&mut self, now: Instant) {
         self.flow_clock = now;
+        if !self.conns.values().any(|c| !c.ftd_pending.is_empty()) {
+            return;
+        }
         let mut recorded = false;
         let mut ids: Vec<_> = self.conns.keys().copied().collect();
         ids.sort_unstable();
@@ -1810,10 +1813,12 @@ impl World {
     fn push_market_data(&mut self, tick: &Tick) {
         let field = tick.to_depth_md();
         let frame = Frame::new(msgs::RTN_DEPTH_MD, 0, struct_to_bytes(&field));
-        self.publish(Broadcast {
-            topic: format!("md/{}/{}", tick.exchange_id, tick.instrument_id),
-            frame: frame.clone(),
-        });
+        if self.broadcast_tx.is_some() {
+            self.publish(Broadcast {
+                topic: format!("md/{}/{}", tick.exchange_id, tick.instrument_id),
+                frame: frame.clone(),
+            });
+        }
         let subs: Vec<u64> = self
             .conns
             .iter()
@@ -1851,14 +1856,12 @@ impl World {
             self.ledger.unfreeze_order(&key, self.engine.catalog());
         }
         self.private_seq.push((false, self.orders_today.len()));
-        self.orders_today.push(field);
-        let field = self.orders_today.last().expect("order just appended");
-        let field = *field;
         let frame = Frame::new(msgs::RTN_ORDER, 0, struct_to_bytes(&field));
         let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         self.journal_record_order_update(&day, now, &field);
+        self.orders_today.push(field);
         PrivateNotification {
             broker: b,
             investor: i,
@@ -1882,14 +1885,12 @@ impl World {
             &self.vt_trading_day,
         );
         self.private_seq.push((true, self.trades_today.len()));
-        self.trades_today.push(field);
-        let field = self.trades_today.last().expect("trade just appended");
-        let field = *field;
         let frame = Frame::new(msgs::RTN_TRADE, 0, struct_to_bytes(&field));
         let (b, i) = (cstr(&field.BrokerID), cstr(&field.InvestorID));
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         self.journal_record_fill(&day, now, &fill, pre_settle);
+        self.trades_today.push(field);
         PrivateNotification {
             broker: b,
             investor: i,
@@ -1898,10 +1899,12 @@ impl World {
     }
 
     fn emit_private_notification(&mut self, notification: PrivateNotification) {
-        self.publish(Broadcast {
-            topic: format!("td/{}/{}", notification.broker, notification.investor),
-            frame: notification.frame.clone(),
-        });
+        if self.broadcast_tx.is_some() {
+            self.publish(Broadcast {
+                topic: format!("td/{}/{}", notification.broker, notification.investor),
+                frame: notification.frame.clone(),
+            });
+        }
         let targets = self.investor_conns(&notification.broker, &notification.investor);
         self.mark_delivered(
             &notification.broker,
@@ -2003,6 +2006,9 @@ impl World {
         investor_id: &str,
         data: Value,
     ) {
+        if self.journal.is_none() {
+            return;
+        }
         let day = self.vt_trading_day.clone();
         let now = self.vt_now_ms;
         if let Some(j) = self.journal.as_mut() {
@@ -2018,6 +2024,9 @@ impl World {
     }
 
     fn journal_record_order_update(&mut self, day: &str, ms: f64, field: &CThostFtdcOrderField) {
+        if self.journal.is_none() {
+            return;
+        }
         let data = json::obj_sorted(vec![
             ("order_ref".into(), json::s(&cstr(&field.OrderRef))),
             ("order_sys_id".into(), json::s(&cstr(&field.OrderSysID))),
@@ -2056,6 +2065,9 @@ impl World {
         fill: &ctpbuddy_matching::Fill,
         pre_settlement: f64,
     ) {
+        if self.journal.is_none() {
+            return;
+        }
         let data = json::obj_sorted(vec![
             ("trade_id".into(), json::s(&cstr(&fill.trade_id))),
             ("order_sys_id".into(), json::s(&cstr(&fill.order_sys_id))),
