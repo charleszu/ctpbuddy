@@ -1804,6 +1804,37 @@ def test_sdk_lifecycle():
 
 
 def main() -> int:
+    # Drift sentinel: every top-level test_* defined above must be invoked
+    # here -- a forgotten registration would otherwise be skipped silently.
+    _registered = {
+        "test_sdk_lifecycle",
+        "test_sdk_subscribe",
+        "test_sdk_exception_contract",
+        "test_refdata_numeric",
+        "test_refdata_manifest",
+        "test_refdata_contract_artifact",
+        "test_refdata_contract_vectors",
+        "test_cross_margin_refdata_contract",
+        "test_replay_admin_inputs",
+        "test_journal_contract",
+        "test_shim_install_security",
+        "test_shim_install_faults",
+        "test_assertions_cli",
+        "test_struct_layout",
+        "test_frames",
+        "test_scenario",
+        "test_dsl_spec",
+        "test_dsl_errors",
+        "test_dsl_compile",
+        "test_calendar",
+        "test_journal_hash",
+        "test_journal_projection",
+        "test_projection_calendar_metadata",
+        "test_web_projection",
+        "test_web_replay",
+    }
+    _defined = {name for name, value in globals().items() if name.startswith("test_") and callable(value)}
+    assert _defined == _registered, "test_py.py: forgot to register: %s" % (_defined - _registered)
     test_sdk_lifecycle()
     test_sdk_subscribe()
     test_sdk_exception_contract()

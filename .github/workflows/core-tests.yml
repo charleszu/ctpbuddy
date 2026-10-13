@@ -40,9 +40,7 @@ jobs:
       - name: Rust 单元测试
         run: cargo test --locked --workspace --manifest-path core/Cargo.toml
       - name: Canonical journal contract 向量与 fail-closed 校验
-        run: |
-          cargo test --locked -p ctpbuddy-server journal_contract --manifest-path core/Cargo.toml
-          python tests/test_journal_contract.py
+        run: python tests/test_journal_contract.py
       - name: Rust 核心构建（确保 server exe 存在）
         run: cargo build --locked --bin ctpbuddy-server --manifest-path core/Cargo.toml
       - name: Python 单元测试
@@ -53,6 +51,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/test_projection_upgrade.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/e2e/m4_install_shim.py
 
   e2e:
     runs-on: windows-latest
