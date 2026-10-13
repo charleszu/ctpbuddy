@@ -16,6 +16,7 @@ Rejection surfaces (DESIGN §8.12, #42) mirror real CTP's two callbacks:
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import queue
 import socket
@@ -234,30 +235,40 @@ class Client:
     def _is_rejection(f: Frame) -> bool:
         return f.msg_type in REJECTION_FRAMES
 
-    def _request(self, msg_type: int, payload: bytes = b"", expect: Optional[int] = None,
-                 timeout: Optional[float] = None) -> Frame:
+    @contextlib.contextmanager
+    def _slot(self, multi: bool = False):
+        """Register a pending slot for one request; always releases it."""
         req_id = self._next_req_id()
-        p = _Pending()
+        p = _Pending(multi=multi)
         with self._lock:
             if self._closed:
                 reason = self._close_reason
                 raise CTPError(-1, reason or "connection closed", kind="CLOSED")
             self._pending[req_id] = p
-        wait = self._timeout if timeout is None else timeout
         try:
-            with self._send_lock:
-                self.sock.sendall(Frame(msg_type, req_id, payload).encode())
-            f = p.q.get(timeout=wait)
-        except queue.Empty:
-            raise CTPError(
-                -3, "msg 0x%04x (req_id %d) timed out after %.1fs"
-                % (msg_type, req_id, wait)
-            ) from None
-        except OSError as exc:
-            self.close()
-            raise self._closed_error() from exc
+            yield req_id, p
         finally:
             self._pending.pop(req_id, None)
+
+    def _send_frame(self, msg_type: int, req_id: int, payload: bytes) -> None:
+        with self._send_lock:
+            self.sock.sendall(Frame(msg_type, req_id, payload).encode())
+
+    def _request(self, msg_type: int, payload: bytes = b"", expect: Optional[int] = None,
+                 timeout: Optional[float] = None) -> Frame:
+        wait = self._timeout if timeout is None else timeout
+        with self._slot() as (req_id, p):
+            try:
+                self._send_frame(msg_type, req_id, payload)
+                f = p.q.get(timeout=wait)
+            except queue.Empty:
+                raise CTPError(
+                    -3, "msg 0x%04x (req_id %d) timed out after %.1fs"
+                    % (msg_type, req_id, wait)
+                ) from None
+            except OSError as exc:
+                self.close()
+                raise self._closed_error() from exc
         if f is CLOSED:
             raise self._closed_error()
         if self._is_rejection(f):
@@ -292,41 +303,32 @@ class Client:
 
     def _query_once(self, req_msg: int, rsp_msg: int, payload: bytes) -> "tuple[List[bytes], bool]":
         """One query attempt: `(rows, throttled)`; throttled -> re-issue."""
-        req_id = self._next_req_id()
-        p = _Pending(multi=True)
-        with self._lock:
-            if self._closed:
-                reason = self._close_reason
-                raise CTPError(-1, reason or "connection closed", kind="CLOSED")
-            self._pending[req_id] = p
         out: List[bytes] = []
-        try:
-            with self._send_lock:
-                self.sock.sendall(Frame(req_msg, req_id, payload).encode())
-            while True:
-                try:
-                    f = p.q.get(timeout=self._timeout)
-                except queue.Empty:
-                    raise CTPError(
-                        -3, "msg 0x%04x (req_id %d) timed out after %.1fs"
-                        % (req_msg, req_id, self._timeout)
-                    ) from None
-                if f is CLOSED:
-                    raise self._closed_error()
-                if f.msg_type == QRY_LAST:
-                    return out, False
-                if f.msg_type == RSP_ERROR:
-                    info = generated.unpack("CThostFtdcRspInfoField", f.payload)
-                    if info.get("ErrorID") == 90:
-                        return out, True  # NEED_RETRY: budget spent, nothing ran
-                    raise CTPError(info["ErrorID"], info["ErrorMsg"])
-                if f.msg_type == rsp_msg:
-                    out.append(f.payload)
-        except OSError as exc:
-            self.close()
-            raise self._closed_error() from exc
-        finally:
-            self._pending.pop(req_id, None)
+        with self._slot(multi=True) as (req_id, p):
+            try:
+                self._send_frame(req_msg, req_id, payload)
+                while True:
+                    try:
+                        f = p.q.get(timeout=self._timeout)
+                    except queue.Empty:
+                        raise CTPError(
+                            -3, "msg 0x%04x (req_id %d) timed out after %.1fs"
+                            % (req_msg, req_id, self._timeout)
+                        ) from None
+                    if f is CLOSED:
+                        raise self._closed_error()
+                    if f.msg_type == QRY_LAST:
+                        return out, False
+                    if f.msg_type == RSP_ERROR:
+                        info = generated.unpack("CThostFtdcRspInfoField", f.payload)
+                        if info.get("ErrorID") == 90:
+                            return out, True  # NEED_RETRY: budget spent, nothing ran
+                        raise CTPError(info["ErrorID"], info["ErrorMsg"])
+                    if f.msg_type == rsp_msg:
+                        out.append(f.payload)
+            except OSError as exc:
+                self.close()
+                raise self._closed_error() from exc
 
     def ping(self) -> None:
         """Protocol-level liveness (no session needed)."""
@@ -465,35 +467,26 @@ class Client:
         payload = b"".join(
             generated.pack("CThostFtdcSpecificInstrumentField", InstrumentID=i) for i in names
         )
-        req_id = self._next_req_id()
-        p = _Pending(multi=True)
-        with self._lock:
-            if self._closed:
-                reason = self._close_reason
-                raise CTPError(-1, reason or "connection closed", kind="CLOSED")
-            self._pending[req_id] = p
         out: List[Frame] = []
-        try:
-            with self._send_lock:
-                self.sock.sendall(Frame(msg_type, req_id, payload).encode())
-            while len(out) < len(names):
-                try:
-                    f = p.q.get(timeout=self._timeout)
-                except queue.Empty:
-                    raise CTPError(-3, "msg 0x%04x answered %d of %d instruments before timeout"
-                                   % (msg_type, len(out), len(names))) from None
-                if f is CLOSED:
-                    raise self._closed_error()
-                if self._is_rejection(f):
-                    raise CTPError.from_frame(f)
-                if f.msg_type != rsp_type:
-                    raise CTPError(-2, "expected msg 0x%04x, got 0x%04x" % (rsp_type, f.msg_type))
-                out.append(f)
-        except OSError as exc:
-            self.close()
-            raise self._closed_error() from exc
-        finally:
-            self._pending.pop(req_id, None)
+        with self._slot(multi=True) as (req_id, p):
+            try:
+                self._send_frame(msg_type, req_id, payload)
+                while len(out) < len(names):
+                    try:
+                        f = p.q.get(timeout=self._timeout)
+                    except queue.Empty:
+                        raise CTPError(-3, "msg 0x%04x answered %d of %d instruments before timeout"
+                                       % (msg_type, len(out), len(names))) from None
+                    if f is CLOSED:
+                        raise self._closed_error()
+                    if self._is_rejection(f):
+                        raise CTPError.from_frame(f)
+                    if f.msg_type != rsp_type:
+                        raise CTPError(-2, "expected msg 0x%04x, got 0x%04x" % (rsp_type, f.msg_type))
+                    out.append(f)
+            except OSError as exc:
+                self.close()
+                raise self._closed_error() from exc
         return out
 
     def subscribe(self, instruments: Iterable[str]) -> List[Frame]:
