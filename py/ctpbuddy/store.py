@@ -248,8 +248,9 @@ def _project(conn, events):
         b, i = e.get("broker", ""), e.get("investor", "")
         d = e["data"] or {}
         raw = _json(d)
+        raw_data = raw if e["data"] is not None else "null"
         conn.execute("INSERT INTO journal_event VALUES (?,?,?,?,?,?,?,?)",
-                     (s, day, e["vt_ms"], e["ts_wall"], t, b, i, _json(e["data"])))
+                     (s, day, e["vt_ms"], e["ts_wall"], t, b, i, raw_data))
         if b and i:
             conn.execute("INSERT INTO account VALUES (?,?,?,?) ON CONFLICT(broker_id,investor_id) DO UPDATE SET last_seq=excluded.last_seq", (b, i, s, s))
         if t == "order_insert":

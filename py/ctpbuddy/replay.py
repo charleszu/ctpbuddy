@@ -777,7 +777,14 @@ def replay_journal(
         skip = UNREPLAYABLE_ADMIN_TYPES if walker.not_replayed else None
         recorded_core = hash_stream(without_types(events, skip), core=True)
         replay_core = hash_stream(without_types(replay_events, skip), core=True)
-        diff = first_core_diff(events, replay_events, skip=skip)
+        # equal core hashes imply identical canonical streams (the ok verdict
+        # below already rests on that assumption), so skip the full
+        # normalize+canonicalize diff pass on the success path.
+        diff = (
+            first_core_diff(events, replay_events, skip=skip)
+            if recorded_core != replay_core
+            else None
+        )
         flow_result = {"verified": False, "inputs": 0, "outputs": 0}
         if flow_replay:
             # Broadcast iteration order may differ across connections; SPI
