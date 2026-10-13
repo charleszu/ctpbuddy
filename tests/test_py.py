@@ -1055,6 +1055,23 @@ def test_web_replay() -> None:
             rejected("/api/replay", {"cmd": "pause"}, 415, {"Content-Type": "text/plain"})
             rejected("/api/replay", b"x" * 8193, 413)
             rejected("/api/replay", {"cmd": "pause"}, 400, {"Transfer-Encoding": "chunked"})
+            # review P4: the settlement route derives its body cap from the
+            # report limits (16 x 512 KiB + envelope), so a >8 KiB report is
+            # accepted instead of dying on the generic bound
+            big = {"confirmed": True, "reports": [
+                {"broker": "8888", "investor": "web1", "trading_day": "20261012",
+                 "settlement_id": 1, "content": "x" * 20000},
+            ]}
+            assert len(json.dumps(big).encode()) > 8192
+            accepted = json.loads(request("/api/admin/settlement_report", big, "POST").read())
+            assert accepted["cmd"] == "settlement_report"
+            call_cmd, call_args = FakeAdmin.calls[-1]
+            assert call_cmd == "settlement_report"
+            assert call_args["reports"][0]["content_bytes"][:3] == [120, 120, 120]
+            # ...while a body past the derived cap is still refused
+            rejected("/api/admin/settlement_report", {"confirmed": True, "reports": [
+                {"broker": "8888", "investor": "web1", "trading_day": "20261012",
+                 "settlement_id": 1, "content": "x" * 9_000_000}]}, 413)
             import http.client
             for duplicate in ("Host", "Origin", "X-CSRF-Token", "Content-Length"):
                 connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
@@ -1377,6 +1394,54 @@ def test_sdk_subscribe() -> None:
                     assert exc.error_id == -3 and "1 of 2" in str(exc), exc
                 t.join(timeout=2)
     print("[ok] SDK: subscribe/unsubscribe collect one RSP per instrument, rejection, pushes untouched")
+
+
+def test_sdk_exception_contract() -> None:
+    """Review P1/P2: every wait timeout raises CTPError (never a bare
+    queue.Empty), and a decode failure on the wire surfaces as a protocol
+    error instead of an indistinguishable "connection closed"."""
+    from ctpbuddy.sdk.client import Client, CTPError
+    from ctpbuddy.wire import Frame, PING
+
+    # 1) a silent server: the request times out as CTPError(-3)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        with Client("127.0.0.1:%d" % listener.getsockname()[1], timeout=0.5) as client:
+            peer, _ = listener.accept()
+            with peer:
+                try:
+                    client.ping()
+                    raise AssertionError("silent server must time out")
+                except CTPError as exc:
+                    assert exc.error_id == -3 and "timed out" in str(exc), exc
+                # the connection stays usable: drain the frame that timed out
+                # (it is still in the server's buffer), then answer the next
+                def answer():
+                    timed_out = Frame.decode_from(peer)
+                    assert timed_out.msg_type == PING, timed_out.msg_type
+                    req = Frame.decode_from(peer)
+                    assert req.msg_type == PING and req.req_id != timed_out.req_id, req.req_id
+                    peer.sendall(Frame(0x0002, req.req_id, b"").encode())
+                t = threading.Thread(target=answer)
+                t.start()
+                client.ping()
+                t.join(timeout=2)
+
+    # 2) a protocol break (bad magic): the failure names the decode error
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        with Client("127.0.0.1:%d" % listener.getsockname()[1], timeout=2.0) as client:
+            peer, _ = listener.accept()
+            with peer:
+                peer.sendall(b"XX-not-a-cb-frame")
+                try:
+                    client.ping()
+                    raise AssertionError("protocol break must fail the request")
+                except CTPError as exc:
+                    assert exc.error_id == -1 and "protocol error" in str(exc), exc
+    print("[ok] SDK: timeouts raise CTPError; protocol breaks are distinguishable from clean closes")
 
 
 def test_refdata_numeric() -> None:
@@ -1741,6 +1806,7 @@ def test_sdk_lifecycle():
 def main() -> int:
     test_sdk_lifecycle()
     test_sdk_subscribe()
+    test_sdk_exception_contract()
     test_refdata_numeric()
     test_refdata_manifest()
     test_refdata_contract_artifact()

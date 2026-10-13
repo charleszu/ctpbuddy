@@ -20,6 +20,17 @@ const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
 /// Env var selecting the journal durability level.
 pub const SYNC_ENV: &str = "CTPBUDDY_JOURNAL_SYNC";
 
+/// Env var: `1` stops the world loop after a journal write failure instead of
+/// running on with a ledger that is ahead of its authoritative event stream.
+pub const HARD_FAIL_ENV: &str = "CTPBUDDY_JOURNAL_HARD_FAIL";
+
+pub fn hard_fail_enabled() -> bool {
+    matches!(
+        std::env::var(HARD_FAIL_ENV).ok().as_deref().map(str::trim),
+        Some("1") | Some("true")
+    )
+}
+
 /// Read the durable journal tail that belongs to the snapshot sequence.
 ///
 /// `Journal::new` archives the previous run before opening a new writer, so
@@ -141,6 +152,13 @@ pub struct Journal {
     pending: usize,
     last_flush: Instant,
     sync: SyncMode,
+    /// Last write/sync failure. The ledger applies an event before it is
+    /// journaled, so a silent I/O failure leaves live state ahead of the
+    /// authoritative stream; surfacing the error in ADMIN status is the only
+    /// real-time signal of that divergence.
+    last_error: Option<String>,
+    /// Records that failed to write since the last success.
+    consecutive_failures: u32,
 }
 
 impl Journal {
@@ -190,6 +208,8 @@ impl Journal {
             pending: 0,
             last_flush: Instant::now(),
             sync: SyncMode::parse(std::env::var(SYNC_ENV).ok().as_deref()),
+            last_error: None,
+            consecutive_failures: 0,
         })
     }
 
@@ -250,12 +270,16 @@ impl Journal {
                 .and_then(|_| self.writer.as_mut().unwrap().write_all(b"\n"))
         }) {
             eprintln!("[ctpbuddy] journal write failed: {e}");
+            self.last_error = Some(format!("write: {e}"));
+            self.consecutive_failures += 1;
             // Drop the writer; the next record tries to reopen.
             self.writer = None;
             return;
         }
         self.seq = next_seq;
         self.pending += 1;
+        self.last_error = None;
+        self.consecutive_failures = 0;
         if self.sync == SyncMode::Always {
             if let Err(e) = self.flush() {
                 eprintln!("[ctpbuddy] journal sync failed: {e}");
@@ -271,6 +295,25 @@ impl Journal {
         self.pending
     }
 
+    /// Last write/sync failure; `None` while the stream is healthy.
+    pub fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    /// Records that failed to write since the last successful write.
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures
+    }
+
+    /// Test-only: enter the failed-write state without a real I/O failure
+    /// (pre-blocking the day file does not work -- `Journal::new` archives any
+    /// existing `.jsonl` entry before the first record).
+    #[cfg(test)]
+    pub(crate) fn simulate_write_failure(&mut self) {
+        self.last_error = Some("write: simulated".into());
+        self.consecutive_failures += 1;
+    }
+
     /// Flush buffered lines when enough events or time have accumulated.
     /// An idle journal (nothing pending) is never fsynced.
     pub fn flush_if_due(&mut self, now: Instant) {
@@ -280,6 +323,7 @@ impl Journal {
         if self.pending >= FLUSH_EVENTS || now.duration_since(self.last_flush) >= FLUSH_EVERY {
             if let Err(error) = self.flush() {
                 eprintln!("[ctpbuddy] journal flush failed: {error}");
+                self.last_error = Some(format!("flush: {error}"));
             }
         }
     }
@@ -294,6 +338,9 @@ impl Journal {
         }
         self.pending = 0;
         self.last_flush = Instant::now();
+        if self.consecutive_failures == 0 {
+            self.last_error = None;
+        }
         Ok(())
     }
 }
@@ -396,6 +443,28 @@ mod tests {
         std::fs::create_dir(j.dir.join("20261005.jsonl")).unwrap();
         j.record("20261005", 0.0, "server_start", "", "", Value::Null);
         assert_eq!(j.seq(), 0);
+        drop(j);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review R1: a write failure must be observable (ADMIN status reads this
+    /// state), and a subsequent successful write must clear it.
+    #[test]
+    fn write_failure_surfaces_health_and_success_clears_it() {
+        let dir = std::env::temp_dir().join(format!("ctpbuddy-jhealth-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut j = Journal::new(dir.to_str().unwrap()).unwrap();
+        // block the day file with a directory: every write to it fails
+        std::fs::create_dir_all(j.dir.join("20261005.jsonl")).unwrap();
+        j.record("20261005", 0.0, "server_start", "", "", Value::Null);
+        assert_eq!(j.seq(), 0);
+        assert_eq!(j.consecutive_failures(), 1);
+        assert!(j.last_error().is_some_and(|e| e.starts_with("write:")));
+        // a writable day succeeds and clears the failure state
+        j.record("20261006", 0.0, "server_start", "", "", Value::Null);
+        assert_eq!(j.seq(), 1);
+        assert_eq!(j.consecutive_failures(), 0);
+        assert!(j.last_error().is_none());
         drop(j);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -76,3 +76,9 @@ harness 需在 `PYTHONUTF8=1` 下运行（CI 已设置）。
 Shim 的 DEALER/SUB 均支持 CURVE。客户端进程设置 `CTPBUDDY_ZMQ_LIBRARY`（支持 CURVE 的 native libzmq）以及 `CTPBUDDY_ZMQ_CURVE_SERVER_KEY`、`CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY`、`CTPBUDDY_ZMQ_CURVE_SECRET_KEY`；分别为服务端公钥、客户端公钥与私钥，40 字符 Z85。配置失败时拒绝连接。服务端另外使用自己的私钥和客户端公钥白名单，配置不可混用；完整说明见 [运维验收](../docs/operations.md)。`GetFrontInfo.FTDPkgFreq` 可通过客户端环境变量 `CTPBUDDY_FTD_MAX_COMM_FLUX` 与服务端配置对齐，默认 0。
 
 CTP 的行情和私有 SPI 回调来自当前会话的 DEALER；可选 SUB 不把共享 `md/td` 广播重复投递到 SPI，从而保留合法前态/新态回报并遵守订阅与账户范围。共享 PUB 的观察客户端可独立连接 SUB。
+
+## 心跳与发送队列
+
+- **心跳**：连接空闲 `CTPBUDDY_SHIM_PING_IDLE_SEC` 秒（默认 5）后 Shim 发送 PING（核心回 PONG），自最近一次收帧起 `CTPBUDDY_SHIM_PONG_DEADLINE_SEC` 秒（默认 15）无任何帧即判定链路死亡——回调 `OnFrontDisconnected`、以错误回调收尾全部挂起请求并进入既有重连退避。任一变量设为 0 关闭心跳（兼容旧的永久阻塞行为）。
+- **ZeroMQ 发送队列**：队列满（默认 1024，`CTPBUDDY_SHIM_ZMQ_SEND_QUEUE` 可调）时新的 `Req*` 同步返回 -2「未处理请求超过许可数」，已入队帧不丢弃；AUTH/PING 控制帧不占该上限。
+- **载荷尺寸防御**：响应帧载荷非空且与预期结构体尺寸不符时，按该请求的错误回调面返回 ErrorID=-1（消息含 got/expected 字节数），不再以「成功 + NULL 数据」回调。

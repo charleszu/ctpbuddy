@@ -103,12 +103,12 @@ static void row_OnRspUserLogout_err(ApiCore& c, const CThostFtdcRspInfoField& rs
 }  // namespace
 
 const DispatchRow kMdDispatch[] = {
-    {msgs::RSP_USER_LOGIN, &row_OnRspUserLogin, nullptr, &row_OnRspUserLogin_err, msgs::REQ_USER_LOGIN},
-    {msgs::RSP_USER_LOGOUT, &row_OnRspUserLogout, nullptr, &row_OnRspUserLogout_err, msgs::REQ_USER_LOGOUT},
-    {msgs::RSP_SUB_MD, &row_OnRspSubMarketData, nullptr, nullptr, msgs::SUB_MD},
-    {msgs::RSP_UNSUB_MD, &row_OnRspUnSubMarketData, nullptr, nullptr, msgs::UNSUB_MD},
-    {msgs::RTN_DEPTH_MD, &row_OnRtnDepthMarketData, nullptr, nullptr, 0},
-    {0, nullptr, nullptr, nullptr, 0},
+    {msgs::RSP_USER_LOGIN, &row_OnRspUserLogin, nullptr, &row_OnRspUserLogin_err, msgs::REQ_USER_LOGIN, sizeof(CThostFtdcRspUserLoginField)},
+    {msgs::RSP_USER_LOGOUT, &row_OnRspUserLogout, nullptr, &row_OnRspUserLogout_err, msgs::REQ_USER_LOGOUT, sizeof(CThostFtdcUserLogoutField)},
+    {msgs::RSP_SUB_MD, &row_OnRspSubMarketData, nullptr, nullptr, msgs::SUB_MD, sizeof(CThostFtdcSpecificInstrumentField)},
+    {msgs::RSP_UNSUB_MD, &row_OnRspUnSubMarketData, nullptr, nullptr, msgs::UNSUB_MD, sizeof(CThostFtdcSpecificInstrumentField)},
+    {msgs::RTN_DEPTH_MD, &row_OnRtnDepthMarketData, nullptr, nullptr, 0, sizeof(CThostFtdcDepthMarketDataField)},
+    {0, nullptr, nullptr, nullptr, 0, 0},
 };
 
 const DispatchRow* MdApi::rows() const { return kMdDispatch; }

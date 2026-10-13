@@ -160,16 +160,22 @@ class Client:
         self._late: List[Frame] = []
         self._late_cv = threading.Condition(self._lock)
         self._closed = False
+        #: Why the connection ended, when it ended abnormally (a decode
+        #: failure is a protocol break -- version skew or a corrupt stream --
+        #: and callers must be able to tell it from a clean peer close).
+        self._close_reason: Optional[str] = None
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
 
     # ---- connection -------------------------------------------------------
 
-    def close(self) -> None:
+    def close(self, reason: Optional[str] = None) -> None:
         with self._lock:
             if self._closed:
                 return
             self._closed = True
+            if reason and not self._close_reason:
+                self._close_reason = reason
             pending = list(self._pending.values())
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
@@ -179,6 +185,16 @@ class Client:
         for request in pending:
             request.q.put(CLOSED)
         self._pushes.put(CLOSED)
+
+    def _closed_error(self) -> CTPError:
+        """CTPError describing how the connection ended (protocol vs clean).
+
+        Callers that already hold `self._lock` must read `_close_reason`
+        inline instead -- `threading.Lock` is not reentrant.
+        """
+        with self._lock:
+            reason = self._close_reason
+        return CTPError(-1, reason or "connection closed", kind="CLOSED")
 
     def __enter__(self) -> "Client":
         return self
@@ -233,6 +249,7 @@ class Client:
             return self._req_seq
 
     def _read_loop(self) -> None:
+        protocol_error: Optional[str] = None
         try:
             while True:
                 f = Frame.decode_from(self.sock)
@@ -253,10 +270,16 @@ class Client:
                     # pending queue instead would drop it on the floor -- that
                     # queue has already been read once and never again.
                     self._note_late(f)
-        except (OSError, ValueError):
-            pass
+        except ValueError as exc:
+            # decode failure (bad magic / unsupported version / truncated
+            # frame): a protocol break, not a peer close -- record the reason
+            # so waiters fail with something diagnosable instead of a bare
+            # "connection closed".
+            protocol_error = "protocol error: %s" % (exc,)
+        except OSError:
+            protocol_error = None
         finally:
-            self.close()
+            self.close(reason=protocol_error)
 
     @staticmethod
     def _is_rejection(f: Frame) -> bool:
@@ -273,18 +296,27 @@ class Client:
         p = _Pending()
         with self._lock:
             if self._closed:
-                raise CTPError(-1, "connection closed")
+                reason = self._close_reason
+                raise CTPError(-1, reason or "connection closed", kind="CLOSED")
             self._pending[req_id] = p
+        wait = self._timeout if timeout is None else timeout
         try:
             with self._send_lock:
                 self.sock.sendall(Frame(msg_type, req_id, payload).encode())
-            f = p.q.get(timeout=self._timeout if timeout is None else timeout)
+            f = p.q.get(timeout=wait)
+        except queue.Empty:
+            raise CTPError(
+                -3, "msg 0x%04x (req_id %d) timed out after %.1fs"
+                % (msg_type, req_id, wait)
+            ) from None
         except OSError as exc:
             self.close()
-            raise CTPError(-1, "connection closed") from exc
+            raise self._closed_error() from exc
         finally:
             self._pending.pop(req_id, None)
-        if f is CLOSED or self._is_rejection(f):
+        if f is CLOSED:
+            raise self._closed_error()
+        if self._is_rejection(f):
             # keep the真实推送面 (DESIGN §8.12): the front-office half arrives
             # as RSP_ERROR (OnRspOrderInsert / OnRspOrderAction, input NULL);
             # the exchange half arrives as ERR_RTN_* only after the success
@@ -320,16 +352,23 @@ class Client:
         p = _Pending(multi=True)
         with self._lock:
             if self._closed:
-                raise CTPError(-1, "connection closed")
+                reason = self._close_reason
+                raise CTPError(-1, reason or "connection closed", kind="CLOSED")
             self._pending[req_id] = p
         out: List[bytes] = []
         try:
             with self._send_lock:
                 self.sock.sendall(Frame(req_msg, req_id, payload).encode())
             while True:
-                f = p.q.get(timeout=self._timeout)
+                try:
+                    f = p.q.get(timeout=self._timeout)
+                except queue.Empty:
+                    raise CTPError(
+                        -3, "msg 0x%04x (req_id %d) timed out after %.1fs"
+                        % (req_msg, req_id, self._timeout)
+                    ) from None
                 if f is CLOSED:
-                    raise CTPError(-1, "connection closed")
+                    raise self._closed_error()
                 if f.msg_type == QRY_LAST:
                     return out, False
                 if f.msg_type == RSP_ERROR:
@@ -341,7 +380,7 @@ class Client:
                     out.append(f.payload)
         except OSError as exc:
             self.close()
-            raise CTPError(-1, "connection closed") from exc
+            raise self._closed_error() from exc
         finally:
             self._pending.pop(req_id, None)
 
@@ -486,7 +525,8 @@ class Client:
         p = _Pending(multi=True)
         with self._lock:
             if self._closed:
-                raise CTPError(-1, "connection closed")
+                reason = self._close_reason
+                raise CTPError(-1, reason or "connection closed", kind="CLOSED")
             self._pending[req_id] = p
         out: List[Frame] = []
         try:
@@ -499,7 +539,7 @@ class Client:
                     raise CTPError(-3, "msg 0x%04x answered %d of %d instruments before timeout"
                                    % (msg_type, len(out), len(names))) from None
                 if f is CLOSED:
-                    raise CTPError(-1, "connection closed")
+                    raise self._closed_error()
                 if self._is_rejection(f):
                     raise CTPError.from_frame(f)
                 if f.msg_type != rsp_type:
@@ -507,7 +547,7 @@ class Client:
                 out.append(f)
         except OSError as exc:
             self.close()
-            raise CTPError(-1, "connection closed") from exc
+            raise self._closed_error() from exc
         finally:
             self._pending.pop(req_id, None)
         return out

@@ -9,6 +9,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -162,6 +163,11 @@ struct DispatchRow {
     // RSP_ERROR / QRY_LAST carry only the original req_id, so the pending
     // lookup must go request-type -> row, not response-type -> row.
     uint16_t req_msg = 0;
+    // sizeof of the row's single payload struct, 0 for composite/synthesized
+    // payloads. on_frame uses it to refuse a non-empty frame whose payload
+    // does not match the expected struct instead of handing the callback a
+    // fake "success + NULL".
+    size_t payload_size = 0;
 };
 
 /// Copy a frame payload into `storage` when sizes match; NULL otherwise
@@ -285,6 +291,10 @@ class ApiCore {public:
 
     // frame-level routing (reader thread)
     void on_frame(const Frame& f);
+    void on_payload_mismatch(const Frame& f, const DispatchRow* row);
+    // PING/PONG liveness (reader thread only; env-tunable, 0 disables)
+    void touch_rx();
+    bool heartbeat_tick();
 
 protected:
     ApiCore();
@@ -298,7 +308,12 @@ private:
     bool read_zmq_frame(Frame& out);
     void flush_zmq_outbound();
     void close_socket_locked();
-    void write_frame_locked(const Frame& f);
+    // Enqueue/send one frame. Returns false when a DATA frame was refused
+    // because the ZeroMQ outbound queue is at capacity -- the caller then
+    // fails the request locally (-2) instead of losing the frame. Control
+    // frames (AUTH / PING) bypass the cap: they are tiny, rare, and losing
+    // one would wedge the handshake or the heartbeat itself.
+    bool write_frame_locked(const Frame& f, bool control = false);
     void send_auth_locked(const char* broker, const char* user);
     std::string private_resume_json() const;
     void drain_auth_errors();
@@ -363,6 +378,11 @@ private:
     bool qry_in_flight_ = false;
     char trading_day_[9] = {0};
     CThostFtdcRspInfoField zero_rsp_{};
+    // reader-thread heartbeat state: any complete frame (PONG included)
+    // refreshes `last_rx_`; an idle link gets a PING, a link silent past the
+    // pong deadline is declared dead and the reader unwinds it.
+    std::chrono::steady_clock::time_point last_rx_{};
+    bool ping_sent_ = false;
 };
 
 }  // namespace ctpbuddy

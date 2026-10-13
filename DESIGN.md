@@ -301,7 +301,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 | SUB_MD / UNSUB_MD | SubscribeMarketData / UnSubscribeMarketData |
 | QRY | 所有 ReqQry* 按 struct id 泛化 |
 
-已分配的 QRY type id：`0x1040` Instrument / `0x1042` TradingAccount / `0x1044` InvestorPosition / `0x1046` Order / `0x1048` Trade；参考数据查询 `0x1051` InstrumentMarginRate / `0x1053` InstrumentCommissionRate / `0x1055` InstrumentOrderCommRate / `0x1057` BrokerTradingParams；`0x1050` QRY_LAST 终结查询流。四处（`core/ctpbuddy-wire/src/msgs.rs`、`shim/src/api_core.hpp`、`py/ctpbuddy/wire.py`、`shim/codegen/gen_shim.py`）必须同步。
+已分配的 QRY type id：`0x1040` Instrument / `0x1042` TradingAccount / `0x1044` InvestorPosition / `0x1046` Order / `0x1048` Trade；参考数据查询 `0x1051` InstrumentMarginRate / `0x1053` InstrumentCommissionRate / `0x1055` InstrumentOrderCommRate / `0x1057` BrokerTradingParams；`0x1050` QRY_LAST 终结查询流。消息号在 `core/ctpbuddy-wire/src/msgs.rs` 手工指派（唯一源）；`shim/codegen/gen_shim.py` 生成并回写 `shim/src/api_core.hpp` 与 `py/ctpbuddy/wire.py` 中的镜像，CI 以「生成物与仓库一致」门禁（`git diff --exit-code`）强制——人工面只剩 id 的指派本身。
 
 **费率查询的官方语义**（6.7.13 接口描述逐字复刻，notes/04 G）：`InstrumentID` 留空表示「返回该投资者**持仓对应**合约的费率」，**不是全市场**——「目前无法通过一次查询得到所有合约保证金率，如果要查询所有，则需要通过多次查询得到」；`BrokerID`/`InvestorID`（及 `BrokerTradingParams` 的 `CurrencyID`）为必填，「不填的话返回值就为空」。这两条写反是最常见的实现错误，故直接固化为 e2e 断言。
 
@@ -794,7 +794,7 @@ report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
 - **查询 / 管理面用 SQLite**（`data/ctpbuddy.db`）：嵌入式、零运维、Python 标准库 `sqlite3` 直读（Web 后台 / CLI 不需要驱动或 ORM）、单文件可整体拷贝——一个"回归用例目录"随时打包复现；
 - **事件日志（journal）由 Rust 核心写 JSONL**（`data/journal/<trading_day>.jsonl`）：世界循环每个事件一行 JSON，批量刷盘。这是**唯一的权威事件流**，也是确定性回放的录制输入（§7.6）；
 - **SQLite 只是 journal 的投影**，随时可用 `ctpbuddy journal rebuild` 重建——SQLite 损坏/丢失不构成事故，**不进入恢复关键路径**；
-- Rust 核心**不链接 SQLite**：保持零外部 crate 依赖（离线可构建、单二进制分发）；Windows 上为 journal 链接 libsqlite3 是纯负担，而 Python 侧 `sqlite3` 是标准库、白拿。
+- Rust 核心**不链接 SQLite**：域 crate（wire / market / matching 均零外部依赖；ledger 仅 serde_json 用于快照序列化）保持轻依赖，server 引入异步传输栈（tokio / zeromq / libloading，由 Cargo.lock 锁定，离线可构建、单二进制分发）；Windows 上为 journal 链接 libsqlite3 是纯负担，而 Python 侧 `sqlite3` 是标准库、白拿。
 
 ### 11.2 分层与写入真相
 

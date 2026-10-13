@@ -68,6 +68,7 @@ ADMIN 新增 `live_status`，Web 提供 `GET /api/live`；筛选 `broker` / `inv
 ## 自动验收
 
 - `tests/e2e/operations.py`：真实核心与 HTTP/CB 边界验证令牌、排队时序、连接窗口恢复、交易所/报撤/身份隔离、实时筛选分页、离线状态，以及日期校验、自动强平、单次结算与恢复。
+- Shim 心跳与队列：空闲 `CTPBUDDY_SHIM_PING_IDLE_SEC` 秒（默认 5）发 PING、`CTPBUDDY_SHIM_PONG_DEADLINE_SEC` 秒（默认 15）无帧判死并 `OnFrontDisconnected`；ZeroMQ 发送队列满（默认 1024，`CTPBUDDY_SHIM_ZMQ_SEND_QUEUE`）时新请求返回 -2 而不丢帧；journal 写失败可经 ADMIN status 的 `journal` 字段观测，`CTPBUDDY_JOURNAL_HARD_FAIL=1` 时写失败即停机。
 - `tests/e2e/curve.py`：真实 CURVE DEALER/PUB，明文/错误服务端公钥/非白名单客户端拒绝，断线计数与重连；`CTPBUDDY_TEST_CURVE_SHIM=1` 额外运行真实 C++ demo。
 - CI 工作流已包含 Windows operations、Windows Shim/真实下游、Linux native libzmq/pyzmq CURVE 与真实 Shim；缺依赖或验收失败不会静默跳过。本地验收与远端 CI 结果分开记录，本轮不把未核验的远端 CI 称为已成功。
 

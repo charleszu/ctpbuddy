@@ -386,6 +386,7 @@ impl World {
             ),
             ("assertions".into(), self.assertions_status()),
             ("auto_settlement".into(), self.auto_settlement_status()),
+            ("journal".into(), self.journal_status()),
         ];
         if let Some(calendar) = &self.cfg.calendar {
             fields.push(("calendar_version".into(), json::s(&calendar.version)));
@@ -401,6 +402,32 @@ impl World {
         }
         let v = json::obj_sorted(fields);
         self.admin_reply(conn_id, req_id, v);
+    }
+
+    /// Journal health: the ledger applies events before they are journaled,
+    /// so a write failure means live state has pulled ahead of the
+    /// authoritative stream. `error`/`consecutive_failures` surface that
+    /// divergence in real time (review R1); `null` object = journaling off.
+    fn journal_status(&self) -> Value {
+        match self.journal.as_ref() {
+            None => Value::Null,
+            Some(j) => json::obj_sorted(vec![
+                ("enabled".into(), json::b(true)),
+                ("seq".into(), json::n(j.seq() as f64)),
+                ("pending".into(), json::n(j.pending() as f64)),
+                (
+                    "error".into(),
+                    match j.last_error() {
+                        Some(e) => json::s(e),
+                        None => Value::Null,
+                    },
+                ),
+                (
+                    "consecutive_failures".into(),
+                    json::n(j.consecutive_failures() as f64),
+                ),
+            ]),
+        }
     }
 
     fn admin_start_scenario(&mut self, conn_id: u64, req_id: u32, v: &Value) {

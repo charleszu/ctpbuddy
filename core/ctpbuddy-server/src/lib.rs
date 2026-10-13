@@ -176,6 +176,10 @@ pub struct Config {
     pub exchange_limits: HashMap<String, u32>,
     /// Explicit offline replay mode; live TD inputs are refused.
     pub flow_replay: bool,
+    /// Stop the world loop after a journal write failure: the ledger applies
+    /// events before they are journaled, so running on would silently diverge
+    /// from the authoritative stream. `CTPBUDDY_JOURNAL_HARD_FAIL=1`.
+    pub journal_hard_fail: bool,
 }
 
 impl Default for Config {
@@ -205,6 +209,7 @@ impl Default for Config {
             exchange_freq: 0,
             exchange_limits: HashMap::new(),
             flow_replay: false,
+            journal_hard_fail: false,
         }
     }
 }
@@ -1706,6 +1711,21 @@ impl World {
         if let Some(j) = self.journal.as_mut() {
             j.flush_if_due(now);
         }
+        // Hard-fail mode (review R1): a journal that cannot write leaves the
+        // ledger ahead of the authoritative stream -- stop instead of running
+        // on when the operator opted into strict consistency.
+        let journal_failures = self
+            .journal
+            .as_ref()
+            .map(|j| j.consecutive_failures())
+            .unwrap_or(0);
+        if self.cfg.journal_hard_fail && journal_failures > 0 {
+            eprintln!(
+                "[ctpbuddy] journal write failed and CTPBUDDY_JOURNAL_HARD_FAIL is set: stopping"
+            );
+            self.shutdown = true;
+            return;
+        }
         if now.duration_since(self.last_snapshot_at) >= SNAPSHOT_EVERY {
             self.last_snapshot_at = now;
             self.persist_ledger();
@@ -2270,6 +2290,39 @@ mod tests {
         assert!(cfg.supports_broker("B2"));
         assert!(!cfg.supports_broker("B3"));
         assert_eq!(cfg.broker_ids(), vec!["8888", "B2"]);
+    }
+
+    /// Review R1: in hard-fail mode a journal that cannot write stops the
+    /// world loop instead of running on with a ledger ahead of the
+    /// authoritative event stream. (The failed-write state itself is injected
+    /// via the journal's test helper; detecting a real I/O failure is covered
+    /// by the journal's own tests.)
+    #[test]
+    fn journal_hard_fail_stops_the_world_loop() {
+        let mut cfg = Config::default();
+        // separate data dirs: a journal lock admits one writer per directory
+        let dir_a = std::env::temp_dir().join(format!("ctpbuddy-jhard-a-{}", std::process::id()));
+        let dir_b = std::env::temp_dir().join(format!("ctpbuddy-jhard-b-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
+        cfg.data_dir = dir_a.to_str().unwrap().to_string();
+        let mut world = World::new(cfg.clone()).expect("world");
+        world.journal.as_mut().unwrap().simulate_write_failure();
+        world.pulse();
+        assert!(
+            !world.shutdown,
+            "default mode keeps running (failure visible in status only)"
+        );
+        drop(world);
+
+        cfg.journal_hard_fail = true;
+        cfg.data_dir = dir_b.to_str().unwrap().to_string();
+        let mut world = World::new(cfg).expect("world");
+        world.journal.as_mut().unwrap().simulate_write_failure();
+        world.pulse();
+        assert!(world.shutdown, "hard-fail mode must stop the world loop");
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
     }
 
     #[test]

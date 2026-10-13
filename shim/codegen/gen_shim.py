@@ -561,17 +561,20 @@ def gen_dispatch(api, rows, spi_type):
         var = "row_%s" % fn
         req = REQ_OF_RSP.get(msg)
         req_init = "msgs::%s" % req if req else "0"
+        # errrtn rows carry composite payloads (input ++ RspInfo) or
+        # synthesize their struct: no single expected size, skip the gate.
+        size_init = "0" if kind == "errrtn" else "sizeof(%s)" % struct
         if kind == "qry":
             # err!=nullptr: RSP_ERROR (e.g. NEED_RETRY throttle) completes
             # the query through its own OnRspQry* with bIsLast=true.
-            out.append("    {msgs::%s, &%s, &%s_last, &%s_err, %s}," % (msg, var, var, var, req_init))
+            out.append("    {msgs::%s, &%s, &%s_last, &%s_err, %s, %s}," % (msg, var, var, var, req_init, size_init))
         elif kind == "rsp":
-            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s}," % (msg, var, var, req_init))
+            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s, %s}," % (msg, var, var, req_init, size_init))
         elif kind == "cached" and opt.get("err_rsp"):
-            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s}," % (msg, var, var, req_init))
+            out.append("    {msgs::%s, &%s, nullptr, &%s_err, %s, %s}," % (msg, var, var, req_init, size_init))
         else:
-            out.append("    {msgs::%s, &%s, nullptr, nullptr, %s}," % (msg, var, req_init))
-    out.append("    {0, nullptr, nullptr, nullptr, 0},")
+            out.append("    {msgs::%s, &%s, nullptr, nullptr, %s, %s}," % (msg, var, req_init, size_init))
+    out.append("    {0, nullptr, nullptr, nullptr, 0, 0},")
     out.append("};")
     out.append("")
     out.append("const DispatchRow* %s::rows() const { return %s; }" % (

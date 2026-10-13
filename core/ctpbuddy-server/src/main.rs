@@ -187,6 +187,9 @@ fn apply_env(cfg: &mut Config) {
     ) {
         cfg.recover = true;
     }
+    if ctpbuddy_server::journal::hard_fail_enabled() {
+        cfg.journal_hard_fail = true;
+    }
     if let Ok(v) = std::env::var("CTPBUDDY_SCENARIO") {
         if !v.is_empty() {
             cfg.scenario_dir = Some(v);
