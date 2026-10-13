@@ -14,7 +14,7 @@
 
 SimNow / openctp 都是远程 CS 模式：网络绑死、无法注入极端行情、不可复现、无管理面。CTPBuddy 把柜台搬到本地：替换同名 DLL 即可接入，行情可回放、场景可注入、账户可管理、团队可共用。
 
-> **当前边界（请先读）**：交易端支持明文 TCP，也支持以 `zmq://tcp://host:port`（或 `zmq://host:port`）启用 ZeroMQ ROUTER/DEALER 传输；仅在 TD 使用 `zmq://` 时设置 `CTPBUDDY_ZMQ_PUB_ADDR=tcp://host:port` 才会额外提供按 `md/...`、`td/...` topic 发布的 PUB/SUB 广播，广播采用有界 best-effort 队列，满载时允许丢帧，ADMIN status 的 `pubsub` 字段暴露队列容量、已发布和丢弃计数；ADMIN 仍为 TCP，可用 `CTPBUDDY_ADMIN_TOKEN` 启用认证；远程绑定同时要求 `CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 与非空 token，跨机需可信隧道（TD 登录不校验密码）。ZeroMQ 可通过真实 native libzmq 启用 CURVE，并以 ZAP 公钥白名单保护 ROUTER/PUB。Shim 已支持 TCP 与 `zmq://`（ZeroMQ 通过运行时加载的 libzmq，PUB/SUB 可选）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port` / `CTPBUDDY_ADDR=zmq://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，实时持仓从 ADMIN status 与 Web 回放状态读取，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。「团队共用」目前仅适用于受信内网并自行做网络隔离。
+> **当前边界（请先读）**：交易端支持明文 TCP，也支持以 `zmq://tcp://host:port`（或 `zmq://host:port`）启用 ZeroMQ ROUTER/DEALER 传输；仅在 TD 使用 `zmq://` 时设置 `CTPBUDDY_ZMQ_PUB_ADDR=tcp://host:port` 才会额外提供按 `md/...`、`td/...` topic 发布的 PUB/SUB 广播，广播采用有界 best-effort 队列，满载时允许丢帧，ADMIN status 的 `pubsub` 字段暴露队列容量、已发布和丢弃计数；ADMIN 仍为 TCP，可用 `CTPBUDDY_ADMIN_TOKEN` 启用认证；远程绑定同时要求 `CTPBUDDY_ALLOW_REMOTE_ADMIN=1` 与非空 token，跨机需可信隧道（TD 登录不校验密码）。传输加密已移除（ADR 0002），跨机部署走 wireguard/SSH 隧道或隔离内网。Shim 已支持 TCP 与 `zmq://`（libzmq 以静态库链入 shim DLL/so，无运行时依赖，PUB/SUB 可选）。Shim 支持 Windows DLL 与 Linux `.so`（`shim/build_linux.py`，WSL 已验证）；前置地址需指向核心，或用环境变量 `CTPBUDDY_ADDR=tcp://host:port` / `CTPBUDDY_ADDR=zmq://host:port`（可选加固：`CTPBUDDY_TD_TOKEN=<密钥>` 设置后，Shim 握手 AUTH 的 auth_code 必须相等，仅覆盖 AUTH；`CTPBUDDY_MAX_CONNS` 限制并发连接，默认 256，写超时 10 秒）重定向。单个核心已支持多 Broker，实时持仓从 ADMIN status 与 Web 回放状态读取，账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离。「团队共用」目前仅适用于受信内网并自行做网络隔离。
 
 ## 架构速览
 
@@ -45,7 +45,7 @@ Wire v1 保持现有小端 C 布局和字段偏移，Rust 编解码按字段处�
 
 - M1 核心闭环 + Shim 全链路、M2 撮合/流控、M3 参考数据/显式日结/OrderSysID/结算单/journal 投影：已完成。
 - 近期已补齐：交易日历统一 contract、Rust/Python 共享 RefData contract、live/projection `ReadModelMetadata`、多 Broker 结算/报告编排、Web deposit/withdraw 写入口；真实 release package 与 Hugo 文档站已在本机验收。
-- 本轮已完成：CURVE/ADMIN 认证、墙钟自动日结与到期强平、实时账户/持仓/订单/成交后台，以及 FTD/连接/交易所限流；配置与验收见 [docs/operations.md](docs/operations.md)。
+- 本轮已完成：ADMIN 认证、墙钟自动日结与到期强平、实时账户/持仓/订单/成交后台，以及 FTD/连接/交易所限流；配置与验收见 [docs/operations.md](docs/operations.md)。
 - 未完成：M4 三渠道正式发布流程及多角色远程运营、场景上传等扩展后台；Shim 已支持 `ctpbuddy.ini` `[fronts]` 别名与 ZeroMQ IPC；Windows release package 构建与真实产物验收、本机 Docker Desktop Linux 构建与验收均已通过（容器内 Hugo 未提供，明确 SKIP）。远端 CI 本轮暂不处理。详见 DESIGN §0.6。
 
 ## 快速开始

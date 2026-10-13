@@ -335,6 +335,9 @@ impl World {
                 self.drain_ftd(now);
             }
             "connect" => {
+                // "curve" stays accepted only to replay journals recorded
+                // before ADR 0002 removed the CURVE transport; no code path
+                // produces that scope anymore.
                 if !["tcp", "zmq", "curve"].contains(&clock_key.as_str()) {
                     return Err("unknown flow connect scope".into());
                 }

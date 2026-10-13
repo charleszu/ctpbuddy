@@ -22,12 +22,12 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 
 | 设计条目 | 当前实现 | 影响 |
 |---|---|---|
-| §6 ZeroMQ DEALER/ROUTER + PUB/SUB | TD 原生端点已支持 ZeroMQ ROUTER/DEALER；ZMQ TD 模式设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后支持 `md/...`、`td/...` PUB/SUB 广播；TCP 与 ZMQ 共用 CB 帧 | 可选 native libzmq CURVE + ZAP 公钥白名单，缺库/非法密钥拒绝启动；ADMIN 跨机仍需可信隧道；ZMQ/TCP 共用并发上限 |
+| §6 ZeroMQ DEALER/ROUTER + PUB/SUB | TD 原生端点已支持 ZeroMQ ROUTER/DEALER；ZMQ TD 模式设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后支持 `md/...`、`td/...` PUB/SUB 广播；TCP 与 ZMQ 共用 CB 帧 | CURVE/ZAP 已移除（ADR 0002，传输安全走部署层隧道）；ZMQ 路径由纯 Rust zeromq crate 统一承载；ADMIN 跨机仍需可信隧道；ZMQ/TCP 共用并发上限 |
 | §5.3 `ctpbuddy.ini` 前置别名表、`CTPBUDDY_ADDR`、`ipc://` | `CTPBUDDY_ADDR` 已支持 TCP、ZeroMQ TCP 与 ZeroMQ IPC；Shim 可直接连接 `zmq://ipc:///path`；`ctpbuddy.ini` `[fronts]` 别名表已支持；`CTPBUDDY_INI` 可指定路径，默认查找当前目录 | 生产前置地址需要由部署提供别名映射文件；IPC 传输已成立 |
 | §6.4 / §10 单进程托管多 Broker | `--broker-id` / `CTPBUDDY_BROKER_ID` 支持逗号分隔的 BrokerID，共享同一 World；登录、账本账户、订单、私有流、结算报告与日结结果按 BrokerID 隔离；ADMIN status 暴露稳定 broker scope；保证金/手续费率可按 `(broker_id, instrument_id)` 覆盖中性费率 | 已完成单进程多 Broker 的运行与结算编排；需要故障域、版本或管理边界时仍应运行多个核心实例 |
 | §8.3 风控规则表（勿 if-else 写死） | 交易所差异（FAK 布局、DCE 前态特例、SHFE/INE 今昨拆分、成交开平归一化）集中在 `ctpbuddy-matching/src/exchange_rules.rs` 的静态规则表，引擎/账本均查表；未知交易所取默认行（CancelFirst、不拆今昨） | 表是编译期常量，换规则仍需改代码重编；价格笼子等风控项未入表 |
 | §6.4 TERT_RESTART/RESUME 私有流重传 | 已实现：当日订单/成交 wire bytes、顺序索引和投资者 cursor 随原子 ledger snapshot 持久化，snapshot 前先 flush journal；`--recover` 会读取上一轮归档 journal，并把快照之后的 `fill`、`order_update`、`reset_account`、`settlement`、`settings_updated`、`deposit`、`withdraw` 尾部应用到账本和私有流；工作挂单仍作废且不恢复撮合状态 | 多会话同账号共享一个 cursor；登录时不推送持仓/资金快照（与真实 CTP 一致，下游本就需 ReqQry*）；历史泛型 `settle` / `admin` 仍 fail closed |
-| §5 Shim DLL/so | Windows DLL 与 Linux `.so` 均支持 TCP 与运行时加载 libzmq 的 `zmq://` DEALER；可选订阅 `md/`、`td/`、`sys/` PUB/SUB；`ctpbuddy.ini` `[fronts]` 与 `CTPBUDDY_ADDR` 可整体重定向前置 | ADMIN 可配置 token；远程绑定要求显式 opt-in 与非空 token；Shim DEALER/SUB 支持 CURVE |
+| §5 Shim DLL/so | Windows DLL 与 Linux `.so` 均支持 TCP 与 `zmq://` DEALER（libzmq 以锁定版本源码、同工具链、`ZMQ_CURVE=OFF` 编译为静态库链入，无运行时依赖，ADR 0002）；可选订阅 `md/`、`td/`、`sys/` PUB/SUB；`ctpbuddy.ini` `[fronts]` 与 `CTPBUDDY_ADDR` 可整体重定向前置 | ADMIN 可配置 token；远程绑定要求显式 opt-in 与非空 token |
 | RefData 供给与查询/计算一致性 | Rust/Python 共用 versioned `ctpbuddy.refdata` contract；表名、字段、默认值、枚举和 numeric 字段由单一 JSON contract 校验并生成 Rust 常量，fixture vectors 覆盖两侧解析 | 仍需使用者提供真实费率/申报费数据；核心不编造缺失费率，跨品种复杂组合与仓单折抵仍未建模 |
 | Live / projection read model provenance | ADMIN live status 与 SQLite journal projection 共用 `ReadModelMetadata` 字段形状；包含 source、journal/core/projection hash、calendar 与 contract provenance；Web 明确标示 realtime 与 snapshot；ADMIN/Web replay status 暴露实时持仓 rows | 实时账户/持仓/订单/成交后台已提供筛选分页和定时刷新；SQLite projection 仍是非实时读模型，未生成的 live hash 保持 null |
 | §7.3 Parquet / 插件行情源 | 仅 CSV | 暂不纳入当前实现范围 |
@@ -314,7 +314,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 | PUB | `td/{broker}/{investor}` | OnRtnOrder / OnRtnTrade / OnErrRtnOrder* |
 | PUB | `sys` | 广播：结算完成、系统公告 |
 
-> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后，行情、私有回报和系统事件按 `md/{exchange}/{instrument}`、`td/{broker}/{investor}`、`sys/settlement` 或 `sys/announcement` 通过 PUB/SUB 广播；ZeroMQ 身份只负责映射请求连接，协议帧不变；ADMIN 保持 TCP。`sys` 广播已支持结算完成与管理员公告；可选 CURVE/ZAP 白名单（配置见 [运维验收](docs/operations.md)）；未提供 PUB 历史快照补发；PUB 队列容量、已发布和丢弃计数通过 ADMIN status 的 `pubsub` 字段暴露。
+> 落地状态：帧格式与消息目录已按本节实现（M1）；TCP 仍是一连接一客户端、帧背靠背，交易端也可用 `zmq://` 端点进入 ROUTER/DEALER 适配。设置 `CTPBUDDY_ZMQ_PUB_ADDR` 后，行情、私有回报和系统事件按 `md/{exchange}/{instrument}`、`td/{broker}/{investor}`、`sys/settlement` 或 `sys/announcement` 通过 PUB/SUB 广播；ZeroMQ 身份只负责映射请求连接，协议帧不变；ADMIN 保持 TCP。`sys` 广播已支持结算完成与管理员公告；CURVE/ZAP 已按 ADR 0002 移除（传输安全见 [运维验收](docs/operations.md)）；未提供 PUB 历史快照补发；PUB 队列容量、已发布和丢弃计数通过 ADMIN status 的 `pubsub` 字段暴露。
 
 - 查询语义对齐 CTP：多帧循环 + 末帧 `is_last=1`；
 - **BrokerID 策略：单进程托管多 Broker**：broker 是核心内的一等实体（共享合约目录，按 `(broker_id, instrument_id)` 覆盖保证金/手续费规则，账户空间按 BrokerID 隔离），默认 BrokerID 为 **8888**（不与 SimNow 的 9999 及主流实盘券商号冲突，金融俗惯例里的吉利号，`--broker-id` 可改，也可传逗号分隔清单）。AUTH 按核心的 broker 清单强校验，未知 BrokerID 按 CTP 语义拒登录。多 broker **共享同一路回放行情与虚拟时钟**——同一场景下不同经纪商的成交差异来自各自费率/保证金规则，这对多券商对比测试恰是有用属性。需要硬隔离（故障域/版本/管理边界）时可一个 broker 部署一个核心实例，两者只是运维选择、不动架构；下游单进程连多个柜台依赖 §5.3 的按实例端点解析；
@@ -322,7 +322,7 @@ id 的来源即"API 使用的 struct 集合"：codegen 解析 API 类的全部 `
 - **断链语义**：ZMQ 无持久化无重投。Shim 检测到与核心断开即以 `OnFrontDisconnected` 回调下游——这是刻意的设计，下游可借此测试自身重连逻辑。核心重启后 Shim 重新 AUTH 即恢复；
 - **身份边界**：显式 ReqAuthenticate 成功后，Shim 保存 BrokerID/UserID；ReqUserLogin 必须与该身份一致，Core 对连接认证绑定再次校验，拒绝 Auth A -> Login B。认证仅做身份绑定，不伪造 AuthCode/AppID 授权校验。
 - **错误码边界**：本地认证字段错误保留官方 `15 BAD_FIELD`，服务端未认证登录使用 `64 NOT_AUTHENT`；`auth_in_flight` 的 `ReqAuthenticate` 同步返回 `-2`（在途许可超过），不再返回 0 后异步 `-3`。已认证重复认证及断线认证失败没有确认精确柜台重复码，统一采用已实现 `63 AUTH_FAILED`（`CTP:客户端认证失败`）兼容策略；网络原因仅通过 `OnFrontDisconnected` 报告。认证响应保留官方 `UserProductInfo` 字段；`AppType` 未配置、不编造标值。
-- **安全**：默认仅 loopback/ipc；团队模式跨机部署使用 CURVE 加密（ZMQ 原生）或内网 VPN，文档明确禁止把 5560/5561 暴露公网。
+- **安全**：默认仅 loopback/ipc；跨机传输保护由部署层提供（VPN/SSH 隧道，ADR 0002 已移除 CURVE），文档明确禁止把 5560/5561 暴露公网。
 
 ---
 
@@ -609,7 +609,7 @@ assertions:             # 可选：场景内断言（CI 用）
 | 查询每秒流控 `QryFreq` | 交易前置 `front_se` 配置 | **Core**：每会话 1s 窗口计数，`--qry-freq`（默认 2，env `CTPBUDDY_QRY_FREQ`） | `OnRspError`[90]「CTP：查询未就绪，请稍后重试」，查询不执行 |
 | 报单流控（报单/撤单每秒笔数） | CTP 柜台端【程序化交易频繁报撤单管理】 | **Core**（归入 §8.3 风控规则表，M2 实现） | `OnRspOrderAction`「CTP:下单频率限制」 |
 | FTD 报文流控 `FTDMaxCommFlux` | 交易前置 | Core：`--ftd-max-comm-flux`，每连接预算 | 超限指令按序缓存到下一秒；队列最多 1024，耗尽返回官方 90；默认 0 关闭 |
-| 前置连接数流控 `ConnectFreq` | 交易前置 | Core：`--connect-freq`，TD 新连接预算 | TCP 超限关闭；普通 ZMQ 首帧断开 peer，CURVE 在 ZAP 握手拒绝；默认 0 关闭 |
+| 前置连接数流控 `ConnectFreq` | 交易前置 | Core：`--connect-freq`，TD 新连接预算 | TCP 超限关闭；ZMQ 首帧断开 peer；默认 0 关闭 |
 | 同一用户最大在线会话数 | 柜台 / 交易核心 | **Core** 已实现：`max_user_sessions` 按 BrokerID+UserID 计，0 关闭（默认，兼容旧行为） | `OnRspUserLogin`「CTP:用户在线会话超出上限」 |
 | 交易所 API 流控 | 交易所端（本地阈值显式供给） | Core：`--exchange-freq` / `--exchange-limits`；每 broker/investor/exchange 报撤独立预算 | 官方 41「CTP:交易所每秒发送请求数超过许可数」；报单前置接受后错单回报与拒单状态，撤单保留双面回报；默认 0 关闭 |
 
@@ -1047,7 +1047,7 @@ CREATE TABLE audit_log (
 | 子项 | 状态 | 交付物 / 出口标准 |
 |---|---|---|
 | M4-1 断言 DSL 与断言 CLI | 🟡 本地通过，CI 入口已接入 | 场景断言规范化、服务端求值、`ctpbuddy assertions check` 退出码与 `--total` 校验已有 Python 单测；`m1_smoke.py` 与 `m2_scenario.py` 已在真实核心场景中覆盖 pending/pass/fail/total 语义。CI 当前保留 `--help` 入口检查，断言场景本身由 e2e 矩阵间接验证；M4 总项仍不标完成 |
-| M4-2 e2e CI | 🟡 工作流已覆盖，本轮远端结果未核验 | `.github/workflows/core-tests.yml` 已覆盖 Rust/Python 单测、M1/M2/M3、operations、flow replay、Windows Shim/真实下游、Linux Shim/CURVE 与 Docker acceptance；本轮按用户要求不处理远端 CI，因此不把未核验的 run 写成成功。fresh venv / demo 策略仍未形成独立门禁，M4 总项不标完成 |
+| M4-2 e2e CI | 🟡 工作流已覆盖，本轮远端结果未核验 | `.github/workflows/core-tests.yml` 已覆盖 Rust/Python 单测、M1/M2/M3、operations、flow replay、Windows Shim/真实下游、Linux Shim/ZMQ 失败路径与 Docker acceptance；本轮按用户要求不处理远端 CI，因此不把未核验的 run 写成成功。fresh venv / demo 策略仍未形成独立门禁，M4 总项不标完成 |
 | M4-3 三渠道发布与文档站 | 🟡 文档站已具备 | `docs-site-oink/` 使用 OINK v1.1.0、Hugo Extended 0.167.0，80 pages/22 static 严格构建；`.github/workflows/docs-site.yml` 已远端成功（37173389551）；发布渠道和真实域名授权仍未完成 |
 | M4-4 Shim 安全安装与真实构建验收 | 🟡 基础+本机真实构建 | CLI `install-shim --target-dir DIR --shim-dir DIR` 默认 dry-run，只有显式 `--apply` 才替换；仅接受 `thosttraderapi_se.dll` / `thostmduserapi_se.dll` 白名单，支持 manifest 版本/架构元数据，安装前备份、原子复制、恢复和 SHA 保护。已在本机用 MSVC 实际构建两个 x64 DLL 与 `demo_td.exe`；PE Machine=0x8664，真实 DLL 临时目录 dry-run/apply/restore 与 SHA 校验通过；`m1_shim_e2e.py` 真实下游全链路 PASS。产物仍被 `.gitignore` 忽略，未触碰真实 CTP 安装目录。Linux Docker 验收明确不运行 Windows Shim。 |
 | M4-5 真实导出回放审计 | 🟡 受控成交回放已实现 | `tools/real_replay_audit.py` 严格扫描432个真实交易文件；完整账户重演仍无候选（期权/RefData缺口），不伪造通过。新增 `tests/e2e/m4_real_replay.py`：从真实导出动态选取一笔普通期货成交，重建最小行情/报单并逐字段核对 ExchangeID/InstrumentID/Direction/OffsetFlag/Price/Volume；无外部真实数据时安全 SKIP，已加入CI矩阵。该项证明成交ABI路径，不等价于整账户日结重演。 |

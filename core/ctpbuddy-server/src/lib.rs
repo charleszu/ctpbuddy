@@ -23,7 +23,6 @@ pub mod settings;
 mod settlement;
 pub mod state;
 mod transport_zmq;
-mod transport_zmq_native;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{TcpListener, TcpStream};
@@ -248,13 +247,7 @@ pub fn run(mut cfg: Config) -> std::io::Result<()> {
     let (tx, rx) = mpsc::channel::<WorldMsg>();
 
     if cfg.td_endpoint.starts_with("zmq://") {
-        let pub_tx = transport_zmq::start(
-            &cfg.td_endpoint,
-            tx.clone(),
-            cfg.connect_freq,
-            world.security.curve_secret.clone(),
-            world.security.curve_clients.clone(),
-        )?;
+        let pub_tx = transport_zmq::start(&cfg.td_endpoint, tx.clone(), cfg.connect_freq)?;
         world.broadcast_tx = pub_tx;
     } else {
         let td = TcpListener::bind(&cfg.td_endpoint)?;
@@ -287,9 +280,6 @@ pub const ZMQ_PUB_ADDR_ENV: &str = "CTPBUDDY_ZMQ_PUB_ADDR";
 /// Bounded queue between the world thread and the ZeroMQ PUB writer.
 pub const ZMQ_PUB_QUEUE_CAPACITY: usize = 1024;
 pub const ADMIN_TOKEN_ENV: &str = "CTPBUDDY_ADMIN_TOKEN";
-pub const ZMQ_CURVE_SERVER_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_SERVER_KEY";
-pub const ZMQ_CURVE_PUBLIC_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY";
-pub const ZMQ_CURVE_SECRET_KEY_ENV: &str = "CTPBUDDY_ZMQ_CURVE_SECRET_KEY";
 pub const AUTO_SETTLE_AT_ENV: &str = "CTPBUDDY_AUTO_SETTLE_AT";
 pub const AUTO_SETTLE_PRICES_ENV: &str = "CTPBUDDY_AUTO_SETTLE_PRICES";
 pub const FTD_MAX_COMM_FLUX_ENV: &str = "CTPBUDDY_FTD_MAX_COMM_FLUX";

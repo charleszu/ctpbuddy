@@ -68,17 +68,9 @@ harness 需在 `PYTHONUTF8=1` 下运行（CI 已设置）。
 ```n
 - 头文件取 `ctpsdk/.../td/linux64`（亦接受 win64 / 平铺目录）；产物名与厂商 .so 相同，符号 mangling 一致（已用 nm 对照）。
 - POSIX 路径：poll、MSG_NOSIGNAL（对端消失不触发 SIGPIPE）、iconv 做 UTF-8↔GBK。
-- 前置地址支持主机名；环境变量 `CTPBUDDY_ADDR=tcp://host:port` 覆盖应用注册的所有前置。`zmq://host:port`、`zmq://tcp://host:port`、`zmq://ipc:///path` 与 `ipc:///path` 也可作为前置地址；启用 ZeroMQ 时运行时加载 `libzmq.dll` / `libzmq.so.5`，未安装 libzmq 的 TCP 部署不受影响。`CTPBUDDY_ZMQ_PUB_ADDR` 可选订阅 `md/`、`td/` 与 `sys/` 广播，断线期间不补发历史帧。当前目录的 `ctpbuddy.ini` `[fronts]` 可把既有前置地址映射到 Buddy 端点，`CTPBUDDY_INI` 可指定配置文件路径；PUB 队列容量、已发布和丢弃计数可从 ADMIN status 的 `pubsub` 字段读取。
+- 前置地址支持主机名；环境变量 `CTPBUDDY_ADDR=tcp://host:port` 覆盖应用注册的所有前置。`zmq://host:port`、`zmq://tcp://host:port`、`zmq://ipc:///path` 与 `ipc:///path` 也可作为前置地址；ZeroMQ 由构建脚本从锁定版本的源码编译为静态库（CURVE 关闭，ADR 0002）链入两个 `thost*_se` 二进制——厂商单 DLL/so 形态保持，运行时无 libzmq 依赖。`CTPBUDDY_ZMQ_PUB_ADDR` 可选订阅 `md/`、`td/` 与 `sys/` 广播，断线期间不补发历史帧。当前目录的 `ctpbuddy.ini` `[fronts]` 可把既有前置地址映射到 Buddy 端点，`CTPBUDDY_INI` 可指定配置文件路径；PUB 队列容量、已发布和丢弃计数可从 ADMIN status 的 `pubsub` 字段读取。
 - WSL 下 cargo 请设 `CARGO_TARGET_DIR` 到 Linux 文件系统，避免与 Windows 的 core/target 混用。
 
-## CURVE 可选加密
+## 传输安全（ADR 0002）
 
-Shim 的 DEALER/SUB 均支持 CURVE。客户端进程设置 `CTPBUDDY_ZMQ_LIBRARY`（支持 CURVE 的 native libzmq）以及 `CTPBUDDY_ZMQ_CURVE_SERVER_KEY`、`CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY`、`CTPBUDDY_ZMQ_CURVE_SECRET_KEY`；分别为服务端公钥、客户端公钥与私钥，40 字符 Z85。配置失败时拒绝连接。服务端另外使用自己的私钥和客户端公钥白名单，配置不可混用；完整说明见 [运维验收](../docs/operations.md)。`GetFrontInfo.FTDPkgFreq` 可通过客户端环境变量 `CTPBUDDY_FTD_MAX_COMM_FLUX` 与服务端配置对齐，默认 0。
-
-CTP 的行情和私有 SPI 回调来自当前会话的 DEALER；可选 SUB 不把共享 `md/td` 广播重复投递到 SPI，从而保留合法前态/新态回报并遵守订阅与账户范围。共享 PUB 的观察客户端可独立连接 SUB。
-
-## 心跳与发送队列
-
-- **心跳**：连接空闲 `CTPBUDDY_SHIM_PING_IDLE_SEC` 秒（默认 5）后 Shim 发送 PING（核心回 PONG），自最近一次收帧起 `CTPBUDDY_SHIM_PONG_DEADLINE_SEC` 秒（默认 15）无任何帧即判定链路死亡——回调 `OnFrontDisconnected`、以错误回调收尾全部挂起请求并进入既有重连退避。任一变量设为 0 关闭心跳（兼容旧的永久阻塞行为）。
-- **ZeroMQ 发送队列**：队列满（默认 1024，`CTPBUDDY_SHIM_ZMQ_SEND_QUEUE` 可调）时新的 `Req*` 同步返回 -2「未处理请求超过许可数」，已入队帧不丢弃；AUTH/PING 控制帧不占该上限。
-- **载荷尺寸防御**：响应帧载荷非空且与预期结构体尺寸不符时，按该请求的错误回调面返回 ErrorID=-1（消息含 got/expected 字节数），不再以「成功 + NULL 数据」回调。
+CURVE/ZAP 加密已移除：本系统两侧都是运营者自己的程序，仿真报文不敏感；跨机部署用 wireguard/SSH 隧道或隔离内网保护传输。Shim 与核心都不含 CURVE 能力面（libzmq 以 `ZMQ_CURVE=OFF` 编译）。

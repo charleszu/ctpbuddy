@@ -23,11 +23,13 @@
 #include <fstream>
 #include <string_view>
 
+// after api_core.hpp, which orders winsock2 before windows.h on Win32
+#include <zmq.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
 #ifndef _WIN32
-#include <dlfcn.h>
 #include <iconv.h>
 #endif
 
@@ -35,113 +37,13 @@ namespace ctpbuddy {
 
 namespace {
 
-// libzmq is intentionally loaded at runtime. The shim remains drop-in
-// deployable on hosts that only use TCP, while a host opting into zmq:// only
-// needs libzmq at runtime. All socket calls stay on the reader thread.
-constexpr int ZMQ_SUB = 2;
-constexpr int ZMQ_DEALER = 5;
-constexpr int ZMQ_DONTWAIT = 1;
-constexpr int ZMQ_SNDHWM = 23;
-constexpr int ZMQ_RCVHWM = 24;
-constexpr int ZMQ_LINGER = 17;
-constexpr int ZMQ_SUBSCRIBE = 6;
-constexpr int ZMQ_CURVE_SERVERKEY = 50;
-constexpr int ZMQ_CURVE_PUBLICKEY = 48;
-constexpr int ZMQ_CURVE_SECRETKEY = 49;
-constexpr int ZMQ_RCVMORE = 13;
-constexpr short ZMQ_POLLIN = 1;
-
-struct ZmqPollItem {
-    void* socket;
-#ifdef _WIN32
-    SOCKET fd;
-#else
-    int fd;
-#endif
-    short events;
-    short revents;
-};
-
-struct ZmqLibrary {
-    using CtxNew = void* (*)();
-    using CtxTerm = int (*)(void*);
-    using Socket = void* (*)(void*, int);
-    using Close = int (*)(void*);
-    using Connect = int (*)(void*, const char*);
-    using Send = int (*)(void*, const void*, size_t, int);
-    using Recv = int (*)(void*, void*, size_t, int);
-    using SetSockOpt = int (*)(void*, int, const void*, size_t);
-    using GetSockOpt = int (*)(void*, int, void*, size_t*);
-    using Poll = int (*)(ZmqPollItem*, int, long);
-
-    void* handle = nullptr;
-    CtxNew ctx_new = nullptr;
-    CtxTerm ctx_term = nullptr;
-    Socket socket = nullptr;
-    Close close = nullptr;
-    Connect connect = nullptr;
-    Send send = nullptr;
-    Recv recv = nullptr;
-    SetSockOpt setsockopt = nullptr;
-    GetSockOpt getsockopt = nullptr;
-    Poll poll = nullptr;
-
-    bool load() {
-        if (handle) return true;
-#ifdef _WIN32
-        const char* configured = std::getenv("CTPBUDDY_ZMQ_LIBRARY");
-        const char* names[] = {configured && *configured ? configured : "libzmq.dll", "zmq.dll", nullptr};
-        for (const char** p = names; *p && !handle; ++p) {
-            handle = static_cast<void*>(LoadLibraryA(*p));
-        }
-        auto symbol = [this](const char* name) -> void* {
-            return handle ? reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name)) : nullptr;
-        };
-#else
-        const char* configured = std::getenv("CTPBUDDY_ZMQ_LIBRARY");
-        const char* names[] = {configured && *configured ? configured : "libzmq.so.5", "libzmq.so", nullptr};
-        for (const char** p = names; *p && !handle; ++p) handle = dlopen(*p, RTLD_NOW | RTLD_LOCAL);
-        auto symbol = [this](const char* name) -> void* { return handle ? dlsym(handle, name) : nullptr; };
-#endif
-        if (!handle) return false;
-#define ZMQ_LOAD(name) name = reinterpret_cast<decltype(name)>(symbol("zmq_" #name))
-        ZMQ_LOAD(ctx_new);
-        ZMQ_LOAD(ctx_term);
-        ZMQ_LOAD(socket);
-        ZMQ_LOAD(close);
-        ZMQ_LOAD(connect);
-        ZMQ_LOAD(send);
-        ZMQ_LOAD(recv);
-        ZMQ_LOAD(setsockopt);
-        ZMQ_LOAD(getsockopt);
-        ZMQ_LOAD(poll);
-#undef ZMQ_LOAD
-        return ctx_new && ctx_term && socket && close && connect && send && recv && setsockopt && getsockopt && poll;
-    }
-};
-
-ZmqLibrary& zmq_library() {
-    static ZmqLibrary library;
-    return library;
-}
+// libzmq is compiled from a pinned source into a STATIC library with the same
+// toolchain and CURVE disabled (ADR-0002), so each shim DLL keeps the vendor
+// shape: one self-contained thost*_se.dll, no runtime libzmq dependency, no
+// curve surface. All socket calls stay on the reader thread.
 
 bool starts_with(const std::string& value, std::string_view prefix) {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix.data(), prefix.size()) == 0;
-}
-
-bool apply_curve_options(ZmqLibrary& z, void* socket) {
-    const char* server = std::getenv("CTPBUDDY_ZMQ_CURVE_SERVER_KEY");
-    const char* pub = std::getenv("CTPBUDDY_ZMQ_CURVE_PUBLIC_KEY");
-    const char* secret = std::getenv("CTPBUDDY_ZMQ_CURVE_SECRET_KEY");
-    const bool any = (server && *server) || (pub && *pub) || (secret && *secret);
-    if (!any) return true;
-    if (!server || !pub || !secret || std::strlen(server) != 40 || std::strlen(pub) != 40 ||
-        std::strlen(secret) != 40) {
-        return false;
-    }
-    return z.setsockopt(socket, ZMQ_CURVE_SERVERKEY, server, 40) == 0 &&
-           z.setsockopt(socket, ZMQ_CURVE_PUBLICKEY, pub, 40) == 0 &&
-           z.setsockopt(socket, ZMQ_CURVE_SECRETKEY, secret, 40) == 0;
 }
 
 std::string trim_ascii(std::string value) {
@@ -491,28 +393,22 @@ bool ApiCore::connect_front() {
         if (*over) parse_address(over, kind, host, port, endpoint);
     }
     if (kind == TransportKind::Zmq) {
-        auto& z = zmq_library();
-        if (!z.load() || endpoint.empty()) return false;
-        void* ctx = z.ctx_new();
+        if (endpoint.empty()) return false;
+        void* ctx = zmq_ctx_new();
         if (!ctx) return false;
-        void* dealer = z.socket(ctx, ZMQ_DEALER);
+        void* dealer = zmq_socket(ctx, ZMQ_DEALER);
         if (!dealer) {
-            z.ctx_term(ctx);
+            zmq_ctx_term(ctx);
             return false;
         }
         const int zero = 0;
         const int hwm = 1000;
-        if (!apply_curve_options(z, dealer)) {
-            z.close(dealer);
-            z.ctx_term(ctx);
-            return false;
-        }
-        z.setsockopt(dealer, ZMQ_LINGER, &zero, sizeof(zero));
-        z.setsockopt(dealer, ZMQ_SNDHWM, &hwm, sizeof(hwm));
-        z.setsockopt(dealer, ZMQ_RCVHWM, &hwm, sizeof(hwm));
-        if (z.connect(dealer, endpoint.c_str()) != 0) {
-            z.close(dealer);
-            z.ctx_term(ctx);
+        zmq_setsockopt(dealer, ZMQ_LINGER, &zero, sizeof(zero));
+        zmq_setsockopt(dealer, ZMQ_SNDHWM, &hwm, sizeof(hwm));
+        zmq_setsockopt(dealer, ZMQ_RCVHWM, &hwm, sizeof(hwm));
+        if (zmq_connect(dealer, endpoint.c_str()) != 0) {
+            zmq_close(dealer);
+            zmq_ctx_term(ctx);
             return false;
         }
 
@@ -524,26 +420,18 @@ bool ApiCore::connect_front() {
                 if (!starts_with(pub_endpoint, "tcp://") && !starts_with(pub_endpoint, "ipc://")) {
                     pub_endpoint = "tcp://" + pub_endpoint;
                 }
-                sub = z.socket(ctx, ZMQ_SUB);
+                sub = zmq_socket(ctx, ZMQ_SUB);
                 if (sub) {
-                    if (!apply_curve_options(z, sub)) {
-                        z.close(sub);
-                        z.close(dealer);
-                        z.ctx_term(ctx);
-                        return false;
-                    }
-                }
-                if (sub) {
-                    z.setsockopt(sub, ZMQ_LINGER, &zero, sizeof(zero));
-                    z.setsockopt(sub, ZMQ_RCVHWM, &hwm, sizeof(hwm));
+                    zmq_setsockopt(sub, ZMQ_LINGER, &zero, sizeof(zero));
+                    zmq_setsockopt(sub, ZMQ_RCVHWM, &hwm, sizeof(hwm));
                     const char md[] = "md/";
                     const char td[] = "td/";
                     const char sys[] = "sys/";
-                    z.setsockopt(sub, ZMQ_SUBSCRIBE, md, sizeof(md) - 1);
-                    z.setsockopt(sub, ZMQ_SUBSCRIBE, td, sizeof(td) - 1);
-                    z.setsockopt(sub, ZMQ_SUBSCRIBE, sys, sizeof(sys) - 1);
-                    if (z.connect(sub, pub_endpoint.c_str()) != 0) {
-                        z.close(sub);
+                    zmq_setsockopt(sub, ZMQ_SUBSCRIBE, md, sizeof(md) - 1);
+                    zmq_setsockopt(sub, ZMQ_SUBSCRIBE, td, sizeof(td) - 1);
+                    zmq_setsockopt(sub, ZMQ_SUBSCRIBE, sys, sizeof(sys) - 1);
+                    if (zmq_connect(sub, pub_endpoint.c_str()) != 0) {
+                        zmq_close(sub);
                         sub = nullptr;
                     }
                 }
@@ -605,7 +493,6 @@ bool ApiCore::connected_locked() const {
 }
 
 void ApiCore::flush_zmq_outbound() {
-    auto& z = zmq_library();
     std::deque<std::vector<uint8_t>> pending;
     void* dealer = nullptr;
     {
@@ -617,7 +504,7 @@ void ApiCore::flush_zmq_outbound() {
     while (!pending.empty()) {
         std::vector<uint8_t> bytes = std::move(pending.front());
         pending.pop_front();
-        int rc = z.send(dealer, bytes.data(), bytes.size(), ZMQ_DONTWAIT);
+        int rc = zmq_send(dealer, bytes.data(), bytes.size(), ZMQ_DONTWAIT);
         if (rc < 0) {
             // EAGAIN means the peer's HWM is full. Preserve ordering and try
             // again on the next poll tick; a hard error ends the connection.
@@ -648,15 +535,15 @@ bool decode_frame_bytes(const uint8_t* bytes, size_t len, Frame& out) {
     return true;
 }
 
-bool zmq_more(ZmqLibrary& z, void* socket) {
+bool zmq_more(void* socket) {
     int more = 0;
     size_t size = sizeof(more);
-    return z.getsockopt(socket, ZMQ_RCVMORE, &more, &size) == 0 && more != 0;
+    return zmq_getsockopt(socket, ZMQ_RCVMORE, &more, &size) == 0 && more != 0;
 }
 
-bool zmq_recv_part(ZmqLibrary& z, void* socket, std::vector<uint8_t>& out) {
+bool zmq_recv_part(void* socket, std::vector<uint8_t>& out) {
     out.resize(WIRE_MAX_PAYLOAD + WIRE_HEADER_LEN + 256);
-    int rc = z.recv(socket, out.data(), out.size(), 0);
+    int rc = zmq_recv(socket, out.data(), out.size(), 0);
     if (rc < 0) return false;
     out.resize(static_cast<size_t>(rc));
     return true;
@@ -665,7 +552,6 @@ bool zmq_recv_part(ZmqLibrary& z, void* socket, std::vector<uint8_t>& out) {
 }  // namespace
 
 bool ApiCore::read_zmq_frame(Frame& out) {
-    auto& z = zmq_library();
     while (!stopped_.load()) {
         flush_zmq_outbound();
         drain_auth_errors();
@@ -678,7 +564,7 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             dealer = zmq_dealer_;
             sub = zmq_sub_;
         }
-        ZmqPollItem items[2]{};
+        zmq_pollitem_t items[2]{};
         items[0].socket = dealer;
         items[0].events = ZMQ_POLLIN;
         int count = 1;
@@ -687,7 +573,7 @@ bool ApiCore::read_zmq_frame(Frame& out) {
             items[1].events = ZMQ_POLLIN;
             count = 2;
         }
-        int ready = z.poll(items, count, 100);
+        int ready = zmq_poll(items, count, 100);
         if (ready < 0) return false;
         if (ready == 0) {
             if (!heartbeat_tick()) return false;
@@ -702,14 +588,14 @@ bool ApiCore::read_zmq_frame(Frame& out) {
         }
         if (!selected) continue;
         std::vector<uint8_t> first;
-        if (!zmq_recv_part(z, selected, first)) return false;
+        if (!zmq_recv_part(selected, first)) return false;
         if (is_sub) {
-            if (!zmq_more(z, selected)) continue;
+            if (!zmq_more(selected)) continue;
             std::vector<uint8_t> frame;
-            if (!zmq_recv_part(z, selected, frame)) return false;
-            while (zmq_more(z, selected)) {
+            if (!zmq_recv_part(selected, frame)) return false;
+            while (zmq_more(selected)) {
                 std::vector<uint8_t> ignored;
-                if (!zmq_recv_part(z, selected, ignored)) return false;
+                if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(frame.data(), frame.size(), out)) {
                 // The core already delivers subscribed MD and private CTP
@@ -721,9 +607,9 @@ bool ApiCore::read_zmq_frame(Frame& out) {
                 return true;
             }
         } else {
-            while (zmq_more(z, selected)) {
+            while (zmq_more(selected)) {
                 std::vector<uint8_t> ignored;
-                if (!zmq_recv_part(z, selected, ignored)) return false;
+                if (!zmq_recv_part(selected, ignored)) return false;
             }
             if (decode_frame_bytes(first.data(), first.size(), out)) return true;
         }
@@ -762,7 +648,6 @@ bool ApiCore::read_exact(uint8_t* buf, size_t n) {
 void ApiCore::close_socket_locked() {
     // caller holds mu_ OR we are single-threaded (dtor path)
     if (transport_kind_ == TransportKind::Zmq) {
-        auto& z = zmq_library();
         // libzmq sockets are thread-affine. Release() may call this method on
         // the app thread; the reader observes stopped_ and performs the close
         // on its own thread before it joins.
@@ -770,9 +655,9 @@ void ApiCore::close_socket_locked() {
             transport_connected_ = false;
             return;
         }
-        if (zmq_sub_) z.close(zmq_sub_);
-        if (zmq_dealer_) z.close(zmq_dealer_);
-        if (zmq_context_) z.ctx_term(zmq_context_);
+        if (zmq_sub_) zmq_close(zmq_sub_);
+        if (zmq_dealer_) zmq_close(zmq_dealer_);
+        if (zmq_context_) zmq_ctx_term(zmq_context_);
         zmq_sub_ = nullptr;
         zmq_dealer_ = nullptr;
         zmq_context_ = nullptr;

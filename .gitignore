@@ -46,3 +46,6 @@ outputs/
 
 # Windows 保留设备名误生成的空目录项；不得作为项目文件提交
 /NUL
+
+# libzmq pinned-source build cache (build_msvc.py / build_linux.py)
+shim/third_party/

@@ -16,7 +16,7 @@ menus:
 - Python SDK、CLI、场景源与端到端冒烟。
 - C++ Shim ABI override、布局校验和真实下游 demo。
 - 限价簿、FAK/FOK、journal 投影、结算单、OrderSysID 等 M2/M3 项目。
-- ZeroMQ ROUTER/DEALER、可选 PUB/SUB/IPC、CURVE/ZAP 白名单与 ADMIN token。
+- ZeroMQ ROUTER/DEALER、可选 PUB/SUB/IPC（静态链接 libzmq，ADR 0002 移除 CURVE）与 ADMIN token。
 - 墙钟自动日结、到期强平、实时 Web 查询、FTD/连接/交易所限流，以及本机 uv/Docker Desktop 验收。
 
 ## 仍在推进

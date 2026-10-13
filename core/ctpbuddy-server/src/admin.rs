@@ -309,16 +309,10 @@ impl World {
             ("connections".into(), json::n(self.conns.len() as f64)),
             (
                 "security".into(),
-                json::obj_sorted(vec![
-                    (
-                        "admin_token_required".into(),
-                        json::b(self.security.admin_token.is_some()),
-                    ),
-                    (
-                        "zmq_curve_enabled".into(),
-                        json::b(self.security.curve_secret.is_some()),
-                    ),
-                ]),
+                json::obj_sorted(vec![(
+                    "admin_token_required".into(),
+                    json::b(self.security.admin_token.is_some()),
+                )]),
             ),
             (
                 "flow_control".into(),

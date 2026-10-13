@@ -228,27 +228,14 @@ def test_auth_explicit_rejection() -> None:
 def test_zmq_queue_full() -> None:
     """S2: a ROUTER that never reads; the demo's flood mode issues far more
     requests than the (shrunk) outbound queue + DEALER HWM can hold. Every
-    request beyond the cap must return -2, and none may be dropped silently."""
+    request beyond the cap must return -2, and none may be dropped silently.
+    The shim embeds its static libzmq (ADR-0002), so only pyzmq -- the fake
+    ROUTER -- is an external requirement."""
     try:
-        import zmq  # noqa: F401
+        import zmq
     except ImportError:
         print("SKIP: pyzmq unavailable (uv sync --group e2e)")
         raise SystemExit(SKIP)
-    libzmq = os.environ.get("CTPBUDDY_ZMQ_LIBRARY", "")
-    if not libzmq:
-        for name in ("libzmq.dll", "libzmq.so.5", "libzmq.so"):
-            candidate = os.path.join(SHIM_BIN, name)
-            if os.path.exists(candidate):
-                libzmq = candidate
-                break
-    if not libzmq:
-        # pyzmq bundles libzmq statically -- it cannot be borrowed by the
-        # shim's runtime dlopen. A standalone library is required (CI's
-        # CURVE jobs build one; locally point CTPBUDDY_ZMQ_LIBRARY at it).
-        print("SKIP: no standalone libzmq for the shim (set CTPBUDDY_ZMQ_LIBRARY)")
-        raise SystemExit(SKIP)
-
-    import zmq
 
     ctx = zmq.Context()
     router = ctx.socket(zmq.ROUTER)
@@ -257,7 +244,6 @@ def test_zmq_queue_full() -> None:
         "zmq://tcp://127.0.0.1:%d" % port,
         mode="flood",
         env_extra={
-            "CTPBUDDY_ZMQ_LIBRARY": libzmq,
             "CTPBUDDY_SHIM_ZMQ_SEND_QUEUE": "2",
             "CTPBUDDY_SHIM_PING_IDLE_SEC": "0",  # this probe is about the queue only
         },
@@ -266,7 +252,7 @@ def test_zmq_queue_full() -> None:
         rc = proc.wait(timeout=120)
         out = drain(lines)
         assert rc == 0, "flood demo exited %d: %r" % (rc, out)
-        refused = [l for l in out if "flood refused=" in l]
+        refused = [l for l in out if "refused=" in l and "flood accepted=" in l]
         assert refused, "flood summary missing: %r" % out
         count = int(refused[0].split("refused=")[1].split()[0])
         assert count > 0, "queue cap never answered -2 (silent frame-drop regression?)"

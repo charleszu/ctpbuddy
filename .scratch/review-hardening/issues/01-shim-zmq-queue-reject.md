@@ -12,4 +12,4 @@
 - [x] e2e:pyzmq 假 ROUTER(bind 后不读) + demo 以小容量队列连续请求,断言达到容量后的请求返回 -2 且无请求被静默吞掉
 - [x] 既有 shim e2e(m1_shim_e2e / curve 真实 shim 路径)保持绿
 
-> 落地备注: (e2e 覆盖于存在独立 libzmq 的环境: CTPBUDDY_ZMQ_LIBRARY / CI CURVE job; 本机 pyzmq 静态链接无法借用, shim_hardening.py 按约定 SKIP=3)
+> 落地备注(2026-10-13 更新): shim 静态链接 libzmq(ADR 0002)后本机 e2e 已完整覆盖——`shim_hardening.py` 实测 accepted=2 refused=1198,零丢帧。
