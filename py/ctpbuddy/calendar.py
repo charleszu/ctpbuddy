@@ -86,7 +86,7 @@ class TradingCalendar:
     SCHEMA = "ctpbuddy.trading-calendar/v1"
 
     def __init__(self, snapshot: Mapping[str, Any]) -> None:
-        _keys(snapshot, {"schema", "version", "source", "days"}, "snapshot")
+        _keys(snapshot, {"schema", "version", "source", "days", "night_policy"}, "snapshot")
         if snapshot.get("schema") != self.SCHEMA:
             raise CalendarError("不支持的交易日历 schema")
         version = snapshot.get("version")
@@ -148,6 +148,33 @@ class TradingCalendar:
                 action = _date(night.get("night_action_day"), "night_action_day")
                 _date(night.get("night_trading_day"), "night_trading_day", True)
                 self._nights[(date, exchange)] = CalendarDay(date, opened, trading, night["night_trading_day"], action.replace("-", ""), exchange, status)
+        policy = snapshot.get("night_policy")
+        self._night_policy = None
+        if policy is not None:
+            _keys(policy, {"kind", "source_revision", "scope", "exchanges", "closed_dates"}, "night_policy")
+            if policy.get("kind") != "official-preholiday-closure":
+                raise CalendarError("night_policy.kind 不受支持")
+            if policy.get("scope") != "status-only":
+                raise CalendarError("night_policy.scope 必须是 status-only")
+            for field in ("source_revision",):
+                if not isinstance(policy.get(field), str) or not policy[field].strip():
+                    raise CalendarError("night_policy.%s 必须是非空字符串" % field)
+            exchanges = policy.get("exchanges")
+            if not isinstance(exchanges, list) or not exchanges or any(not isinstance(item, str) or not item.strip() for item in exchanges):
+                raise CalendarError("night_policy.exchanges 必须是非空字符串数组")
+            closed_dates = policy.get("closed_dates")
+            if not isinstance(closed_dates, list) or any(not isinstance(item, str) for item in closed_dates):
+                raise CalendarError("night_policy.closed_dates 必须是字符串数组")
+            normalized_closed = tuple(_date(item, "night_policy.closed_dates") for item in closed_dates)
+            if len(set(normalized_closed)) != len(normalized_closed):
+                raise CalendarError("night_policy.closed_dates 不能重复")
+            self._night_policy = MappingProxyType({
+                "kind": policy["kind"],
+                "source_revision": policy["source_revision"],
+                "scope": policy["scope"],
+                "exchanges": tuple(exchanges),
+                "closed_dates": frozenset(normalized_closed),
+            })
         normalized = dict(snapshot)
         normalized["version"] = version
         self._json = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
@@ -216,9 +243,16 @@ class TradingCalendar:
         return row.night_action_day, row.night_trading_day
 
     def night_status(self, date: DateLike, exchange: str) -> str:
-        """返回已显式记录的夜盘状态；缺失记录仍然拒绝推断。"""
-        row = self.day(date, exchange)
-        return row.night_status or "open"
+        """返回显式或经固定官方规则确认的夜盘状态；其余情况拒绝推断。"""
+        key = _date(date, "date")
+        explicit = self._nights.get((key, exchange))
+        if explicit is not None:
+            return explicit.night_status or "open"
+        day = self.day(key)
+        policy = self._night_policy
+        if policy is not None and exchange in policy["exchanges"] and day.is_trading_day:
+            return "closed" if key in policy["closed_dates"] else "open"
+        raise CalendarError("快照未覆盖 %s 的 %s 夜盘" % (key, exchange))
 
 
 def load_calendar(path: Union[str, Path], override: Optional[Union[str, Path, Mapping[str, Any]]] = None, expected_sha256: Optional[str] = None) -> TradingCalendar:

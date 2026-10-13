@@ -516,6 +516,13 @@ def test_calendar() -> None:
     production = TradingCalendar.from_file(production_path)
     assert production.metadata["source"]["kind"] == "official"
     assert production.metadata["source"]["url"].startswith("https://www.shfe.com.cn/")
+    assert production.night_status("2026-02-12", "SHFE") == "open"
+    assert production.night_status("2026-02-13", "SHFE") == "closed"
+    try:
+        production.night_status("2026-02-12", "CFFEX")
+        raise AssertionError("未声明夜盘规则的交易所不应推断状态")
+    except CalendarError:
+        pass
     with open(manifest_path, "rb") as fh:
         manifest = validate_manifest(fh.read(), snapshot_path=production_path)
     assert manifest["status"] == "complete-day-session-partial-night"

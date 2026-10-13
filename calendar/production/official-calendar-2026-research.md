@@ -17,7 +17,7 @@
 
 ## 统一日盘基准
 
-本项目按用户确认的交易所规则，将 SHFE、INE、CZCE、DCE、CFFEX、GFEX 的日盘休市/开市日历建模为统一 contract。生产 manifest 以 SHFE 公告作为 `canonical_exchange`，其余交易所不再重复生成一份相同的日盘表。这个统一只适用于日盘日期；夜盘是否开放以及跨自然日的 `ActionDay`/`TradingDay` 仍必须按交易所分别提供。
+本项目按用户确认的交易所规则，将 SHFE、INE、CZCE、DCE、CFFEX、GFEX 的日盘休市/开市日历建模为统一 contract。生产 manifest 以 SHFE 公告作为 `canonical_exchange`，其余交易所不再重复生成一份相同的日盘表。生产快照还声明 `night_policy.kind=official-preholiday-closure`：对 SHFE/INE/CZCE/DCE，在统一日盘范围内，假期前一交易日夜盘状态可按公告规则确认 `closed`，其他正常交易日状态可确认 `open`。这个规则只确认状态；跨自然日的 `ActionDay`/`TradingDay` 仍必须按交易所分别提供。
 
 ## 已登记的交易所来源
 
@@ -38,11 +38,11 @@ DCE 的索引结果曾命中 <https://dce.com.cn/dce/content/2026/ywggytz/186310
 
 `cn-futures-day-2026.snapshot.json` 覆盖 2026-01-01 至 2026-12-31 共 365 个自然日，记录 SHFE 官方公告按统一六所日盘 contract 展开的日盘状态，并在六个已登记边界记录 SHFE/INE/CZCE/DCE 明确的夜盘 `closed`。夜盘仍不是全年逐日数据库。其 manifest SHA256 为：
 
-`470ff8b2cd9570451bbd84014b59ffc865e6b6ac79ef9eb0400f7d6cd2609848`
+`4c3df3b3f9784c74838a76ac4ec1fc77625182aebff818ba2d830628d927d717`
 
 这些字段可以用于离线回放的覆盖检查和 fail-closed 查询；它们不等价于六所各自发布的完整逐日 `TradingDay`、`ActionDay` 数据库。尤其是：
 
-- 未获得逐交易所全年夜盘 open/closed 表，不能从周末、民用调休、交易所名称或股票日历推断；
+- 夜盘状态现可按固定官方“假期前一晚不交易”规则覆盖 SHFE/INE/CZCE/DCE；仍不能从周末、民用调休、交易所名称或股票日历推断其他日期；
 - `GFEX`、`CFFEX` 当前没有夜盘记录；
 - 交易所公告可能后续修订、临时停市或按品种给出不同交易时段；
 - 2026-12-31 之后的下一交易日不在快照覆盖范围内。
