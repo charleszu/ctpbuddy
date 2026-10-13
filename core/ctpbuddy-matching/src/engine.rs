@@ -57,12 +57,7 @@ pub const ERR_PRICE_TICK: i32 = 165; //         PRICE_WRONG_TICK          CTP:�
 pub const ERR_PRICE_LIMIT: i32 = 163; //        PRICE_OVER_LIMIT          CTP:报单价格不在涨跌停板价范围内
 pub const ERR_VOLUME_RANGE: i32 = 164; //       VOLUME_NOT_VALID          CTP:下单数量不符合交易所规范
 pub const ERR_DUPLICATE_ORDER: i32 = 22; //     DUPLICATE_ORDER_REF       CTP:报单错误：不允许重复报单
-pub const ERR_NO_POSITION: i32 = 30; //         OVER_CLOSE_POSITION       CTP:平仓量超过持仓量
 pub const ERR_NO_CLOSE_TODAY: i32 = 50; //      OVER_CLOSETODAY_POSITION  CTP:平今仓位不足
-pub const ERR_INSUFFICIENT_MONEY: i32 = 31; //  INSUFFICIENT_MONEY        CTP:资金不足
-/// 无对手盘（IOC/市价，当前深度为空）：交易所侧拒绝，CTP 统一包裹转发为
-/// EXCHANGE_RTNERROR「CTP：交易所返回的错误」。
-pub const ERR_NO_COUNTERPARTY: i32 = 91; //    EXCHANGE_RTNERROR          CTP：交易所返回的错误
 pub const ERR_ORDER_NOT_FOUND: i32 = 25; //     ORDER_NOT_FOUND           CTP:撤单找不到相应报单
 pub const ERR_ORDER_STATUS_UNSUITABLE: i32 = 26; // INSUITABLE_ORDER_STATUS CTP:报单已全成交或已撤销，不能再撤
 /// 报单流控超限（柜台端【程序化交易频繁报撤单管理】每秒报撤笔数）：
@@ -298,10 +293,6 @@ impl MatchingEngine {
         self.maker_fill_at_limit = on;
     }
 
-    pub fn maker_fill_at_limit(&self) -> bool {
-        self.maker_fill_at_limit
-    }
-
     /// Switch self-trade prevention on/off (default off, see the field doc).
     pub fn set_self_trade_prevention(&mut self, on: bool) {
         self.self_trade_prevention = on;
@@ -326,10 +317,6 @@ impl MatchingEngine {
 
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
-    }
-
-    pub fn catalog_mut(&mut self) -> &mut Catalog {
-        &mut self.catalog
     }
 
     pub fn last_price(&self, instrument_id: &str) -> Option<f64> {

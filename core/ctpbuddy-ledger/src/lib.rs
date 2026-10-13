@@ -391,7 +391,7 @@ impl Ledger {
                 .entry((i.exchange_id.clone(), i.product_id.clone()))
                 .or_default();
             let s = if *side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog.refdata().product_margin_algorithm(id) {
+            let bucket = if catalog.product_margin_algorithm(id) {
                 1
             } else {
                 0
@@ -423,10 +423,7 @@ impl Ledger {
                 .entry((i.exchange_id.clone(), i.product_id.clone()))
                 .or_default();
             let s = if est.side == PositionSide::Long { 0 } else { 1 };
-            let bucket = if catalog
-                .refdata()
-                .product_margin_algorithm(&est.instrument_id)
-            {
+            let bucket = if catalog.product_margin_algorithm(&est.instrument_id) {
                 1
             } else {
                 0

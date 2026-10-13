@@ -30,7 +30,7 @@ use ctpbuddy_ledger::{
     ERR_NO_CLOSE_YD_LEDGER,
 };
 use ctpbuddy_matching::{
-    CancelQuery, Catalog, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome,
+    to_fixed, CancelQuery, Catalog, ClockCtx, Direction, OffsetFlag, OrderIntent, SubmitOutcome,
     TradingParams, ERR_BAD_FIELD, ERR_DUPLICATE_ORDER, ERR_EXCHANGE_ID_INVALID,
     ERR_INSTRUMENT_NOT_FOUND, ERR_INSTRUMENT_NOT_TRADING, ERR_ORDER_FREQ, HEDGE_FLAG_SPECULATION,
 };

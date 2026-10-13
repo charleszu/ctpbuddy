@@ -442,17 +442,6 @@ pub struct CrossMarginRule {
 }
 
 impl OrderCommRate {
-    /// 报单 + 撤单 一次性收齐：CTP 在成交/撤单时按次收取，盘中可用资金
-    /// 不含申报费，只体现在结算单（notes/04 D2）。`trades` counts FAK/FOK
-    /// 的自动撤单 as one extra 撤单, so a completed FAK pays twice.
-    pub fn insert_fee(&self, volume: i32) -> f64 {
-        self.order_comm_by_volume * volume as f64 + self.order_comm_by_trade
-    }
-
-    pub fn action_fee(&self, volume: i32) -> f64 {
-        self.order_action_comm_by_volume * volume as f64 + self.order_action_comm_by_trade
-    }
-
     pub fn to_field(&self) -> CThostFtdcInstrumentOrderCommRateField {
         let mut f = CThostFtdcInstrumentOrderCommRateField::zeroed();
         set_cstr(&mut f.BrokerID, &self.broker_id);
@@ -600,10 +589,6 @@ impl RefData {
         Ok(())
     }
 
-    pub fn cross_margin_rules(&self) -> &[CrossMarginRule] {
-        &self.cross_margin_rules
-    }
-
     pub fn cross_margin_rules_for(&self, broker_id: &str) -> Vec<&CrossMarginRule> {
         let exact: Vec<&CrossMarginRule> = self
             .cross_margin_rules
@@ -676,19 +661,19 @@ impl RefData {
         self.instruments.values()
     }
 
-    pub fn margin_rate_rows(&self) -> impl Iterator<Item = &MarginRate> {
+    fn margin_rate_rows(&self) -> impl Iterator<Item = &MarginRate> {
         self.margin_rates
             .values()
             .chain(self.margin_rates_by_broker.values())
     }
 
-    pub fn commission_rate_rows(&self) -> impl Iterator<Item = &CommissionRate> {
+    fn commission_rate_rows(&self) -> impl Iterator<Item = &CommissionRate> {
         self.commission_rates
             .values()
             .chain(self.commission_rates_by_broker.values())
     }
 
-    pub fn order_comm_rate_rows(&self) -> impl Iterator<Item = &OrderCommRate> {
+    fn order_comm_rate_rows(&self) -> impl Iterator<Item = &OrderCommRate> {
         self.order_comm_rates
             .values()
             .chain(self.order_comm_rates_by_broker.values())

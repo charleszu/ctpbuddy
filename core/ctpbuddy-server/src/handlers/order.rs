@@ -657,27 +657,11 @@ fn decode_order_insert(
     let order_local_id = order_local.to_string();
     let order_key = format!("{front_id}/{session_id}/{order_ref}");
     let intent = OrderIntent {
-        broker_id: {
-            let mut value = [0u8; 11];
-            set_cstr(&mut value, &broker);
-            value
-        },
-        investor_id: {
-            let mut value = [0u8; 13];
-            set_cstr(&mut value, &investor);
-            value
-        },
+        broker_id: to_fixed::<11>(&broker),
+        investor_id: to_fixed::<13>(&investor),
         user_id,
-        order_ref: {
-            let mut value = [0u8; 13];
-            set_cstr(&mut value, &order_ref);
-            value
-        },
-        order_local_id: {
-            let mut value = [0u8; 13];
-            set_cstr(&mut value, &order_local_id);
-            value
-        },
+        order_ref: to_fixed::<13>(&order_ref),
+        order_local_id: to_fixed::<13>(&order_local_id),
         instrument_id: instrument.clone(),
         exchange_id: exchange.clone(),
         direction,

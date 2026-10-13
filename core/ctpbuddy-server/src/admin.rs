@@ -303,7 +303,7 @@ impl World {
             ("playback".into(), pb),
             (
                 "instruments".into(),
-                json::n(self.engine.catalog().len() as f64),
+                json::n(self.engine.catalog().instrument_count() as f64),
             ),
             ("open_orders".into(), json::n(open_orders as f64)),
             ("connections".into(), json::n(self.conns.len() as f64)),
