@@ -566,16 +566,7 @@ impl World {
         // lenient: a malformed payload degrades to "no filter"
         let query = decode_instrument_query(&frame.payload);
         let fields = select_instruments(self.engine.catalog(), &query);
-        for f in &fields {
-            self.send_frame(
-                conn_id,
-                Frame::new(msgs::RSP_QRY_INSTRUMENT, frame.req_id, struct_to_bytes(f)),
-            );
-        }
-        self.send_frame(
-            conn_id,
-            Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()),
-        );
+        self.send_rate_rows(conn_id, frame.req_id, msgs::RSP_QRY_INSTRUMENT, fields);
     }
 
     pub(crate) fn on_qry_trading_account(&mut self, conn_id: u64, frame: &Frame) {
@@ -583,10 +574,8 @@ impl World {
             return;
         }
         self.mark_to_market_now();
-        let sess = self.session(conn_id);
-        let (broker, investor) = match sess {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        let Some((broker, investor)) = self.session_or_login_err(conn_id, frame.req_id) else {
+            return;
         };
         let query = decode_trading_account_query(&frame.payload);
         // A session only ever sees its own account: a foreign BrokerID /
@@ -617,9 +606,8 @@ impl World {
             return;
         }
         self.mark_to_market_now();
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        let Some((broker, investor)) = self.session_or_login_err(conn_id, frame.req_id) else {
+            return;
         };
         let query = decode_investor_position_query(&frame.payload);
         let day = self.vt_day();
@@ -631,19 +619,11 @@ impl World {
             self.engine.catalog(),
             &query,
         );
-        for f in &positions {
-            self.send_frame(
-                conn_id,
-                Frame::new(
-                    msgs::RSP_QRY_INVESTOR_POSITION,
-                    frame.req_id,
-                    struct_to_bytes(f),
-                ),
-            );
-        }
-        self.send_frame(
+        self.send_rate_rows(
             conn_id,
-            Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()),
+            frame.req_id,
+            msgs::RSP_QRY_INVESTOR_POSITION,
+            positions,
         );
     }
 
@@ -659,9 +639,8 @@ impl World {
             return;
         }
         self.mark_to_market_now();
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
+        let Some((broker, investor)) = self.session_or_login_err(conn_id, frame.req_id) else {
+            return;
         };
         let query = decode_investor_position_detail_query(&frame.payload);
         let day = self.vt_day();
@@ -674,64 +653,30 @@ impl World {
             &self.engine.last_prices(),
             &query,
         );
-        for f in &rows {
-            self.send_frame(
-                conn_id,
-                Frame::new(
-                    msgs::RSP_QRY_INVESTOR_POSITION_DETAIL,
-                    frame.req_id,
-                    struct_to_bytes(f),
-                ),
-            );
-        }
-        self.send_frame(
+        self.send_rate_rows(
             conn_id,
-            Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()),
+            frame.req_id,
+            msgs::RSP_QRY_INVESTOR_POSITION_DETAIL,
+            rows,
         );
     }
 
     pub(crate) fn on_qry_order(&mut self, conn_id: u64, frame: &Frame) {
-        if !self.qry_gate(conn_id, frame.req_id) {
+        let Some((broker, investor)) = self.qry_session(conn_id, frame.req_id) else {
             return;
-        }
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let query = decode_order_query(&frame.payload);
         let fields = select_latest_orders(&self.orders_today, &broker, &investor, &query);
-        for f in &fields {
-            self.send_frame(
-                conn_id,
-                Frame::new(msgs::RSP_QRY_ORDER, frame.req_id, struct_to_bytes(f)),
-            );
-        }
-        self.send_frame(
-            conn_id,
-            Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()),
-        );
+        self.send_rate_rows(conn_id, frame.req_id, msgs::RSP_QRY_ORDER, fields);
     }
 
     pub(crate) fn on_qry_trade(&mut self, conn_id: u64, frame: &Frame) {
-        if !self.qry_gate(conn_id, frame.req_id) {
+        let Some((broker, investor)) = self.qry_session(conn_id, frame.req_id) else {
             return;
-        }
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let query = decode_trade_query(&frame.payload);
         let fields = select_trades(&self.trades_today, &broker, &investor, &query);
-        for f in &fields {
-            self.send_frame(
-                conn_id,
-                Frame::new(msgs::RSP_QRY_TRADE, frame.req_id, struct_to_bytes(f)),
-            );
-        }
-        self.send_frame(
-            conn_id,
-            Frame::new(msgs::QRY_LAST, frame.req_id, Vec::new()),
-        );
+        self.send_rate_rows(conn_id, frame.req_id, msgs::RSP_QRY_TRADE, fields);
     }
 
     // ---- reference-data queries (notes/04 G) ----
@@ -783,6 +728,25 @@ impl World {
         self.send_frame(conn_id, Frame::new(msgs::QRY_LAST, req_id, Vec::new()));
     }
 
+    /// Gate + session resolution shared by the ReqQry* handlers; `None` means
+    /// the request was already answered (rate-limit frame or -3 not-logged-in).
+    pub(crate) fn qry_session(&mut self, conn_id: u64, req_id: u32) -> Option<(String, String)> {
+        if !self.qry_gate(conn_id, req_id) {
+            return None;
+        }
+        self.session_or_login_err(conn_id, req_id)
+    }
+
+    /// The session half alone, for handlers that mark to market between the
+    /// gate and the session check.
+    fn session_or_login_err(&mut self, conn_id: u64, req_id: u32) -> Option<(String, String)> {
+        let Some((broker, investor, ..)) = self.session(conn_id) else {
+            self.send_error(conn_id, req_id, -3, "用户未登录");
+            return None;
+        };
+        Some((broker, investor))
+    }
+
     /// Common tail of the four reference-data queries: emit one frame per row,
     /// then terminate the stream. Generic because each query answers with its own
     /// CTP response struct — the shared part really is only "rows then QRY_LAST".
@@ -800,12 +764,8 @@ impl World {
     }
 
     pub(crate) fn on_qry_instrument_margin_rate(&mut self, conn_id: u64, frame: &Frame) {
-        if !self.qry_gate(conn_id, frame.req_id) {
+        let Some((broker, investor)) = self.qry_session(conn_id, frame.req_id) else {
             return;
-        }
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let query = decode_instrument_margin_rate_query(&frame.payload);
         // (2) mandatory fields empty → empty result, not an error.
@@ -831,12 +791,8 @@ impl World {
     }
 
     pub(crate) fn on_qry_instrument_commission_rate(&mut self, conn_id: u64, frame: &Frame) {
-        if !self.qry_gate(conn_id, frame.req_id) {
+        let Some((broker, investor)) = self.qry_session(conn_id, frame.req_id) else {
             return;
-        }
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let query = decode_instrument_commission_rate_query(&frame.payload);
         if !rate_query_has_required_identity(&query) {
@@ -854,12 +810,8 @@ impl World {
     }
 
     pub(crate) fn on_qry_instrument_order_comm_rate(&mut self, conn_id: u64, frame: &Frame) {
-        if !self.qry_gate(conn_id, frame.req_id) {
+        let Some((broker, investor)) = self.qry_session(conn_id, frame.req_id) else {
             return;
-        }
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let query = decode_instrument_order_comm_rate_query(&frame.payload);
         if !rate_query_has_required_identity(&query) {
@@ -883,12 +835,8 @@ impl World {
     }
 
     pub(crate) fn on_qry_investor_product_group_margin(&mut self, conn_id: u64, frame: &Frame) {
-        if !self.qry_gate(conn_id, frame.req_id) {
+        let Some((broker, investor)) = self.qry_session(conn_id, frame.req_id) else {
             return;
-        }
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let query = decode_product_group_margin_query(&frame.payload);
         if !product_group_margin_query_matches(&query, &broker, &investor) {
@@ -911,12 +859,8 @@ impl World {
     }
 
     pub(crate) fn on_qry_broker_trading_params(&mut self, conn_id: u64, frame: &Frame) {
-        if !self.qry_gate(conn_id, frame.req_id) {
+        let Some((broker, investor)) = self.qry_session(conn_id, frame.req_id) else {
             return;
-        }
-        let (broker, investor) = match self.session(conn_id) {
-            Some(v) => (v.0, v.1),
-            None => return self.send_error(conn_id, frame.req_id, -3, "用户未登录"),
         };
         let query = decode_broker_trading_params_query(&frame.payload);
         // BrokerID / InvestorID / CurrencyID are all mandatory here.
