@@ -1044,11 +1044,7 @@ impl World {
                 } else {
                     ctpbuddy_ledger::PositionSide::Short
                 };
-                let direction = if side == ctpbuddy_ledger::PositionSide::Long {
-                    ctpbuddy_matching::Direction::Buy
-                } else {
-                    ctpbuddy_matching::Direction::Sell
-                };
+                let direction = side.direction();
                 let margin = p.margin.unwrap_or_else(|| {
                     catalog.margin_for(
                         broker,

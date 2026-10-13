@@ -18,7 +18,7 @@ use crate::{Account, AccountKey, Ledger, Money, Position, PositionDetail, Positi
 /// it decides later commissions, so the roundtrip must be exact. Version 1 is
 /// still accepted by the reader; the recovery wrapper supplies the trading day
 /// so the pool can be reconstructed from today's non-bootstrap details.
-pub const SNAPSHOT_VERSION: u64 = 2;
+const SNAPSHOT_VERSION: u64 = 2;
 const LEGACY_SNAPSHOT_VERSION: u64 = 1;
 
 fn m(x: Money) -> Value {
@@ -159,6 +159,7 @@ impl Ledger {
 
     /// Rebuild a ledger from [`Ledger::to_snapshot`] output. Working-order
     /// reservations are intentionally not restored (see module docs).
+    #[cfg(test)]
     pub fn from_snapshot(v: &Value) -> Result<Ledger, String> {
         Self::from_snapshot_with_trading_day(v, None)
     }
