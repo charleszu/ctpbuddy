@@ -31,6 +31,8 @@ pub const PONG: u16 = 0x0002;
 
 pub const AUTH: u16 = 0x0101;
 pub const AUTH_RSP: u16 = 0x0102;
+// LOGOUT / LOGOUT_RSP are wire-table members (the shim dispatches them);
+// the Rust server routes REQ_USER_LOGOUT instead and never reads these two.
 pub const LOGOUT: u16 = 0x0103;
 pub const LOGOUT_RSP: u16 = 0x0104;
 

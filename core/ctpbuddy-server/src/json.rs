@@ -135,6 +135,7 @@ pub fn n(x: f64) -> Value {
 pub fn b(x: bool) -> Value {
     Value::Bool(x)
 }
+
 /// A finite number, or `null` for NaN/Infinity (assertion "actual" columns).
 pub fn num_or_null(x: f64) -> Value {
     if x.is_finite() {

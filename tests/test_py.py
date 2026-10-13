@@ -1834,7 +1834,7 @@ def main() -> int:
         "test_web_replay",
     }
     _defined = {name for name, value in globals().items() if name.startswith("test_") and callable(value)}
-    assert _defined == _registered, "test_py.py: forgot to register: %s" % (_defined - _registered)
+    assert _defined == _registered, "test_py.py: defined/registered mismatch: only-defined=%s only-registered=%s" % (_defined - _registered, _registered - _defined)
     test_sdk_lifecycle()
     test_sdk_subscribe()
     test_sdk_exception_contract()

@@ -105,7 +105,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: 安装 Python 包（e2e harness 依赖 ctpbuddy.sdk）
         run: python -m pip install ./py
-      - name: 构建 Shim DLL + demo_td.exe（MSVC，头文件取自 docs/api-doc-html/files）
+      - name: 构建 Shim DLL + demo_td.exe（MSVC，头文件取自 docs/notes/assets/compiled_html）
         run: |
           python shim/build_msvc.py --demo --sdk docs/notes/assets/compiled_html
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -128,7 +128,7 @@ jobs:
           CTPBUDDY_TEST_REAL_RELEASE: "1"
         run: python tests/e2e/release_package.py
 
-  # Linux：核心单测 + Shim .so 构建 + 经 Shim 的端到端（头文件取自 docs/api-doc-html/files）。
+  # Linux：核心单测 + Shim .so 构建 + 经 Shim 的端到端（头文件取自 docs/notes/assets/compiled_html）。
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 25
