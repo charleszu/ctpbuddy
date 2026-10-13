@@ -4,7 +4,7 @@
 
 **Blocked by:** 15（api_core.cpp 同文件先落单一真相重构）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as cdca95d)
 
 - [ ] 验证步：复核 zmq_recv_part 每次 resize ~1MB、read_zmq_frame 循环内 first/frame/ignored 逐帧新建；确认 reader 单线程独占与 decode 以长度为准（复用安全性依据）；确认所有 early-return/continue 路径不复用脏数据
 - [ ] 缓冲提升为线程私有成员（或循环外复用）；TCP 读路径不动

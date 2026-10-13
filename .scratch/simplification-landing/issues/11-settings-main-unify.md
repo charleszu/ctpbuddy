@@ -4,7 +4,7 @@
 
 **Blocked by:** 04（settings.rs 同文件先清死代码；R7 的常量化可能同域）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as 5f32ce8)
 
 - [ ] 验证步：复核两张 min/max 表仍各写一遍且数值一致；main.rs env（settings 三键 + qry/order-freq）与 CLI 块的重复解析；env 错误路径 eprintln+exit 与 CLI Err 返回的差异
 - [ ] SETTING_DEFS 单表双驱动；apply_flag 统一解析（bool/u32 判别 + patch + overrides 推入），调用方保留各自错误路径形态

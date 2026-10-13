@@ -4,7 +4,7 @@
 
 **Blocked by:** 04（server 文件先清死代码，handlers.rs 同文件）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as 8a209cf)
 
 - [ ] 验证步：复核 qry_gate+session 前导仍为 11 处（query.rs）+1 处（handlers.rs）、-3 错误面逐字重复；`send_rate_rows` 仍只有 4 个使用方而 5 个查询手写同构 for 循环；trading_account 无账户时也发 QRY_LAST 的现状
 - [ ] 提 `qry_session()`（内含 gate+session+既有错误面）；6 处尾部改调 `send_rate_rows`（空 vec 同样发 QRY_LAST）

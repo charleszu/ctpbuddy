@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (landed as a8facef)
 
 - [ ] 验证步：复核三处帧头解析（Frame::encode / decode_frame_bytes / reader_main TCP 分支）与 magic/version/长度校验各自一份；复核 is_query_msg 12 项与 dispatch qry 列逐项一一对应；复核 auth 两路径重复与 11/16 魔数 ×4（对照 send_ctp_auth 已用 sizeof）；复核 TCP 路径"先收头、len 越界即断线"的顺序语义
 - [ ] 抽 `decode_header`（校验+填头不碰 payload），两路共用；is_query_msg 改 `find_row_by_req(msg) && qry_last != nullptr`；抽 `auth_json_prefix` + `bind_auth_locked`，尺寸取 sizeof

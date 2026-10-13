@@ -4,7 +4,7 @@
 
 **Blocked by:** 13（replay.py 同文件先落 core_argv 收敛）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as 433f274)
 
 - [ ] 验证步：复核 hash_stream(core=True) 与 first_core_diff 的重复规范化路径；复核 store._project 的 `_json(d)` 与 `_json(e["data"])` 双序列化及 data=None 时 `"{}"`/`"null"` 差异
 - [ ] `diff = first_core_diff(...) if recorded_core != replay_core else None`；store 复用一次序列化结果并保持 None→"{}" 语义

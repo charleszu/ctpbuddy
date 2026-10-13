@@ -4,7 +4,7 @@
 
 **Blocked by:** 07（client.py 同文件先清死导入与 _wake_all）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as eadb2dd)
 
 - [ ] 验证步：复核三处管道逐字重复（注册/closed 检查/send_lock/finally pop）；web 与 admin 的 GBK 归一化逐字等价 + web 同请求二次 encode；cli 与 replay 的 argv 拼接重叠
 - [ ] 提 `@contextmanager _slot()` 与 `_send()`；web 分支改调 `client.settlement_report`（与 replay 一致）；提 `core_argv()`（argv 序列保持原序）

@@ -4,7 +4,7 @@
 
 **Blocked by:** 05（matching/refdata 同文件先清死面——G2 中 *_rows 等恰在 D2 重构区域）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as 7ef33f3)
 
 - [ ] 验证步：复核 emit.rs 三行式 12 处与 push_transition/emit_fill 手工内联；refdata 四组 ×3 的逐行同构（错误串表名差异除外）；jsonl 五访问器各自 iter().find
 - [ ] 提 `push_order_row()`（取号+盖戳+推送）；`insert_rate<T>`/`lookup_for<T>`（表名参数化错误串）；jsonl 提 `get()`

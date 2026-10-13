@@ -4,7 +4,7 @@
 
 **Blocked by:** 04（同 crate 先清死代码，含本文件 canonical_event 的 cfg(test) 处理）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as f142a93)
 
 - [ ] 验证步：复核 `.iter().find(键相等)` 跨行样板仍遍布（主评审已复核 20+ 处，同文件 40 行已在用 `map.get`）；类型字面量 3 份与 matches_data_type 判别函数并存；data_has_required_fields 三级链式导航
 - [ ] 全部换 `map.get(k)`；类型清单提 `known_type()`；链式导航提为一次取 spec

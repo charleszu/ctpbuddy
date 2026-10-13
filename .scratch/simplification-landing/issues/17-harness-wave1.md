@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** done (landed as 20d20e1)
 
 - [ ] 验证步：重新逐字节比对助手清单与份数（free_port×10、find_core×8、wait_port×7+3 变体、drain×7 仅 quiet 常数不同、st/tr×5、Feed×3、prepare_scenario 近重复仅 compile 断言差）；确认 m2_book ⊃ m2_flow 的 Feed 关系与各套件 quiet 默认值
 - [ ] harness.py 落地（顶层仅 stdlib import，脚本目录即 sys.path[0]）；m2_book、m2_flow、m2_ioc、m2_journal、m2_scenario、m2_surface 逐套件迁移（一次一个，迁移后立即本地跑该套件）

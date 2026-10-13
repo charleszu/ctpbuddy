@@ -4,7 +4,7 @@
 
 **Blocked by:** 14（lib.rs 同文件先落结算归位与 mark_to_market 去重）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as ed32fe1)
 
 - [ ] 验证步：复核三个 journal_record_* 仍先构建后判 None；push_market_data/emit_private_notification 仍先 clone 进 Broadcast 而 publish 判 None 丢弃（含 tx=None 无计数的事实）；drain_ftd 的无条件收集排序；apply_order/trade_event 的 last().expect 回读拷贝
 - [ ] 加空判提前返回守卫（journal None / broadcast_tx None / ftd 全空）；构帧用局部变量消除回读拷贝

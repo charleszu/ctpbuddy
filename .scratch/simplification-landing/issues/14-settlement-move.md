@@ -4,7 +4,7 @@
 
 **Blocked by:** 10（admin.rs 同文件先落表驱动校验，再搬移避免冲突）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as b8f6c76)
 
 - [ ] 验证步：复核三函数当前行数与调用点（admin 分发处、auto_settlement 调用处）；复核两份 mark_to_market 函数体仍逐行相同；确认 settle_day 与 replay 侧序列的进一步下沉（apply_settlement）不在本工单
 - [ ] 三函数逐字搬移（含 #[cfg(test)] 测试），调用点改路径，use 清单整理；删重复的 mark_to_market，pulse 与查询统一入口

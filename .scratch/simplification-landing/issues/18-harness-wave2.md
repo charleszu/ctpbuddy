@@ -4,7 +4,7 @@
 
 **Blocked by:** 17（harness 形状先在第一波稳定）。
 
-**Status:** ready-for-agent
+**Status:** done (landed as 0fe590a)
 
 - [ ] 验证步：复核三处劣化变体现状（settings 只找 debug；order_sysid 硬编码 target/task43；bootstrap 硬编码 REPO/target/task41 且目录少 core/——修后这些套件本地无 CTPBUDDY_CORE 也能找到默认构建）；复核 flow_replay 1.15/1.1 秒等待无旋钮
 - [ ] 逐套件迁移 + 本地跑；劣化变体改调 harness 统一 find_core（env → debug → release → Linux 名）
