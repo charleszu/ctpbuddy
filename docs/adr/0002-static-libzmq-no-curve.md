@@ -18,8 +18,9 @@
 
 ## 约束
 
-- libzmq 源码版本与 SHA256 在构建脚本中固定;升级版本必须同时更新两者并走正常评审。
-- MPL-2.0 归属:静态链接的 libzmq 源码属 ZeroMQ 项目,发布物需保留来源与版本声明(见 DESIGN §15)。
+- libzmq 源码版本与 SHA256 在构建脚本中固定;升级版本必须同时更新脚本、提交新版 tarball 并走正常评审。
+- **锁定版本的源码 tarball 随仓库分发**(`shim/third_party/src/`,2.5MB):首次构建零网络依赖,内容身份由 git 历史与脚本内 SHA256 双重锁定;解压目录与编译产物保持 ignore。
+- MPL-2.0 归属:静态链接的 libzmq 源码(即仓库内 tarball)属 ZeroMQ 项目,发布物需保留来源与版本声明(见 DESIGN §15)。
 - 旧 journal 中 `flow_input` 的 `curve` scope 标签仍可被重放器接受(历史录制兼容),但不再有产生它的代码路径。
 - 环境变量 `CTPBUDDY_LIBZMQ_DIR` 允许复用预构建安装前缀(CI 缓存场景);除此之外无任何外部库开关。
 
