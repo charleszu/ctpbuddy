@@ -25,6 +25,7 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
+from harness import close, drain, find_core, free_port, rows, st, tr, wait_idx, wait_port
 
 import os
 import queue
@@ -67,37 +68,6 @@ DEPTH = {
 MAKER_PRICE = {RB: 3501.0, M: 3001.0, TA: 4002.0, SI: 5005.0}
 
 
-def find_core() -> str:
-    env = os.environ.get("CTPBUDDY_CORE")
-    if env:
-        return env
-    for prof in ("debug", "release"):
-        for name in ("ctpbuddy-server", "ctpbuddy-server.exe"):
-            cand = os.path.join(REPO, "core", "target", prof, name)
-            if os.path.exists(cand):
-                return cand
-    raise SystemExit("ctpbuddy-server binary not found; run `cargo build` in core/ or set CTPBUDDY_CORE")
-
-
-def free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
-def wait_port(port: int, timeout: float = 10.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
-            return
-        except OSError:
-            time.sleep(0.05)
-    raise SystemExit("server did not open port %d" % port)
-
-
 def make_scenario(dirpath: str) -> None:
     rows = []
 
@@ -138,47 +108,6 @@ def make_scenario(dirpath: str) -> None:
         # even if it also drains the book — the 「部成部撤」 shape.
         tick(instrument, exchange, last, bid1, 10, ask1, 12, bid1 * 2, ask1 / 2)
     write_canonical(dirpath, rows)
-
-
-def close(a: float, b: float, tol: float = 1e-6) -> bool:
-    return abs(a - b) <= tol
-
-
-def drain(cli: Client, quiet: float = 0.35):
-    """Collect push events until the queue stays empty for `quiet` seconds."""
-    out = []
-    while True:
-        try:
-            out.append(next(cli.events(timeout=quiet)))
-        except StopIteration:
-            break
-        except queue.Empty:
-            break
-    return out
-
-
-def st(evts, ref: str):
-    """OrderStatus chars of every RTN_ORDER for `ref`, in arrival order."""
-    return [chr(f["OrderStatus"]) for k, f in evts if k == RTN_ORDER and f["OrderRef"] == ref]
-
-
-def tr(evts, ref: str):
-    """(Volume, Price) of every RTN_TRADE for `ref`, in arrival order."""
-    return [(f["Volume"], round(f["Price"], 6)) for k, f in evts if k == RTN_TRADE and f["OrderRef"] == ref]
-
-
-def rows(evts, ref: str):
-    """Every RTN_ORDER dict for `ref`, in arrival order."""
-    return [f for k, f in evts if k == RTN_ORDER and f["OrderRef"] == ref]
-
-
-def wait_idx(admin: Admin, n: int, timeout: float = 5.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if admin.status()["playback"]["idx"] >= n:
-            return
-        time.sleep(0.02)
-    raise AssertionError("playback did not reach tick %d" % n)
 
 
 def main() -> int:
