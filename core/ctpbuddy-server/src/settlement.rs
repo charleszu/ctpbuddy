@@ -249,7 +249,7 @@ impl World {
         if let Some(pb) = staged_playback.as_mut() {
             pb.advance_trading_day(&next_day);
         }
-        let accounts = crate::settlement::accounts_sorted_by_broker(&staged_ledger);
+        let accounts = accounts_sorted_by_broker(&staged_ledger);
         let account_results = Value::Arr(
             accounts
                 .iter()

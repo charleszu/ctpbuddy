@@ -9,3 +9,4 @@
 - [ ] 验证步：复核三处管道逐字重复（注册/closed 检查/send_lock/finally pop）；web 与 admin 的 GBK 归一化逐字等价 + web 同请求二次 encode；cli 与 replay 的 argv 拼接重叠
 - [ ] 提 `@contextmanager _slot()` 与 `_send()`；web 分支改调 `client.settlement_report`（与 replay 一致）；提 `core_argv()`（argv 序列保持原序）
 - [ ] test_py.py 全绿（SDK 生命周期/超时契约断言）；m3_5_settlement_info（web/结算路径）、flow_replay、operations 通过
+**落地备注（终审追认）:** PY-N2（web 结算报告 GBK 归一改调 Admin.settlement_report）经实地勘察放弃——web 走自有 invoke/admin_cmd 通道，调用点合并属重构而非去重，理由记录于提交 eadb2dd。

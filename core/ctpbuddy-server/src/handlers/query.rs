@@ -747,7 +747,7 @@ impl World {
         Some((broker, investor))
     }
 
-    /// Common tail of the four reference-data queries: emit one frame per row,
+    /// Common tail of the row-streaming queries: emit one frame per row,
     /// then terminate the stream. Generic because each query answers with its own
     /// CTP response struct — the shared part really is only "rows then QRY_LAST".
     pub(crate) fn send_rate_rows<T: ctpbuddy_wire::WireStruct>(

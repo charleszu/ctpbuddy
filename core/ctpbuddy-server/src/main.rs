@@ -157,7 +157,13 @@ fn apply_env(cfg: &mut Config) {
                     }
                 }
                 Err(reason) => {
-                    eprintln!("invalid {env}: {reason}");
+                    // old wording verbatim: bool flags name the expectation,
+                    // numeric vars just say "invalid ENV"
+                    if ctpbuddy_server::settings::is_boolean(key) {
+                        eprintln!("invalid {env}: {reason}");
+                    } else {
+                        eprintln!("invalid {env}");
+                    }
                     std::process::exit(1);
                 }
             }
