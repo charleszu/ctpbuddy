@@ -27,12 +27,10 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
-from harness import Feed, close, drain, find_core, free_port, rows, st, tids, tr, wait_idx, wait_port
+from harness import Feed, close, drain, find_core, free_port, wait_idx, wait_port
 
 import json
 import os
-import queue
-import socket
 import subprocess
 import sys
 import tempfile
@@ -43,7 +41,7 @@ sys.path.insert(0, os.path.join(REPO, "py"))
 
 from ctpbuddy.sdk import Admin, Client  # noqa: E402
 from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
-from ctpbuddy.wire import RTN_ORDER, RTN_TRADE  # noqa: E402
+from ctpbuddy.wire import RTN_ORDER  # noqa: E402
 
 BROKER = "8888"
 RB = "rb2601"   # SHFE: mult 10, tick 1, margin 0.16

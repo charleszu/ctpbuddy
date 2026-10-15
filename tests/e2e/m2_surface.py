@@ -32,7 +32,6 @@ from __future__ import annotations
 from harness import TIME_SCALE
 
 import os
-import socket
 import subprocess
 import sys
 import tempfile

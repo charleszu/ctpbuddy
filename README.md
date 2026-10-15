@@ -134,7 +134,7 @@ provider 是鸭子类型的：实现任意子集表方法即可，**没实现的
 
 取用优先级：`--refdata` / `CTPBUDDY_REFDATA` > `<scenario>/refdata/` > 随包快照。口径详见 DESIGN §8.6.1。
 
-JSONL 数据目录必须包含一条 `manifest.jsonl` 记录：`{"contract":"ctpbuddy.refdata","contract_version":1,"format_version":1}`。两侧均拒绝缺失、不支持或类型错误的版本，表数据仍可使用带引号的数值。`refdata export` 和 Python `write_jsonl()` 自动生成 manifest；旧目录需先按上述格式补齐 manifest，再运行 `ctpbuddy refdata show DIR` 校验。
+JSONL 数据目录必须包含一条 `manifest.jsonl` 记录：`{"contract":"ctpbuddy.refdata","contract_version":1,"format_version":1}`。两侧均拒绝缺失、不支持或类型错误的版本，表数据仍可使用带引号的数值。`refdata export` 和 Python `write_jsonl()` 自动生成 manifest；旧目录需先按上述格式补齐 manifest，再运行 `ctpbuddy refdata show DIR` 校验。随包快照另附可选的 `MANIFEST.json` provenance 旁证（来源、逐文件 SHA256 与行数；`.gitattributes` 强制 JSONL 为 LF，保证哈希跨平台逐字节可比）：存在时 `refdata show` 强制校验，文件被改动即失败，用户自建目录不带该文件不受影响。
 
 ## 期货交易日历（Python，离线）
 

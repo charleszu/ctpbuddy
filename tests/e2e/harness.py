@@ -10,7 +10,7 @@ import socket
 import time
 
 from ctpbuddy.sdk import Admin, Client
-from ctpbuddy.wire import RTN_ORDER, RTN_TRADE
+from ctpbuddy.wire import RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -128,3 +128,7 @@ class Feed:
 
     def rows(self, name, ref):
         return rows(self.log[name], ref)
+
+    def md(self, name):
+        """Every pushed depth tick for the client, in arrival order."""
+        return [f for k, f in self.log[name] if k == RTN_DEPTH_MD]

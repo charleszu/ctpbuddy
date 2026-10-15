@@ -32,7 +32,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from m3_refdata import BROKER, drain, find_core, free_port, wait_fills, wait_idx, wait_port  # noqa: E402

@@ -14,7 +14,6 @@ import json
 import math
 import os
 import re
-import socket
 import subprocess
 import sys
 import tempfile
@@ -140,10 +139,6 @@ def choose_row():
                 reasons["order_request_field_missing"] += 1; continue
             return {"trade": trade, "order": order, "ref": refdata[(trim(trade.get("ExchangeID")), trim(trade.get("InstrumentID")))]}, reasons
     return None, reasons
-
-
-def free_port():
-    sock = socket.socket(); sock.bind(("127.0.0.1", 0)); port = sock.getsockname()[1]; sock.close(); return port
 
 
 def wait_admin(port):

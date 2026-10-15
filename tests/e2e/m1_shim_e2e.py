@@ -37,7 +37,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)  # reuse the smoke harness helpers
 sys.path.insert(0, os.path.join(REPO, "py"))
 
-from m1_smoke import BROKER, INITIAL_FUNDS, INSTRUMENT, INVESTOR, find_core, free_port, make_scenario, wait_port  # noqa: E402
+from m1_smoke import BROKER, INITIAL_FUNDS, INVESTOR, find_core, free_port, make_scenario, wait_port  # noqa: E402
 
 from ctpbuddy.sdk import Admin  # noqa: E402
 

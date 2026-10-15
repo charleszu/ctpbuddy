@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from .journal import (
     AUDIT_TYPES,
@@ -41,7 +41,10 @@ READ_MODEL_METADATA_FIELDS = (
 )
 
 
-def _calendar_metadata_pair(version, sha256, source):
+def _calendar_metadata_pair(
+    version: Optional[str], sha256: Optional[str], source: str
+) -> Optional[tuple]:
+    """Validate an optional (version, sha256) provenance pair; None passes."""
     if version is None and sha256 is None:
         return None
     if (not isinstance(version, str) or not version.strip() or
@@ -216,12 +219,12 @@ CREATE TABLE settlement_report (
 """
 
 
-def _json(value):
+def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False,
                       separators=(",", ":"), allow_nan=False)
 
 
-def _code(value):
+def _code(value: Any) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, (int, float)):
@@ -230,7 +233,7 @@ def _code(value):
     return str(value)
 
 
-def _validate(events):
+def _validate(events: List[Dict[str, Any]]) -> None:
     contract_problems = verify_events(events)
     if contract_problems:
         raise JournalError("journal contract validation failed: " + "; ".join(contract_problems[:8]))
@@ -241,7 +244,7 @@ def _validate(events):
             raise JournalError("seq %d: %s" % (e.get("seq"), exc)) from exc
 
 
-def _project(conn, events):
+def _project(conn: sqlite3.Connection, events: List[Dict[str, Any]]) -> None:
     inserts = []
     for e in events:
         s, day, t = e["seq"], e["trading_day"], e["type"]
@@ -323,7 +326,7 @@ def _project(conn, events):
                          (d.get("status"), d.get("volume_traded"), d.get("volume_total"), e["seq"], ins["seq"]))
 
 
-def rebuild(journal, database):
+def rebuild(journal: str, database: str) -> Dict[str, Any]:
     """从完整 journal 建新库，成功后原子替换；失败不改已有库。"""
     target = Path(database).resolve()
     sources = [Path(p).resolve() for p in journal_paths(journal)]
@@ -398,7 +401,7 @@ def rebuild(journal, database):
     }
 
 
-def upgrade(journal, database):
+def upgrade(journal: str, database: str) -> Dict[str, Any]:
     """Upgrade a known projection from its original recording, with a backup.
 
     Unlike rebuild, refuse an unrelated journal. An existing projection can
@@ -445,7 +448,7 @@ def upgrade(journal, database):
 
 class Projection:
     """只读查询接口；缺库/版本不符不会隐式创建或迁移。"""
-    def __init__(self, database):
+    def __init__(self, database: "str | Path") -> None:
         self.conn = sqlite3.connect(Path(database).resolve().as_uri() + "?mode=ro", uri=True)
         try:
             if (self.conn.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID or
@@ -459,10 +462,10 @@ class Projection:
             self.conn.close()
             raise
 
-    def close(self):
+    def close(self) -> None:
         self.conn.close()
 
-    def metadata(self):
+    def metadata(self) -> Dict[str, str]:
         """Return the immutable rebuild metadata recorded with this projection."""
         return {row[0]: row[1] for row in self.conn.execute(
             "SELECT key,value FROM projection_meta ORDER BY key")}
@@ -471,13 +474,15 @@ class Projection:
         """Return validated provenance through the canonical read-model seam."""
         return self._read_model_metadata
 
-    def __enter__(self):
+    def __enter__(self) -> "Projection":
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: Any) -> None:
         self.close()
 
-    def query(self, table, *, broker=None, investor=None, trading_day=None, limit=100, offset=0):
+    def query(self, table: str, *, broker: Optional[str] = None,
+              investor: Optional[str] = None, trading_day: Optional[str] = None,
+              limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         if table not in TABLES:
             raise ValueError("未知投影表: %s" % table)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 10000:

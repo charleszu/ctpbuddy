@@ -5,3 +5,22 @@ members = ["py"]
 # real ZeroMQ peer, which the stdlib cannot provide. Runtime stays stdlib-only.
 [dependency-groups]
 e2e = ["pyzmq>=25"]
+
+# Conservative lint gate (CI: `ruff check`): import/name/syntax errors only
+# (E4 import placement/shape, E9 syntax, F pyflakes). The E7 one-liner/semicolon
+# family is not enforced — tests 与工具脚本大量使用刻意紧凑风格。isort、line
+# length、UP 也暂不启用：e2e 套件因 sys.path 引导刻意把 `from harness import`
+# 放在 stdlib 导入之前。
+[tool.ruff]
+target-version = "py39"
+include = ["py/**/*.py", "tests/**/*.py", "tools/**/*.py"]
+exclude = ["py/ctpbuddy/generated/"]
+
+[tool.ruff.lint]
+select = ["E4", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# journal.py 刻意再导出契约词汇，构成单一词汇表 facade（见简化评审防误删清单）
+"py/ctpbuddy/journal.py" = ["F401"]
+# e2e 套件必须先 import 同目录 harness / 先插 sys.path 再 import ctpbuddy
+"tests/e2e/*.py" = ["E402"]

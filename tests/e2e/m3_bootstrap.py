@@ -5,9 +5,7 @@ from harness import find_core, free_port
 
 import json
 import os
-import queue
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -16,7 +14,6 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "py"))
 
-from ctpbuddy.generated import structs  # noqa: E402
 from ctpbuddy.scenario import ScenarioError, compile_scenario, normalize_spec, parse_yaml  # noqa: E402
 from ctpbuddy.sdk import Client  # noqa: E402
 from ctpbuddy.sdk.admin import Admin  # noqa: E402

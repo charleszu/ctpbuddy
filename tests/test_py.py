@@ -1517,6 +1517,58 @@ def test_refdata_manifest() -> None:
     print("[ok] refdata: canonical manifest is emitted and validated")
 
 
+def test_refdata_provenance_manifest() -> None:
+    """随包 MANIFEST.json 必须与目录内容逐字节/逐行一致；篡改即失败。"""
+    import shutil
+    from ctpbuddy import refdata
+
+    bundled = os.path.join(REPO, "refdata")
+    provider = refdata.jsonl_dir(bundled)
+    prov = provider.provenance()
+    assert prov and prov["schema"] == refdata.PROVENANCE_SCHEMA
+    assert refdata.validate(provider) == []
+
+    with tempfile.TemporaryDirectory() as d:
+        dst = os.path.join(d, "refdata")
+        shutil.copytree(bundled, dst)
+        target = os.path.join(dst, refdata.PROVENANCE)
+
+        def problems_with():
+            return refdata.validate(refdata.jsonl_dir(dst))
+
+        # 1) 篡改一个被钉住的数据文件 -> sha256 不匹配
+        inst = os.path.join(dst, "instruments.jsonl")
+        with open(inst, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write("# tamper\n")
+        assert any("instruments.jsonl sha256 不匹配" in p for p in problems_with())
+        shutil.copyfile(os.path.join(bundled, "instruments.jsonl"), inst)
+        assert problems_with() == []
+
+        # 2) MANIFEST 声称的行数错误 -> 行数不匹配
+        bad = json.loads(open(target, encoding="utf-8").read())
+        entry = next(e for e in bad["files"] if e["name"] == "instruments.jsonl")
+        entry["rows"] = 788
+        with open(target, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(bad, fh)
+        assert any("行数不匹配" in p for p in problems_with())
+        entry["rows"] = 789
+
+        # 3) 登记一个目录里不存在的文件 -> 明确报错
+        bad["files"].append({"name": "commission_rates.jsonl",
+                             "sha256": "0" * 64, "rows": 0})
+        with open(target, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(bad, fh)
+        assert any("登记了不存在的文件" in p for p in problems_with())
+
+    # 4) 无 sidecar 的目录（write_jsonl 产物）不受影响
+    plain = refdata.DictProvider(instruments=[{"instrument_id": "rb2601", "exchange_id": "SHFE"}])
+    with tempfile.TemporaryDirectory() as d:
+        refdata.write_jsonl(plain, d)
+        assert refdata.jsonl_dir(d).provenance() is None
+        assert refdata.validate(refdata.jsonl_dir(d)) == []
+    print("[ok] refdata: optional provenance MANIFEST pins hashes and row counts")
+
+
 def test_refdata_contract_artifact() -> None:
     from ctpbuddy import refdata
 
@@ -1599,7 +1651,7 @@ def test_replay_admin_inputs() -> None:
     """Admin inputs: re-issued where an admin command exists, otherwise
     classified `not_replayed` (counted, listed, not a problem) and excluded
     from the core comparison."""
-    from ctpbuddy.replay import _Walker, first_core_diff, format_result, without_types
+    from ctpbuddy.replay import _Walker, first_core_diff, format_result
     from ctpbuddy.journal import UNREPLAYABLE_ADMIN_TYPES, hash_stream
 
     class FakeAdmin:
@@ -1812,6 +1864,7 @@ def main() -> int:
         "test_sdk_exception_contract",
         "test_refdata_numeric",
         "test_refdata_manifest",
+        "test_refdata_provenance_manifest",
         "test_refdata_contract_artifact",
         "test_refdata_contract_vectors",
         "test_cross_margin_refdata_contract",

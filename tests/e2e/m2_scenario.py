@@ -23,13 +23,12 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
-from harness import find_core, free_port, st, tr, wait_idx, wait_port
+from harness import Feed, find_core, free_port, wait_idx, wait_port
 
 import json
 import os
 import queue
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -41,7 +40,6 @@ sys.path.insert(0, os.path.join(REPO, "py"))
 from ctpbuddy.cli import main as cli_main  # noqa: E402
 from ctpbuddy.scenario import compile_scenario, load_scenario_spec  # noqa: E402
 from ctpbuddy.sdk import Admin, Client  # noqa: E402
-from ctpbuddy.wire import RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
 RB = "rb2601"  # SHFE: mult 10, tick 1, margin 0.16
@@ -62,27 +60,6 @@ def drain(cli: Client, quiet: float = 0.2):
         except queue.Empty:
             break
     return out
-
-
-class Feed:
-    """Per-client accumulation of push events across the whole flow."""
-
-    def __init__(self, clients):
-        self.clients = clients
-        self.log = {name: [] for name in clients}
-
-    def pump(self, *names):
-        for name in names:
-            self.log[name].extend(drain(self.clients[name]))
-
-    def st(self, name, ref):
-        return st(self.log[name], ref)
-
-    def tr(self, name, ref):
-        return tr(self.log[name], ref)
-
-    def md(self, name):
-        return [f for k, f in self.log[name] if k == RTN_DEPTH_MD]
 
 
 def check_md(md_fields, *, t, last, bid1, bid1v, ask1, ask1v):
@@ -210,7 +187,7 @@ def run_scenario(td_port: int, admin_port: int, data_dir: str, scenario: str) ->
         print("[ok] admin start_scenario: inline spec, %d ticks, paused at idx 0" % started["ticks"])
         assert cli_main(["assertions", "check", "--admin", "127.0.0.1:%d" % admin_port]) == 1
 
-        feed = Feed(clients)
+        feed = Feed(clients, quiet=0.2)
 
         # -- phase 3: transforms, verified tick by tick ----------------------
         # j=0 09:30:00 raw (liquidity/gap not yet in force)

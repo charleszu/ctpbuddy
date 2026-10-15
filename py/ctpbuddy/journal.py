@@ -158,7 +158,6 @@ def verify_events(events: Sequence[Dict[str, Any]]) -> List[str]:
     for i, e in enumerate(events, 1):
         for problem in validate_event_contract(e):
             problems.append("line %d: %s" % (i, problem))
-        t = e.get("type")
         s = e.get("seq")
         if isinstance(s, int) and not isinstance(s, bool):
             if s != last + 1:

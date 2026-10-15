@@ -11,7 +11,7 @@ import shutil
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from operations import server, make_scenario, RB, BROKER
 from ctpbuddy.sdk import Admin, Client, CTPError
-from ctpbuddy.wire import Frame, PING, PONG, AUTH, AUTH_RSP, ERR_RTN_ORDER_INSERT, REQ_QRY_TRADING_ACCOUNT
+from ctpbuddy.wire import Frame, PING, AUTH, AUTH_RSP, ERR_RTN_ORDER_INSERT, REQ_QRY_TRADING_ACCOUNT
 from ctpbuddy.replay import replay_journal, format_result
 from ctpbuddy.journal import load_events
 

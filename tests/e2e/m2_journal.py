@@ -30,7 +30,6 @@ import json
 import os
 import queue
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -40,12 +39,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "py"))
 
 from ctpbuddy.cli import main as cli_main  # noqa: E402
-from ctpbuddy.journal import count_types, fmt_vt, hash_stream, load_events  # noqa: E402
-from ctpbuddy.replay import ReplayError, format_result, replay_journal  # noqa: E402
+from ctpbuddy.journal import count_types, hash_stream, load_events  # noqa: E402
+from ctpbuddy.replay import format_result, replay_journal  # noqa: E402
 from ctpbuddy.scenario import compile_scenario, load_scenario_spec  # noqa: E402
 from ctpbuddy.sdk import Admin, Client  # noqa: E402
 from ctpbuddy.sdk.client import rsp_info_of  # noqa: E402
-from ctpbuddy.wire import ERR_RTN_ORDER_INSERT, RTN_DEPTH_MD, RTN_ORDER, RTN_TRADE  # noqa: E402
+from ctpbuddy.wire import ERR_RTN_ORDER_INSERT  # noqa: E402
 
 BROKER = "8888"
 RB = "rb2601"  # SHFE: mult 10, tick 1, margin 0.16, limits 3150..3850

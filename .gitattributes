@@ -6,6 +6,10 @@
 *.yaml text eol=lf
 *.toml text eol=lf
 py/ctpbuddy/contracts/*.json text eol=lf
+# JSONL 数据目录（journal/refdata）与 provenance MANIFEST 的哈希跨平台可比：
+# MANIFEST 记录的 sha256 必须在 Windows/Linux 工作区逐字节一致。
+*.jsonl text eol=lf
+MANIFEST.json text eol=lf
 *.md text
 *.cpp text
 *.hpp text

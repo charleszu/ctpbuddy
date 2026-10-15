@@ -72,7 +72,6 @@ def main():
         return
 
     recs_by = defaultdict(list)     # (contract, year, hedge, close_side) -> records
-    pc_by = defaultdict(list)       # (path, contract, hedge) -> 未消耗平仓明细行
     files = list(iter_settlement_files(SETTLE_DIR))
     cffex_txn_total = 0
     for path in files:

@@ -471,7 +471,7 @@ def audit(export_dir, settlement_dir, date_filter="", investor_filter="", limit=
             prior_day, prior_doc = previous
             try:
                 expected, ambiguities = expected_positions(prior_doc, trades, day)
-            except MissingPositions as exc:
+            except MissingPositions:
                 skips["position_tables_not_evaluated"] += 1
                 continue
             summary["position_expectation_account_days"] += 1
@@ -491,7 +491,7 @@ def audit(export_dir, settlement_dir, date_filter="", investor_filter="", limit=
                     diffs.extend({"day": day, "investor": anon(investor), "kind": "actual_position_query", **d} for d in pdiffs)
             else:
                 skips["actual_query_not_available"] += 1
-        except MissingPositions as exc:
+        except MissingPositions:
             skips["position_tables_not_evaluated"] += 1
         except (BadData, OSError, csv.Error) as exc:
             errors.append({"day": day, "investor": anon(investor), "reason": str(exc)})

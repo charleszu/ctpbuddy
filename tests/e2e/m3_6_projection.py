@@ -12,7 +12,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "py"))
 
 from ctpbuddy.cli import main as cli_main  # noqa: E402
-from ctpbuddy.store import Projection, rebuild  # noqa: E402
+from ctpbuddy.store import Projection  # noqa: E402
 
 
 def main() -> int:

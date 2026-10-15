@@ -2,11 +2,19 @@
 """柜台设置 ADMIN/TCP/HTTP 回归：真实生效、持久化、严格拒绝与安全来源。"""
 from __future__ import annotations
 from harness import find_core, free_port
-import json, os, socket, subprocess, sys, tempfile, threading, time, urllib.error, urllib.request
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "py"))
+# 回环请求绕过环境里的 HTTP(S)_PROXY（代理会把 127.0.0.1 请求转成 502）。
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.ProxyHandler({})))
 from ctpbuddy.sdk import Admin, Client, CTPError
-from ctpbuddy.wire import REQ_QRY_INSTRUMENT
-from ctpbuddy.generated import structs
 from ctpbuddy.web import make_server
 
 

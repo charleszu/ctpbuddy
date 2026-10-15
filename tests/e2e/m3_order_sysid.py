@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 """任务43：OrderSysID 首条为空、accepted 后最终非空且关联稳定。"""
 from __future__ import annotations
-from harness import find_core
+from harness import drain as _harness_drain
+from harness import find_core, free_port, wait_port
 
 import os
-import queue
-import socket
 import subprocess
 import sys
 import tempfile
@@ -25,32 +24,9 @@ JD = "jd2602"
 DAY = "20261002"
 
 
-def free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
-
-
-def wait_port(port: int) -> None:
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
-            return
-        except OSError:
-            time.sleep(0.05)
-    raise SystemExit("server did not open port %d" % port)
-
-
 def drain(cli: Client, quiet: float = 0.3):
-    out = []
-    while True:
-        try:
-            out.append(next(cli.events(timeout=quiet)))
-        except (StopIteration, queue.Empty):
-            return out
+    # 套件默认静默窗口 0.3s（harness 默认 0.35s），保留本地薄包装。
+    return _harness_drain(cli, quiet)
 
 
 def orders(events, ref):
@@ -111,7 +87,7 @@ def main() -> int:
         wait_port(td)
         cli = Client("127.0.0.1:%d" % td)
         cli.auth(BROKER, "sysid01")
-        login = cli.login(BROKER, "sysid01")
+        cli.login(BROKER, "sysid01")
         cli.settle_confirm()
         cli.subscribe([RB, JD])
         drain(cli)

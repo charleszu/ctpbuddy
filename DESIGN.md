@@ -1,6 +1,6 @@
 # CTPBuddy 设计文档
 
-> 版本：v0.1（草案） · 2026-10-02 · 状态：待评审
+> 版本：v0.1 · 2026-10-02 初稿 · 状态：持续维护（M1–M3 已落地；当前实现与差距以 §0.6 为准，历史设计草图以 §9 章首标注为准）
 >
 > 2026-10-02 修订：依据 `docs/` 通读结论（30+ 份官方文档 + SDK CHM + LocalCTP 源码）校正设计，校正逐条记录见 §18；权威语义存档见 [`docs/CTP语义知识库.md`](docs/CTP语义知识库.md)。通用 CTP 开发指南另见 [`docs/CTP开发知识库/README.md`](docs/CTP开发知识库/README.md)，仅作分层检索和工程参考，不替代官方 HTML、notes 或真实环境核验。
 >
@@ -36,6 +36,7 @@ GitHub 开源项目仅作为离线数据源候选，必须记录仓库、固定 
 | 交易日历与虚拟时间权威来源 | Rust core 可加载经过 Python 校验的离线快照，并在 ADMIN `settle_day` 缺省 `next_trading_day` 时按快照推导；显式 version/SHA256 仍作为 provenance | Rust 与 Python 都消费同一份 versioned calendar snapshot；Rust 校验并暴露显式夜盘 ActionDay/TradingDay 映射；无快照的无场景运行仍保留显式 wall-clock fallback |
 | §8.10 挂单成交价与触发条件 | tick 到达时 resting 单按 **tick 档位价**成交而非自身限价（买 3001 挂单遇 bid1=3002 成交在 3002，即「价格改善」，见 `m2_flow` flow008）；只看五档深度是否穿越，**不看 `LastPrice` 穿越**，深度为空的源（仅 LastPrice）退化为按最新价成交：限价单仅在最新价穿越其限价时成交，成交价取最新价；设 `CTPBUDDY_MAKER_AT_LIMIT=1` 后 resting 限价单按自身限价成交（maker 语义） | 真实交易所 maker 按自身限价成交；以成交价断言滑点的下游会看到正向偏差；默认仍有价格改善偏差（可用 `CTPBUDDY_MAKER_AT_LIMIT=1` 消除）；LastPrice 穿越即成交不模拟队列位置，偏乐观 |
 | §8.3 / §8.10 自成交预防 | **默认关闭**（柜台设置 `self_trade_prevention`，CLI `--self-trade-prevention true` / env `CTPBUDDY_SELF_TRADE_PREVENTION`，运行时可经 ADMIN `settings_update` 切换；引擎侧 `MatchingEngine::set_self_trade_prevention`），同账户交叉直接成交，与真实 CTP 一致；显式开启时跳过同账户挂单会**跨过该档位继续向后匹配**，破坏价格时间优先 | 开启后的成交序不是任何真实交易所的行为，仅供需要仿真「自成交被拦」的 desk 自行打开；默认配置下不影响 |
+| §8.10 涨跌停价校验 | 报单价格的涨跌停（163）校验只在**当前合约已收到过 tick** 时执行（`engine.rs` 读最新 tick 的 UpperLimitPrice/LowerLimitPrice）；首个 tick 到达前不设防，任意限价通过 | 仿真边界，非真实柜台行为：测试报单路径请先供给至少一个携带涨跌停价的 tick；后续如需在 RefData 合约表中持久化涨跌停字段再改为启动即设防 |
 
 **关于正文中的「落地口径（M2-x / #xx，YYYY-MM-DD）」段落**：§7.4、§7.5、§8.10~§8.14 等带日期的落地口径是当时实测的**历史变更记录**（按「重大变更走 ADR 追加、不静默改写」原则保留），其中的数字、开关默认值与待办可能已被后续改动超越；**当前实现与已知差距以本 0.6 表为准**，错误码三态统计以 [`docs/错误码全集.md`](docs/错误码全集.md)（`tools/fill_errorcode_status.py --check`）为准。
 
@@ -241,21 +242,35 @@ Shim 与核心服务版本独立（`shim 0.x` wire ver 与 `core 0.x` 匹配）�
 
 ### 6.1 Socket 拓扑
 
+**默认形态（TCP，v1 主路径）**
+
 ```mermaid
 flowchart LR
-  S1[Shim A<br/>DEALER] --> R[ROUTER<br/>核心 :5560]
-  S2[Shim B] --> R
-  R --> P1[PUB :5561]
-  P1 --> SS1[sub: md/cu2501, td/9999.001]
-  P1 --> SS2[sub: md/#]
-  W[Python 控制面<br/>REQ] --> RA[REP<br/>admin ipc://buddy-admin]
-  RA -.内置 JSON 控制指令.-> R
+  C1[下游 CTP 应用 A] -->|CTP API| S1[Shim DLL/so]
+  C2[下游 CTP 应用 B] -->|CTP API| S2[Shim DLL/so]
+  S1 -->|CB 帧 over TCP<br/>TD :5560| R[Rust 核心<br/>World]
+  S2 -->|CB 帧 over TCP| R
+  W[Python CLI / SDK / Web] -->|ADMIN JSON over TCP<br/>仅 loopback :5561| R
+  D[场景行情 / RefData] --> R
+  R --> J[data/journal/*.jsonl]
 ```
 
-- 请求/响应：Shim 侧 DEALER ↔ 核心 ROUTER（多客户端、天然带身份）；
-- 下行推送：核心 PUB ↔ Shim SUB，topic 过滤；
-- 控制面：Python 层 REQ ↔ 核心 REP，仅监听 loopback/ipc，JSON 负载；
-- 原生 PUB 端点仅在 TD 使用 `zmq://` 时通过 `CTPBUDDY_ZMQ_PUB_ADDR` 显式配置，必须与 ADMIN 端点分开；未配置时仍由 ROUTER/DEALER 返回回报。PUB 使用有界 best-effort 队列，满载时允许丢帧。三组端口都应由部署配置显式记录。
+**可选形态（TD 前置改用 `zmq://` 时追加 PUB/SUB 广播）**
+
+```mermaid
+flowchart LR
+  S1[Shim A<br/>DEALER] --> R[ROUTER<br/>核心 TD 端点]
+  S2[Shim B] --> R
+  R --> P1[PUB<br/>CTPBUDDY_ZMQ_PUB_ADDR 显式配置]
+  P1 --> SS1[sub: md/cu2501, td/9999.001]
+  P1 --> SS2[sub: md/#]
+  W[Python 控制面] -->|ADMIN 仍为 TCP| R
+```
+
+- 请求/响应：默认 TCP（一连接一客户端、CB 帧背靠背）；TD 端点改为 `zmq://` 时由 Shim 侧 DEALER ↔ 核心 ROUTER 承载（多客户端、天然带身份）；
+- 下行推送：未配置 PUB 时全部经会话连接（TCP 或 DEALER）返回；配置 PUB 后核心 PUB ↔ Shim SUB 按 topic 广播，**不补发历史、不替代会话回报**；
+- 控制面：ADMIN 始终是 TCP 上的 JSON REQ/REP，仅监听 loopback（跨机须走可信隧道，见 §5/§10 安全边界）；
+- PUB 端点仅在 TD 使用 `zmq://` 时通过 `CTPBUDDY_ZMQ_PUB_ADDR` 显式配置，必须与 ADMIN 端点分开；PUB 使用有界 best-effort 队列，满载时允许丢帧，丢弃计数进 ADMIN status `pubsub`。三组端口都应由部署配置显式记录。
 
 ### 6.2 帧格式
 
@@ -738,34 +753,73 @@ assertions:             # 可选：场景内断言（CI 用）
 
 ## 9. Python 层（`ctpbuddy` 包）
 
+> 本节为 **2026-10-15 按当前实现重写**。更早就稿中的 `ctpbuddy up/down`、`Client("ipc://...")`、`wait_order_filled`、`Scenario(...).run(assert_all=True)` 等形态从未实现；参数的权威来源是 `ctpbuddy <cmd> --help` 与 [README](../README.md) 快速开始。
+
 ### 9.1 CLI
 
-```
-ctpbuddy up [--endpoint tcp://0.0.0.0:5560]   # 起核心 + Web 后台
-ctpbuddy down                                  # 停止
-ctpbuddy install-shim --target-dir <目录>      # 备份原 DLL → 替换 → 生成还原脚本
-ctpbuddy restore-shim --target-dir <目录>      # 一键还原
-ctpbuddy replay --scenario s.yaml [--step]     # 无 UI 跑场景
-ctpbuddy scenario run --assert                 # CI 模式：跑场景 + 断言报告
+核心进程与 Web 后台是**两个独立进程**（没有统一的 `up/down`）：
+
+```bash
+# 核心（前台 TD :5560 + ADMIN :5561，均默认仅绑回环；Ctrl-C 结束）
+ctpbuddy serve [--scenario DIR] [--refdata DIR] [--data-dir DIR] \
+               [--td 127.0.0.1:5560] [--admin 127.0.0.1:5561] \
+               [--broker-id 8888] [--speed 1.0] [--initial-funds N] \
+               [--calendar snapshot.json --calendar-sha256 HASH]
+
+# 本地 Web 后台（另开终端；默认回环 :8080，经 ADMIN 读写、不直连账本）
+ctpbuddy web [--host loopback] [--port 8080] [--admin 127.0.0.1:5561] \
+             [--db data/ctpbuddy.db] [--workspace .]
+
+ctpbuddy status [--admin 127.0.0.1:5561]     # 单次 ADMIN status 摘要
 ```
 
-`install-shim` 是刻意的显式命令：DLL 替换无法靠 pip 安装钩子优雅完成，不如把"替换 / 还原"做成一等操作。
+Shim 替换 / 还原是刻意的显式一等操作（DLL 替换无法靠 pip 安装钩子优雅完成）：
 
-### 9.2 SDK 与断言 DSL
+```bash
+ctpbuddy install-shim --target-dir <目录> --shim-dir shim/bin [--apply]  # 默认 dry-run
+ctpbuddy restore-shim --target-dir <目录>
+```
+
+数据与资料面：
+
+```bash
+ctpbuddy scenario validate|ticks|compile DIR     # YAML 作者格式 -> JSON 核心格式
+ctpbuddy refdata show DIR [-v]                   # 校验 JSONL 资料目录并汇总
+ctpbuddy refdata export --kind csv --path SRC --out DIR
+ctpbuddy calendar validate snapshot.json [--sha256 H] [--manifest M.json]
+ctpbuddy journal hash|show|verify|rebuild|upgrade|query|replay ...
+ctpbuddy replay pause|resume|step|seek|loop|speed   # 对运行中核心的播放控制
+ctpbuddy assertions check [--total N]               # 场景 one-shot 断言结果
+```
+
+### 9.2 SDK 与场景断言
+
+交易/查询客户端 `ctpbuddy.sdk.Client` 是**同步、阻塞**的 TCP 客户端（默认 `127.0.0.1:5560`），推送经后台读线程进入 `events()` 迭代器；全部等待型调用在超时/协议错误时抛 `CTPError`：
 
 ```python
-from ctpbuddy import Client, Scenario
+from ctpbuddy.sdk import Client
 
-c = Client("ipc://ctpbuddy")
-c.login(broker="9999", investor="001")
-c.subscribe(["cu2501"])
+c = Client("127.0.0.1:5560", timeout=10)
+c.auth("8888", "test01", app_id="my-app")     # 标准 ReqAuthenticate（可选）
+c.login("8888", "test01", password="")        # TD 登录不校验密码
+c.subscribe(["rb2601"])                        # -> OnRspSubMarketData；推送走 events()
 
-# 等待型断言：比 sleep 靠谱
-filled = c.wait_order_filled(order_ref="1", timeout=10)
-assert filled.price <= c.market("cu2501").ask_price
+c.order_insert("rb2601", direction="0", offset="0", volume=1, limit_price=3501.0)
+# broker/investor 取自 login 身份；参数顺序与关键字以 help(Client.order_insert) 为准
 
-report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
+for frame, fields in c.events(timeout=5):      # 推送流：OnRtnOrder / OnRtnTrade / 行情
+    ...
+
+acct = c.qry_trading_account()                 # 查询流自动吸收 90「查询未就绪」重试
+orders = c.qry_order()
 ```
+
+可用面（签名以 `python -c "import ctpbuddy.sdk; help(ctpbuddy.sdk.Client)"` 为准）：
+`auth / login / logout / settle_confirm / order_insert / order_action / subscribe / unsubscribe / qry_instrument / qry_trading_account / qry_investor_position / qry_investor_position_detail / qry_order / qry_trade / 四张费率与 BrokerTradingParams / ProductGroupMargin 查询 / ping / events / late_frames`。
+
+管理面客户端是 `ctpbuddy.sdk.Admin`（ADMIN JSON）：`status / live_status / settings / update_settings / start_scenario / pause / resume / step / seek / loop / set_speed / deposit / withdraw / settlement_report / settle_day / reset_account / shutdown`。
+
+场景断言不是 SDK 内的 DSL 方法，而是**场景 YAML 的 one-shot assertions**：`scenario validate/compile` 校验，核心播放到点评估，结果经 ADMIN status 与 journal `assertion` 事件读取，`ctpbuddy assertions check` 以退出码给出 CI 结论（指标口径与失败原因见 §7.4）。
 
 ### 9.3 Web 管理后台
 
@@ -794,7 +848,7 @@ report = Scenario("s.yaml").run(assert_all=True)  # CI 退出码即结果
 - **查询 / 管理面用 SQLite**（`data/ctpbuddy.db`）：嵌入式、零运维、Python 标准库 `sqlite3` 直读（Web 后台 / CLI 不需要驱动或 ORM）、单文件可整体拷贝——一个"回归用例目录"随时打包复现；
 - **事件日志（journal）由 Rust 核心写 JSONL**（`data/journal/<trading_day>.jsonl`）：世界循环每个事件一行 JSON，批量刷盘。这是**唯一的权威事件流**，也是确定性回放的录制输入（§7.6）；
 - **SQLite 只是 journal 的投影**，随时可用 `ctpbuddy journal rebuild` 重建——SQLite 损坏/丢失不构成事故，**不进入恢复关键路径**；
-- Rust 核心**不链接 SQLite**：域 crate（wire / market / matching 均零外部依赖；ledger 仅 serde_json 用于快照序列化）保持轻依赖，server 引入异步传输栈（tokio / zeromq / libloading，由 Cargo.lock 锁定，离线可构建、单二进制分发）；Windows 上为 journal 链接 libsqlite3 是纯负担，而 Python 侧 `sqlite3` 是标准库、白拿。
+- Rust 核心**不链接 SQLite**：域 crate（wire / market / matching 零外部依赖；ledger 仅 serde_json 用于快照序列化）保持轻依赖，server 引入 serde/serde_json/bytes/futures 与隔离在传输线程内的异步传输栈（tokio + 纯 Rust zeromq；曾用于原生 CURVE 的 libloading 已按 ADR 0002 移除），由 Cargo.lock 锁定、离线可构建、单二进制分发；Windows 上为 journal 链接 libsqlite3 是纯负担，而 Python 侧 `sqlite3` 是标准库、白拿。
 
 ### 11.2 分层与写入真相
 
@@ -1068,7 +1122,7 @@ CREATE TABLE audit_log (
 | 接入方式 | DLL 同名替换 | 下游零改造，覆盖 C++/C#/Python/Java 绑定 | FTDC 协议直连（实现重、易被协议演进绑架） |
 | CTP 版本 | 仅 6.7.13 | SimNow 当前版，先出一个版本 | 全版本矩阵（成本后置为 codegen CI） |
 | 部署拓扑 | Shim + 独立核心进程 | 崩溃隔离、多客户共享、Web 有家、与生产拓扑一致 | 全进程内（LocalCTP 模式） |
-| 传输 | ZeroMQ + raw struct 帧 | 无 broker、模式现成、跨语言、零转换 | protobuf（struct 转换体力活） |
+| 传输 | 默认 TCP + 可选 ZeroMQ（`zmq://`）承载同一套 raw struct CB 帧 | TCP 零依赖即装即用；ZMQ 无 broker、天然多客户端身份与 PUB/SUB 扩展；两传输帧协议一致（ADR 0002 后核心侧仅纯 Rust zeromq，Shim 侧静态链接无 CURVE libzmq） | protobuf（struct 转换体力活）；全量 ZeroMQ（TCP 默认面的部署成本更高） |
 | 撮合并发 | 默认单线程，可选分片 | 确定性优先；瓶颈不在撮合 | 每品种一线程（确定性失守 + actor 复杂度） |
 | 核心语言 | Rust | 确定性引擎 + 内存安全 + 生态 | Go（GC 抖动）、C++ 全家桶（Web 慢） |
 | 控制面 | Python 标准库（CLI / SDK / `ThreadingHTTPServer` Web） | 量化社区通用语、插件生态、零依赖安装 | 控制面进 Rust（重复造轮子）；FastAPI + htmx（初版选型，后改为标准库以保持零依赖） |
@@ -1084,7 +1138,7 @@ CREATE TABLE audit_log (
 2. **确定性校验**：场景 hash 比对，CI 强制（默认模式）；
 3. **真实头文件矩阵**：用官方 6.7.13 头文件 + 官方 `.lib` 编译 demo 程序，对接 Shim 全流程跑通（防 ABI 漂移的最后防线）；
 4. **自举测试**：CTPBuddy 的 e2e 测试本身就是它的下游用户（Shim 在 CI 里跑断言场景）；
-5. **Wheel 冒烟**：fresh venv 安装 → `ctpbuddy up` → demo 策略 → 断言报告；
+5. **Wheel 冒烟**：fresh venv 安装 → `ctpbuddy serve` + `ctpbuddy web` → demo 策略 → 断言报告（Docker 验收镜像内等价流程见 `docker/acceptance.sh`）；
 6. **账户模型对账**：与工作区文档（保证金/手续费算法、四家交易所指令整理）逐公式单测；
 7. **journal 重放对账**：同场景 + 同请求流重放，事件序列逐条 diff（§11.4）。
 

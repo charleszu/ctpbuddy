@@ -16,7 +16,6 @@ from harness import close, find_core, free_port, wait_port
 
 import json
 import os
-import socket
 import subprocess
 import sys
 import tempfile

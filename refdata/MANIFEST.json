@@ -1,0 +1,17 @@
+{
+  "schema": "ctpbuddy.refdata-provenance/v1",
+  "snapshot": "bundled",
+  "source": {
+    "kind": "derived",
+    "name": "LocalCTP reference implementation instrument.csv export",
+    "revision": "not recorded (上游提交未登记；发现后请回填并重新计算哈希)",
+    "license": "非 MIT 授权范围；来源口径见 DESIGN §8.6.1 与 README「许可」",
+    "note": "789 个真实期货合约（六所覆盖）+ 公司保证金率 + 单条 BrokerTradingParams；刻意不含手续费表与申报费——编造的费率比没有更糟。"
+  },
+  "files": [
+    {"name": "manifest.jsonl", "sha256": "aacdad73e6118905b53a0a87d5d493edae6eadd4afaeb3f34dbd3315c6959230", "rows": 1},
+    {"name": "instruments.jsonl", "sha256": "b5c3a04381f0cf9b906c26fbd87e3166e48ea78436a15962a81f2807e0f06c3a", "rows": 789},
+    {"name": "margin_rates.jsonl", "sha256": "7dfc73ae80ce70cde6befafa68779493068d475e8c6498de69a57ee6082ab398", "rows": 789},
+    {"name": "trading_params.jsonl", "sha256": "f437078ac8f6b651ca3a8964e4d32fef6b722b9943c879fc3e06df758b0a28b8", "rows": 1}
+  ]
+}

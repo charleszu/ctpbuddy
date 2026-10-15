@@ -51,6 +51,7 @@ scenario at it::
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import os
@@ -109,6 +110,15 @@ ORDER_COMM_RATES = "order_comm_rates.jsonl"
 TRADING_PARAMS = "trading_params.jsonl"
 CROSS_MARGIN_RULES = "cross_margin_rules.jsonl"
 MANIFEST = "manifest.jsonl"
+# Provenance sidecar（区别于格式契约 manifest.jsonl）：记录快照来源与逐文件
+# SHA256/行数，对标 calendar/production/MANIFEST.json。可选；存在即被校验。
+PROVENANCE = "MANIFEST.json"
+PROVENANCE_SCHEMA = "ctpbuddy.refdata-provenance/v1"
+# 允许出现在 provenance files 列表里的全部文件（MANIFEST.json 自身除外）
+_PROVENANCE_FILES = (
+    INSTRUMENTS, MARGIN_RATES, COMMISSION_RATES, ORDER_COMM_RATES,
+    TRADING_PARAMS, CROSS_MARGIN_RULES, MANIFEST,
+)
 CONTRACT = _CONTRACT_ARTIFACT["contract"]
 CONTRACT_VERSION = _CONTRACT_ARTIFACT["contract_version"]
 FORMAT_VERSION = _CONTRACT_ARTIFACT["format_version"]
@@ -396,6 +406,76 @@ class JsonlDirProvider(RefDataProvider):
             return {}
         return rows[0] if len(rows) == 1 else None
 
+    # ---- optional provenance sidecar (MANIFEST.json) ----------------------
+    def provenance(self) -> Optional[Dict[str, Any]]:
+        """Parsed MANIFEST.json, or None when the sidecar is absent."""
+        full = os.path.join(self.path, PROVENANCE)
+        if not os.path.exists(full):
+            return None
+        with open(full, "rb") as f:
+            raw = f.read()
+        try:
+            value = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ValueError("%s 无法解析为 UTF-8 JSON: %s" % (PROVENANCE, exc)) from None
+        if not isinstance(value, dict):
+            raise ValueError("%s 必须是一个 JSON 对象" % PROVENANCE)
+        return value
+
+    def verify_provenance(self) -> List[str]:
+        """Validate the optional MANIFEST.json: schema, file set, sha256, rows."""
+        try:
+            prov = self.provenance()
+        except (OSError, ValueError) as exc:
+            return [str(exc)]
+        if prov is None:
+            return []
+        problems: List[str] = []
+        if prov.get("schema") != PROVENANCE_SCHEMA:
+            problems.append("%s schema 不匹配（期望 %s）" % (PROVENANCE, PROVENANCE_SCHEMA))
+        entries = prov.get("files")
+        if not isinstance(entries, list) or not entries:
+            problems.append("%s files 必须是非空列表" % PROVENANCE)
+            return problems
+        listed = set()
+        for i, entry in enumerate(entries, start=1):
+            if not isinstance(entry, dict):
+                problems.append("%s files[%d] 不是对象" % (PROVENANCE, i))
+                continue
+            name, sha, rows = entry.get("name"), entry.get("sha256"), entry.get("rows")
+            if not isinstance(name, str) or name not in _PROVENANCE_FILES:
+                problems.append("%s files[%d] name 未知: %r" % (PROVENANCE, i, name))
+                continue
+            if name in listed:
+                problems.append("%s files 中 %s 重复登记" % (PROVENANCE, name))
+            listed.add(name)
+            if not (isinstance(sha, str) and len(sha) == 64
+                    and all(c in "0123456789abcdefABCDEF" for c in sha)):
+                problems.append("%s %s sha256 必须是 64 位十六进制" % (PROVENANCE, name))
+            if type(rows) is not int or rows < 0:
+                problems.append("%s %s rows 必须是非负整数" % (PROVENANCE, name))
+                continue
+            full = os.path.join(self.path, name)
+            if not os.path.isfile(full):
+                problems.append("%s 登记了不存在的文件 %s" % (PROVENANCE, name))
+                continue
+            with open(full, "rb") as f:
+                raw = f.read()
+            if isinstance(sha, str) and hashlib.sha256(raw).hexdigest() != sha.lower():
+                problems.append("%s %s sha256 不匹配（文件被改动？）" % (PROVENANCE, name))
+            actual_rows = sum(
+                1 for line in raw.decode("utf-8").splitlines()
+                if line.strip() and not line.lstrip().startswith("#"))
+            if actual_rows != rows:
+                problems.append("%s %s 行数不匹配（manifest %d / 实际 %d）"
+                                % (PROVENANCE, name, rows, actual_rows))
+        present = {name for name in _PROVENANCE_FILES
+                   if os.path.isfile(os.path.join(self.path, name))}
+        unregistered = sorted(present - listed)
+        if unregistered:
+            problems.append("%s 未登记目录内已有文件: %s" % (PROVENANCE, ", ".join(unregistered)))
+        return problems
+
 
 class CsvDirProvider(RefDataProvider):
     """A directory of CSVs, one per table, header = snake_case field names.
@@ -569,6 +649,9 @@ def validate(provider: RefDataProvider) -> List[str]:
                 problems.append("manifest.jsonl contract_version 不匹配")
             if type(value.get("format_version")) not in (int, float) or value["format_version"] != FORMAT_VERSION:
                 problems.append("manifest.jsonl format_version 不匹配")
+    verify_provenance = getattr(provider, "verify_provenance", None)
+    if callable(verify_provenance):
+        problems += verify_provenance()
     instruments = _table(provider, "instruments")
     if not instruments:
         problems.append("instruments 表为空（这是唯一的必填表）")

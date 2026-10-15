@@ -440,7 +440,7 @@ def make_server(host="127.0.0.1", port=8080, admin="127.0.0.1:5561", database=No
             except RuntimeError as e:
                 return self.reply(409 if playback is not None or admin_cmd or scenario is not None else 400,
                                   {"error": "核心拒绝场景加载，请检查本地核心日志" if scenario is not None else str(e)})
-            except (OSError, ValueError, ConnectionError) as e:
+            except (OSError, ValueError, ConnectionError):
                 return self.reply(503 if playback is not None or admin_cmd else 502, {"error": "ADMIN 不可用"})
             finally:
                 if writing:

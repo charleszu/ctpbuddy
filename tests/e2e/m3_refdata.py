@@ -19,11 +19,10 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
-from harness import close, find_core, free_port, wait_idx, wait_port
+from harness import find_core, free_port, wait_idx, wait_port
 
 import os
 import queue
-import socket
 import subprocess
 import sys
 import tempfile
@@ -100,22 +99,6 @@ def make_scenario(dirpath: str) -> None:
     tick(RB, "SHFE", "09:00:02", 0, 3501.0, 3500.0, 3502.0, RB_PRE_SETTLE)
     tick(M, "DCE", "09:00:03", 0, 3000.0, 3000.0, 3002.0, M_PRE_SETTLE)
     write_canonical(dirpath, rows)
-
-
-def wait_idx(admin: Admin, n: int, timeout: float = 5.0) -> None:
-    """Wait until playback has delivered tick n.
-
-    `admin.step()` only raises a flag; the world loop's pulse actually
-    delivers the tick. Sleeping a fixed interval instead would race the
-    10ms pulse and silently assert against a book that has not been updated
-    yet -- the failure then reads as "the order did not fill".
-    """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if admin.status()["playback"]["idx"] >= n:
-            return
-        time.sleep(0.02)
-    raise AssertionError("playback did not reach tick %d" % n)
 
 
 def drain(cli: Client, quiet: float = 0.35) -> None:

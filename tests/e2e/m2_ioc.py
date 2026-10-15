@@ -25,22 +25,18 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
-from harness import close, drain, find_core, free_port, rows, st, tr, wait_idx, wait_port
+from harness import drain, find_core, free_port, st, tr, wait_idx, wait_port
 
 import os
-import queue
-import socket
 import subprocess
 import sys
 import tempfile
-import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "py"))
 
 from ctpbuddy.sdk import Admin, Client  # noqa: E402
 from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
-from ctpbuddy.wire import RTN_ORDER, RTN_TRADE  # noqa: E402
 
 BROKER = "8888"
 # one instrument per official report group (see core catalog::builtin)

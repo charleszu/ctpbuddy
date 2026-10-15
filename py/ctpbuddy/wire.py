@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import socket
 import struct
-from typing import Iterator, Optional
+from typing import Optional
 
 MAGIC = b"CB"
 WIRE_VERSION = 1

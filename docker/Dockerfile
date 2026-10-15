@@ -21,5 +21,10 @@ RUN python -m pip wheel --no-deps --wheel-dir /tmp/wheels /app/py \
     && python -m pip install --no-cache-dir /tmp/wheels/*.whl \
     && chmod +x /usr/local/bin/ctpbuddy-docker-acceptance \
     && rm -rf /tmp/wheels /app/py
+# 验收镜像也不以 root 运行；/app 归运行用户所有（可选 Hugo 验收会在
+# docs-site-oink/ 下写 public/resources）；临时数据一律走 /tmp。
+RUN useradd --create-home --uid 10001 ctpbuddy \
+    && chown -R ctpbuddy:ctpbuddy /app
+USER ctpbuddy
 # Hugo is deliberately optional: the OINK check skips with an explicit reason if it is absent.
 CMD ["ctpbuddy-docker-acceptance"]

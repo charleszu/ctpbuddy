@@ -34,7 +34,6 @@ def main() -> int:
     dst = sys.argv[2]
     title = sys.argv[3] if len(sys.argv) > 3 else "CTP 错误码全集（error.xml）"
     errors = decode_xml(src)
-    by_name = {e[0]: e for e in errors}
     lines = [
         "# %s" % title,
         "",

@@ -7,6 +7,13 @@ name = "ctpbuddy"
 version = "0.1.0"
 description = "本地/私有部署的 CTP 兼容仿真交易环境：CLI / SDK / Web 后台 / 行情源插件"
 requires-python = ">=3.9"
+# 不用 PEP 639 的 license 字段：setuptools 77 才支持，本包仍兼容 Python 3.9
+# 环境下可能存在的旧 setuptools；MIT 声明以 classifier + 根 LICENSE 为准。
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+]
 dependencies = []
 
 [project.scripts]

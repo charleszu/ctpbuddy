@@ -39,12 +39,11 @@ Env:
     CTPBUDDY_CORE   explicit path to the ctpbuddy-server binary
 """
 from __future__ import annotations
-from harness import TIME_SCALE, find_core, free_port, st, tr, wait_idx, wait_port
+from harness import TIME_SCALE, Feed, find_core, free_port, wait_idx, wait_port
 
 import json
 import os
 import queue
-import socket
 import subprocess
 import sys
 import tempfile
@@ -55,7 +54,7 @@ sys.path.insert(0, os.path.join(REPO, "py"))
 
 from ctpbuddy.sdk import Admin, CTPError, Client  # noqa: E402
 from ctpbuddy.sources import CANONICAL_COLUMNS, write_canonical  # noqa: E402
-from ctpbuddy.wire import RTN_ORDER, RTN_TRADE  # noqa: E402
+from ctpbuddy.wire import RTN_ORDER  # noqa: E402
 
 BROKER = "8888"
 RB = "rb2601"   # SHFE: mult 10, tick 1, margin 0.16
@@ -149,30 +148,6 @@ def read_journal(data_dir: str):
             for line in f:
                 events.append(json.loads(line))
     return events
-
-
-class Feed:
-    """Per-investor accumulation of push events across the whole flow.
-
-    A drain consumes the queue, so asserting on a single step's slice would
-    miss the earlier pushes of the same order; the feed keeps the full
-    sequence per investor and the assertions read like the documented
-    §8.9 return sequences.
-    """
-
-    def __init__(self, clients):
-        self.clients = clients
-        self.log = {name: [] for name in clients}
-
-    def pump(self, *names):
-        for name in names:
-            self.log[name].extend(drain(self.clients[name]))
-
-    def st(self, name, ref):
-        return st(self.log[name], ref)
-
-    def tr(self, name, ref):
-        return tr(self.log[name], ref)
 
 
 class Server:
@@ -369,7 +344,7 @@ def phase2(core: str, root: str, scenario: str) -> None:
                 admin.step()
                 wait_idx(admin, i + 1)
             A, B, C, D, E, F, G, H = (clients[n] for n in P2)
-            feed = Feed(clients)
+            feed = Feed(clients, quiet=DRAIN_QUIET)
             feed.pump(*P2)  # market data only, no orders yet
 
             def st(name, ref):

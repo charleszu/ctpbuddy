@@ -27,9 +27,16 @@ M1 覆盖登录/订阅/报单穿透；M2 覆盖限价簿、价格时间优先、
 
 ## CI 实际矩阵
 
-`core-tests.yml` 在 Windows 上使用 Python 3.9 和 stable Rust。unit job 安装 `./py`、运行 `ctpbuddy --version` 与 assertions help、Rust workspace test/build、Python 单测。e2e matrix 当前包含 `m1_smoke`、`m2_scenario`、`m2_journal`、`m3_bootstrap`、`m3_5_settlement_info`、`m3_6_projection`、`m3_settlement`、`m3_fee_cffex`、`m3_order_sysid`、`m4_real_replay`、`settings`；每项自建本地 core，不依赖官方 SDK 或外部行情。
+`core-tests.yml` 的作业划分（套件清单由 `suites` 准备 job 单一产出，Windows matrix 与 Linux 循环共用，不在两处维护）：
 
-`docs-site.yml` 使用 Hugo Extended 0.167.0，执行 `--gc --minify --printPathWarnings --panicOnWarning`，再检查 index、CSS 和未跟踪的 public/resources。`core-tests.yml` 的 `docker` job 在 Ubuntu runner 执行 Linux Docker acceptance；`shim` job 负责 Windows Shim、真实下游和 release package 门禁。
+- **unit（Windows）**：Python 3.9 / 3.13 矩阵；安装 `./py`、`ctpbuddy --version` 与 assertions help；`cargo fmt --check`、`cargo clippy -D warnings`；Rust workspace 单测、journal 契约向量、Python 单测、`m4_install_shim`；`ruff check` Python lint。
+- **e2e（Windows matrix，21 套）**：`m1_smoke`、`m2_book`、`m2_flow`、`m2_ioc`、`m2_surface`、`m2_scenario`、`m2_journal`、`m3_detail`、`m3_margin`、`m3_refdata`、`m3_fee_cffex`、`m3_bootstrap`、`m3_5_settlement_info`、`m3_6_projection`、`m3_settlement`、`m3_order_sysid`、`m4_real_replay`（无外部导出时按退出码 3 SKIP，matrix 显式 `--allow-skip`）、`settings`、`review_regressions`、`operations`、`flow_replay`；每套自建本地 core，不依赖官方 SDK 或外部行情。
+- **shim（Windows）**：MSVC 构建 Shim + 真实下游 demo、生成物 `git diff` 一致性门禁、`m1_shim_e2e` 正常/auth-check 两模式、release package 真实产物。
+- **linux（Ubuntu）**：Rust 单测、`.so` Shim 构建、`shim_hardening`、20 套跨平台 e2e（Windows-only 的 `m4_real_replay` 除外）与 Shim e2e。
+- **audit（Ubuntu）**：`cargo audit` 审计 Rust 依赖漏洞公告。
+- **docker（Ubuntu）**：Linux 容器验收（wheel/CLI、契约向量、Rust core、refdata、Web）。
+
+`docs-site.yml` 使用 Hugo Extended 0.167.0，执行 `--gc --minify --printPathWarnings --panicOnWarning`，再检查 index、CSS 和未跟踪的 public/resources。
 
 ## 贡献规则
 
@@ -42,6 +49,6 @@ M1 覆盖登录/订阅/报单穿透；M2 覆盖限价簿、价格时间优先、
 - 协议：`core/ctpbuddy-wire/src/frame.rs`、`msgs.rs`、`py/ctpbuddy/wire.py`。
 - 场景时间：`core/ctpbuddy-market/src/lib.rs`、`transform.rs`、`py/ctpbuddy/scenario.py`。
 - 撮合回报：`core/ctpbuddy-matching/src/engine.rs`。
-- 账本日结：`core/ctpbuddy-ledger/src/lib.rs`、`core/ctpbuddy-server/src/admin.rs`。
+- 账本日结：`core/ctpbuddy-ledger/src/lib.rs`、`core/ctpbuddy-server/src/settlement.rs`（结算编排）与 `auto_settlement.rs`（墙钟调度）。
 - 查询审计：`py/ctpbuddy/sdk/client.py`、`store.py`、`tools/audit_query_expectations.py`。
 - Web：`py/ctpbuddy/web.py`；Docker/发布：`tools/docker_acceptance.py`、`tools/release_package.py`。

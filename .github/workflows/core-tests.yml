@@ -9,9 +9,33 @@ permissions:
   contents: read
 
 jobs:
+  # 套件清单的唯一事实源：windows matrix 与 linux 循环都消费这里的输出，
+  # 不再在两个 job 各维护一份名单（历史上曾漂移出过三处劣化 find_core）。
+  suites:
+    runs-on: ubuntu-latest
+    outputs:
+      windows: ${{ steps.def.outputs.windows }}
+      cross: ${{ steps.def.outputs.cross }}
+    steps:
+      - id: def
+        run: |
+          # Windows-only 的套件（需要真实导出等本地数据）不进 linux 循环。
+          WINDOWS_ONLY='["m4_real_replay"]'
+          CROSS='["m1_smoke","m2_book","m2_flow","m2_ioc","m2_surface","m2_scenario","m2_journal","m3_detail","m3_margin","m3_refdata","m3_fee_cffex","m3_bootstrap","m3_5_settlement_info","m3_6_projection","m3_settlement","m3_order_sysid","settings","review_regressions","operations","flow_replay"]'
+          python3 - "$WINDOWS_ONLY" "$CROSS" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          win_only, cross = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+          print("windows=%s" % json.dumps(cross + win_only))
+          print("cross=%s" % json.dumps(cross))
+          PY
+
   unit:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.13"]
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
@@ -19,18 +43,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python-version }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - name: 安装 Python 包并验证安装入口
         run: |
-          python -m pip install ./py
+          python -m pip install ruff ./py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ctpbuddy --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m ctpbuddy.cli assertions check --help
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Python lint（ruff：E4/E9/F，未用名/未用导入/语法错误）
+        run: ruff check .
       - name: Rust 格式与 lint
         run: |
           cargo fmt --manifest-path core/Cargo.toml --all -- --check
@@ -54,12 +80,13 @@ jobs:
           python tests/e2e/m4_install_shim.py
 
   e2e:
+    needs: suites
     runs-on: windows-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        suite: [m1_smoke, m2_book, m2_flow, m2_ioc, m2_surface, m2_scenario, m2_journal, m3_detail, m3_margin, m3_refdata, m3_fee_cffex, m3_bootstrap, m3_5_settlement_info, m3_6_projection, m3_settlement, m3_order_sysid, m4_real_replay, settings, review_regressions, operations, flow_replay]
+        suite: ${{ fromJSON(needs.suites.outputs.windows) }}
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
@@ -130,6 +157,7 @@ jobs:
 
   # Linux：核心单测 + Shim .so 构建 + 经 Shim 的端到端（头文件取自 docs/notes/assets/compiled_html）。
   linux:
+    needs: suites
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -160,11 +188,20 @@ jobs:
           CTPBUDDY_CORE: ${{ github.workspace }}/core/target/debug/ctpbuddy-server
         run: |
           python tests/test_projection_upgrade.py
-          for s in m1_smoke m2_book m2_flow m2_ioc m2_surface m2_scenario m2_journal m3_detail m3_margin m3_refdata m3_fee_cffex m3_bootstrap m3_5_settlement_info m3_6_projection m3_settlement m3_order_sysid settings review_regressions operations flow_replay; do
+          for s in ${{ join(fromJSON(needs.suites.outputs.cross), ' ') }}; do
             python tests/e2e/$s.py
           done
           python tests/e2e/m1_shim_e2e.py
           CTPBUDDY_SHIM_MODE=auth-check python tests/e2e/m1_shim_e2e.py
+
+  # Rust 依赖漏洞公告审计（纯 Rust 依赖，Cargo.lock 在 core/ 下）。
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-audit
+      - run: cargo audit --file core/Cargo.lock
 
   docker:
     runs-on: ubuntu-latest

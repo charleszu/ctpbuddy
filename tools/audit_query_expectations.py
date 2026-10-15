@@ -1,11 +1,22 @@
 # -*- coding: utf-8 -*-
 """Source-level expectation audit for CTP order/trade/position queries.
 
+Superseded (2026-10-15): 本脚本是更早的 source-alignment 子集，主力对账已由
+`audit_three_way.py`（资金/持仓/查询三表一对账）与 `m4_real_replay.py`
+（受控回放）承担。保留它用于只跑查询期望、不依赖三表全集的窄场景；新口径
+请优先加到 audit_three_way.py，本文件仅修阻断性错误，不再扩展判据。
+
 This does not call Core. It checks that real exported order/trade snapshots can
 be joined deterministically and that settlement position detail/summary agree.
 """
 from __future__ import annotations
-import argparse, csv, glob, hashlib, io, json, os
+import argparse
+import csv
+import glob
+import hashlib
+import io
+import json
+import os
 from collections import Counter, defaultdict
 from pathlib import Path
 

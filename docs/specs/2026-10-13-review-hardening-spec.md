@@ -110,4 +110,4 @@
 
 - 全部修复遵循"正常路径零行为变化"约束:心跳只在空闲时发送;队列拒绝只在满时发生;尺寸防御只命中协议错配帧;SDK 变化只影响异常面。
 - 心跳默认参数(5s/15s)取"远小于人工感知阈值、远大于正常抖动"的保守值;阈值环境变量名进 shim README 与 operations 文档。
-- 本 spec 的工单拆分见 `docs/tickets/`(to-tickets 产物);gh 令牌失效期间以文件形式承载 `ready-for-agent` 标注,恢复认证后可平移到 GitHub Issues。
+- 本 spec 的工单拆分见 `docs/tickets/2026-10-13-review-hardening/`（to-tickets 产物，2026-10-15 自 `.scratch/` 归档）；gh 令牌失效期间以文件形式承载 `ready-for-agent` 标注，恢复认证后可平移到 GitHub Issues。

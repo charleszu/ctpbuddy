@@ -25,7 +25,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -110,6 +109,12 @@ def cmd_refdata_show(args: argparse.Namespace) -> int:
 
     provider = refdata.jsonl_dir(args.dir)
     problems = refdata.validate(provider)
+    provenance_hook = getattr(provider, "provenance", None)
+    if callable(provenance_hook):
+        prov = provenance_hook()
+        if prov:
+            files = prov.get("files", [])
+            print("%-22s %s" % ("provenance", "%s (%d files pinned)" % (prov.get("snapshot", "?"), len(files))))
     for name, rows in refdata.iter_tables(provider):
         print("%-22s %5d rows" % (name, len(rows)))
         if args.verbose:

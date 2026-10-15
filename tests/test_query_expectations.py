@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
-import csv
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
+_ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(_ROOT / "tools"))
+# m4_real_replay 以 `from harness import ...` 引导（脚本直跑模式）；
+# 经 `e2e.` 包路径导入时 tests/e2e 不在 sys.path，需要显式补上。
+sys.path.insert(0, str(_ROOT / "tests" / "e2e"))
 
 from audit_three_way import (  # noqa: E402
     BadData,
